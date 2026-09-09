@@ -29,8 +29,9 @@ laptop CLI execution.
 1. `cp config.template.yaml config.yaml` and set advanced params (optional).
 2. Open `deploy.py` in the workspace. Set widgets:
    - **required:** `deployment_id` (prefix that namespaces everything)
-   - **optional:** `mode` (`deploy`/`teardown`), `cloud`, `region`, `capacity`,
-     `node_count`, `admin_group`, `workshop_group`, `enable_data_api`, `modules`
+   - **optional:** `mode` (`deploy`/`teardown`), `cloud`, `region`,
+     `autoscaling_min_cu`, `autoscaling_max_cu`, `admin_group`,
+     `workshop_group`, `enable_data_api`, `modules`
 3. Run. The notebook discovers core + selected modules, orders them, and
    deploys. `mode: teardown` removes everything in reverse.
 4. **Data API is two-phase:** the notebook prints a loud manual UI-enable
@@ -45,7 +46,7 @@ core/                 always-on components, one dir each (module.yaml + deploy/t
 modules/              optional workshop modules
   _canary/            reference module proving the authoring contract
 deploy.py             single control-plane notebook (dbutils-guarded; importable off-Databricks)
-databricks.yml        DABs bundle (database_instance [GA], secret_scope, app)
+databricks.yml        DABs bundle (autoscaling postgres_project/endpoint, secret_scope, app)
 config.template.yaml  copy to config.yaml for advanced params
 tests/                pytest suite (manifests, DAG, orchestrator, notebook import) — no workspace
 docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
@@ -54,8 +55,9 @@ docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
 
 ## Key design decisions
 
-- **DABs-first, PP/GA only.** Lakebase via the GA `database_instance` resource
-  (autoscaling-only; `capacity` is the SKU). **No Beta `postgres_role`** — PG
+- **DABs-first.** Lakebase via the **autoscaling** `postgres_project` /
+  `postgres_endpoint` bundle resources (min/max CU + scale-to-zero), NOT the
+  provisioned `database_instance` tier. **No `postgres_role` resource** — PG
   roles/grants are created via `CREATE ROLE` SQL. See
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - **Manifest-driven discovery.** The notebook never changes when a module is

@@ -1,7 +1,8 @@
 """core/lakebase health check (P1).
 
-Connects as admin, runs ``SELECT 1`` to confirm the instance is reachable, and
-verifies the workshop schema exists (``information_schema.schemata``).
+Connects as admin to the workshop database, runs ``SELECT 1`` to confirm the
+endpoint is reachable, and verifies the workshop schema exists
+(``information_schema.schemata``).
 
 Needs only a PG connection; when none is injected it returns a ``stub`` result.
 """
@@ -15,7 +16,7 @@ _SCHEMA_EXISTS = "SELECT 1 FROM information_schema.schemata WHERE schema_name = 
 
 
 def health_check(ctx: Any) -> Dict[str, Any]:
-    instance = ctx.resolved_names.get("lakebase_instance", ctx.name("lakebase"))
+    project = ctx.resolved_names.get("lakebase_project", ctx.deployment_id)
     database = ctx.params.get("database") or "databricks_postgres"
     schema = ctx.resolved_names.get("workshop_schema", "workshop")
 
@@ -24,9 +25,9 @@ def health_check(ctx: Any) -> Dict[str, Any]:
             "[stub] core/lakebase.health: no PG connection injected; would "
             "SELECT 1 and confirm schema %r exists in %s.",
             schema,
-            instance,
+            database,
         )
-        return {"instance": instance, "schema": schema, "healthy": None, "status": "stub"}
+        return {"project": project, "schema": schema, "healthy": None, "status": "stub"}
 
     conn = ctx.pg_connection(role="admin", database=database)
     cur = conn.cursor()
@@ -37,14 +38,14 @@ def health_check(ctx: Any) -> Dict[str, Any]:
     healthy = reachable and schema_exists
 
     ctx.logger.info(
-        "core/lakebase.health: instance %r reachable=%s schema %r exists=%s.",
-        instance,
+        "core/lakebase.health: project %r reachable=%s schema %r exists=%s.",
+        project,
         reachable,
         schema,
         schema_exists,
     )
     return {
-        "instance": instance,
+        "project": project,
         "database": database,
         "schema": schema,
         "reachable": reachable,

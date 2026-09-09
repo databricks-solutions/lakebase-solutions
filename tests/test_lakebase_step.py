@@ -18,29 +18,41 @@ lakebase_teardown = load_step("lakebase", "teardown.py")
 lakebase_health = load_step("lakebase", "health.py")
 
 
-def test_deploy_creates_schema_idempotently_and_writes_secrets():
+def test_deploy_creates_database_and_schema_idempotently_and_writes_secrets():
     ctx, conn, ws = live_context()
     result = lakebase_deploy.deploy(ctx)
 
     assert result["status"] == "deployed"
     assert result["schema"] == "workshop"
+    assert result["project"] == "acme-ws"
 
-    # Idempotent schema DDL was executed.
+    # Workshop DATABASE created first (autoscaling: default `postgres` db has a
+    # restricted public schema), then the idempotent workshop schema DDL.
     sql = conn.executed_sql()
+    assert any('CREATE DATABASE "databricks_postgres"' == s for s in sql)
     assert any('CREATE SCHEMA IF NOT EXISTS "workshop"' == s for s in sql)
+    # One commit (the schema conn); CREATE DATABASE runs autocommit on the
+    # maintenance connection.
     assert conn.committed == 1
 
-    # A connection credential was obtained (GA generate-database-credential).
-    assert ws.database.cred_calls == [["acme-ws-lakebase"]]
+    # A connection credential was minted for the PRIMARY endpoint of the project.
+    assert ws.postgres.cred_calls == [
+        "projects/acme-ws/branches/production/endpoints/primary"
+    ]
+    # The endpoint host was resolved from the production branch's endpoints.
+    assert ws.postgres.list_calls == ["projects/acme-ws/branches/production"]
 
     # Connection info written to the standalone secret scope.
     keys = ws.secrets.keys_written()
     assert set(keys) == {"pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"}
     assert all(scope == "acme-ws-secrets" for scope, _, _ in ws.secrets.put)
-    # pguser is decoded from the credential JWT ``sub`` claim.
+    # pguser is the workspace email (autoscaling uses the email as the PG user).
     assert ws.secrets.value_for("pguser") == "admin@example.com"
     assert ws.secrets.value_for("pgdatabase") == "databricks_postgres"
+    # host comes from the endpoint's status.hosts.host.
     assert ws.secrets.value_for("pghost") == "host.example"
+    # password is the OAuth token from generate_database_credential.
+    assert ws.secrets.value_for("pgpassword") == "oauth-token-xyz"
 
 
 def test_teardown_drops_schema_and_deletes_secrets():

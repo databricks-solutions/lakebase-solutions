@@ -51,15 +51,19 @@ for what DABs cannot do.
 
 | Concern | Mechanism |
 |---|---|
-| Lakebase instance | `database_instance` DABs resource (**GA**), autoscaling-only (`capacity` = SKU) |
+| Lakebase project/endpoint | **Autoscaling** `postgres_project` + `postgres_endpoint` bundle resources (min/max CU + scale-to-zero); SDK `w.postgres.create_project` is the documented fallback. NOT the provisioned `database_instance` tier. |
+| Workshop database + schema | `CREATE DATABASE` (guarded) + `CREATE SCHEMA IF NOT EXISTS` SQL in `core/lakebase` — the endpoint's default `postgres` db has a restricted `public` schema |
 | Secret scope | `secret_scope` DABs resource |
 | Admin app | `app` DABs resource (`source_code_path: ./core/admin_app`) |
-| **PG roles / grants** | **`CREATE ROLE` SQL over psycopg** — deliberately NOT the Beta `postgres_role` resource |
-| Data API SP / role / RLS | SDK/REST + SQL (no PP/GA bundle resource) |
+| **PG roles / grants** | **`CREATE ROLE` SQL over psycopg** — deliberately NOT a `postgres_role` bundle resource |
+| Data API SP / role / RLS | SDK/REST + SQL (no bundle resource) |
 | Service principals, groups | SDK |
 
-**Feature-maturity gate:** only Public Preview or GA. The Beta
-`postgres`/`postgres_role`/autoscaling API and Lakebase Search are excluded.
+**Lakebase surface:** the autoscaling `postgres` projects/branches/endpoints
+tier (min/max CU + scale-to-zero) — the workspace's real projects run on it
+(live-verified 2026-09-09). The admin connects as the workspace email with an
+OAuth token from `generate-database-credential`. The legacy provisioned
+`database_instance` tier (fixed capacity, no scale-to-zero) is excluded.
 
 ## Data API: two-phase (manual enable)
 
@@ -89,7 +93,7 @@ Teardown runs this order in reverse.
 | Source | lakebase-solutions | Notes |
 |---|---|---|
 | `lakebase_fsm` deploy harness (`notebooks/deploy_all.py`, 15+ ordered steps) | `deploy.py` + `bootstrap/` engine | Ordered, hard-coded steps → manifest-driven discovery + DAG. Notebook is a thin human layer. |
-| FSM Lakebase provisioning (Autoscaling `postgres` API, **Beta**) | `core/lakebase` via `database_instance` (**GA**) | FSM's Beta provisioning is *reference only*; its schema/roles/features SQL ports directly. |
+| FSM Lakebase provisioning (autoscaling `postgres` API) | `core/lakebase` via `postgres_project`/`postgres_endpoint` (autoscaling) | Same autoscaling surface; FSM's schema/roles/features SQL ports directly. |
 | FSM security/permissions (`03_setup_permissions.py`, `10b_setup_secrets.py`) | `core/security` | PG roles via `CREATE ROLE` SQL; standalone secret scope per deployment. |
 | FSM Data API (`data_api.py`, `setup_data_api_sp.py`, `data_api_demo.sql`) | `core/data_api` | Dedicated-SP + `databricks_auth` + RLS; two-phase manual enable. |
 | `lakebase_admin` (standalone Flask DBA console) | `core/admin_app` | Fork harvested in P2; already generic + multi-instance OBO auth. |

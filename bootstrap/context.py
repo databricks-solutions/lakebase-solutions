@@ -98,7 +98,10 @@ class DeployContext:
 
         derived = {
             "prefix": self.deployment_id,
-            "lakebase_instance": self.name("lakebase"),
+            # Autoscaling Lakebase surface: the `postgres` PROJECT id is the bare
+            # prefix (SPEC section 5). Creating the project auto-provisions a
+            # `production` branch + `primary` read-write endpoint.
+            "lakebase_project": self.deployment_id,
             "secret_scope": self.name("secrets"),
             "admin_group": self.name("admins"),
             "workshop_group": self.name("participants"),
@@ -158,11 +161,11 @@ class DeployContext:
     def pg_connection(self, role: Optional[str] = None, **kwargs: Any) -> Any:
         """Return a psycopg connection for ``role`` (guarded, injectable).
 
-        The real factory (``adapters.default_pg_connection_factory``) obtains a
-        connection credential from the GA ``generate-database-credential``
-        surface and connects over psycopg; tests inject a fake connection that
-        records executed SQL. Raises :class:`LiveClientUnavailable` when no
-        factory is injected.
+        The real factory (``adapters.default_pg_connection_factory``) resolves
+        the autoscaling ``postgres`` endpoint, obtains a connection credential
+        from ``generate-database-credential``, and connects over psycopg; tests
+        inject a fake connection that records executed SQL. Raises
+        :class:`LiveClientUnavailable` when no factory is injected.
         """
 
         if self.pg_connection_factory is None:

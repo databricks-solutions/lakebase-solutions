@@ -204,9 +204,10 @@ def _build_widgets() -> None:
             if param.type == "bool":
                 _add({"name": param.name, "kind": "dropdown", "default": str(param.default).lower(),
                       "choices": ["true", "false"], "label": _optional_label(param)})
-            elif param.name == "capacity":
+            elif param.name in ("autoscaling_min_cu", "autoscaling_max_cu"):
+                # Autoscaling compute-unit range (0.5-32); scale-to-zero via suspend timeout.
                 _add({"name": param.name, "kind": "dropdown", "default": str(param.default),
-                      "choices": ["CU_1", "CU_2", "CU_4", "CU_8"], "label": _optional_label(param)})
+                      "choices": ["0.5", "1", "2", "4", "8", "16", "32"], "label": _optional_label(param)})
             else:
                 _add({"name": param.name, "kind": "text", "default": "" if param.default is None else str(param.default),
                       "label": _optional_label(param)})

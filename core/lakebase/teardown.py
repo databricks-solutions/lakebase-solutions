@@ -4,9 +4,11 @@ Drops the workshop schema this component created (SQL) and removes the
 connection-info secrets it wrote. Runs LAST in teardown order because every
 other component depends on it.
 
-The Lakebase **instance** and the **secret scope** themselves are DABs-managed
-(GA ``database_instance`` / ``secret_scope`` resources) -- they are destroyed by
-``databricks bundle destroy``, NOT here.
+The autoscaling ``postgres`` **project/endpoint** and the **secret scope**
+themselves are bundle-managed (``postgres_project`` / ``postgres_endpoint`` /
+``secret_scope``) -- they are destroyed by ``databricks bundle destroy``, NOT
+here. Dropping the workshop schema (CASCADE) removes every workshop object; the
+workshop database shell is left in place (cheap, reusable across re-deploys).
 
 When no live clients are injected it logs intent and returns a ``stub`` result.
 """
@@ -28,7 +30,7 @@ def workshop_schema_drop_sql(schema: str) -> List[str]:
 
 
 def teardown(ctx: Any) -> Dict[str, Any]:
-    instance = ctx.resolved_names.get("lakebase_instance", ctx.name("lakebase"))
+    project = ctx.resolved_names.get("lakebase_project", ctx.deployment_id)
     database = ctx.params.get("database") or "databricks_postgres"
     schema = ctx.resolved_names.get("workshop_schema", "workshop")
     scope = ctx.params.get("secret_scope") or ctx.resolved_names.get("secret_scope")
@@ -37,13 +39,13 @@ def teardown(ctx: Any) -> Dict[str, Any]:
         ctx.logger.info(
             "[stub] core/lakebase.teardown: no live clients injected; would drop "
             "schema %r from %s.%s and delete connection secrets from %r "
-            "(instance + scope are DABs-managed -- `bundle destroy`).",
+            "(project/endpoint + scope are bundle-managed -- `bundle destroy`).",
             schema,
-            instance,
+            project,
             database,
             scope,
         )
-        return {"instance": instance, "schema": schema, "status": "stub"}
+        return {"project": project, "schema": schema, "status": "stub"}
 
     conn = ctx.pg_connection(role="admin", database=database)
     executed: List[str] = []
@@ -64,15 +66,15 @@ def teardown(ctx: Any) -> Dict[str, Any]:
 
     ctx.logger.info(
         "core/lakebase.teardown: dropped schema %r from %s.%s; deleted %d secret(s) "
-        "from %r. Instance + scope are DABs-managed (`bundle destroy`).",
+        "from %r. Project/endpoint + scope are bundle-managed (`bundle destroy`).",
         schema,
-        instance,
+        project,
         database,
         len(deleted),
         scope,
     )
     return {
-        "instance": instance,
+        "project": project,
         "database": database,
         "schema": schema,
         "secret_scope": scope,

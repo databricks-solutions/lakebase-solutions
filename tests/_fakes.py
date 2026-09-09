@@ -18,9 +18,7 @@ Not a test module itself (no ``test_`` prefix), so pytest never collects it.
 
 from __future__ import annotations
 
-import base64
 import importlib.util
-import json
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple
@@ -134,40 +132,82 @@ class _Credential:
         self.token = token
 
 
-class _Instance:
-    def __init__(self, dns: str) -> None:
-        self.read_write_dns = dns
+class _Host:
+    def __init__(self, host: str) -> None:
+        self.host = host
 
 
-class FakeDatabase:
-    """Fake ``w.database`` surface: credential minting + instance lookup."""
+class _EndpointStatus:
+    def __init__(self, hosts: List[_Host]) -> None:
+        self.hosts = hosts
 
-    def __init__(self, sub: str = "admin@example.com", dns: str = "host.example") -> None:
-        self._token = _make_jwt(sub)
-        self._dns = dns
-        self.cred_calls: List[List[str]] = []
-        self.get_calls: List[str] = []
 
-    def generate_database_credential(self, instance_names: List[str]) -> _Credential:
-        self.cred_calls.append(instance_names)
+class _Endpoint:
+    def __init__(self, name: str, host: str) -> None:
+        self.name = name
+        self.status = _EndpointStatus([_Host(host)])
+
+
+class _ListEndpointsResponse:
+    def __init__(self, endpoints: List[_Endpoint]) -> None:
+        self.endpoints = endpoints
+
+
+class FakePostgres:
+    """Fake ``w.postgres`` surface (autoscaling): endpoint lookup + credential.
+
+    ``list_endpoints`` returns a response exposing ``.endpoints`` (each with a
+    hierarchical ``name`` and ``status.hosts[*].host``);
+    ``generate_database_credential`` mints an OAuth token for an endpoint
+    resource path.
+    """
+
+    def __init__(
+        self,
+        host: str = "host.example",
+        token: str = "oauth-token-xyz",
+        branch: str = "production",
+        endpoint: str = "primary",
+    ) -> None:
+        self._host = host
+        self._token = token
+        self._branch = branch
+        self._endpoint = endpoint
+        self.list_calls: List[str] = []
+        self.cred_calls: List[str] = []
+
+    def list_endpoints(self, parent: str) -> _ListEndpointsResponse:
+        self.list_calls.append(parent)
+        name = f"{parent}/endpoints/{self._endpoint}"
+        return _ListEndpointsResponse([_Endpoint(name, self._host)])
+
+    def generate_database_credential(self, name: str) -> _Credential:
+        self.cred_calls.append(name)
         return _Credential(self._token)
 
-    def get_database_instance(self, name: str) -> _Instance:
-        self.get_calls.append(name)
-        return _Instance(self._dns)
+
+class _Me:
+    def __init__(self, user_name: str) -> None:
+        self.user_name = user_name
+
+
+class FakeCurrentUser:
+    """Fake ``w.current_user``: the connecting identity is the workspace email."""
+
+    def __init__(self, user_name: str = "admin@example.com") -> None:
+        self._user_name = user_name
+        self.me_calls = 0
+
+    def me(self) -> _Me:
+        self.me_calls += 1
+        return _Me(self._user_name)
 
 
 class FakeWorkspaceClient:
-    def __init__(self, sub: str = "admin@example.com", dns: str = "host.example") -> None:
+    def __init__(self, email: str = "admin@example.com", host: str = "host.example") -> None:
         self.secrets = FakeSecrets()
-        self.database = FakeDatabase(sub=sub, dns=dns)
-
-
-def _make_jwt(sub: str) -> str:
-    """Build a minimal, decodable JWT whose payload carries ``sub``."""
-
-    payload = base64.urlsafe_b64encode(json.dumps({"sub": sub}).encode()).decode().rstrip("=")
-    return f"header.{payload}.signature"
+        self.postgres = FakePostgres(host=host)
+        self.current_user = FakeCurrentUser(email)
 
 
 # --------------------------------------------------------------------------- #

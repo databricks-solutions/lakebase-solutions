@@ -18,8 +18,8 @@
 # mode: deploy                  # deploy | teardown
 # cloud: aws                    # aws | azure | gcp
 # region: us-west-2             # cloud region for host/endpoint patterns
-# capacity: CU_1                # Lakebase SKU/size (autoscaling-only; SKU, not a provisioned toggle)
-# node_count: 1                 # number of Lakebase nodes
+# autoscaling_min_cu: "0.5"     # endpoint min compute units (0.5-32); scale-to-zero via suspend timeout
+# autoscaling_max_cu: "2"       # endpoint max compute units (0.5-32)
 # admin_group: ""               # Databricks admin group; blank = ${prefix}-admins
 # workshop_group: ""            # Databricks workshop group; blank = ${prefix}-participants
 # enable_data_api: true         # run the Data API configure step (manual UI enable still required)
@@ -27,5 +27,5 @@
 
 # --- ADVANCED ---------------------------------------------------------------
 # No widget -- set here only. Sensible defaults apply if omitted.
-# database: databricks_postgres  # base Postgres database name inside the instance
+# database: databricks_postgres  # workshop PG database (created explicitly on the endpoint)
 # secret_scope: ""               # standalone secret scope; blank = ${prefix}-secrets

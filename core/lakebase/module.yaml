@@ -8,30 +8,34 @@ depends_on:
   core: []
   modules: []
 parameters:
-  - name: capacity
+  - name: autoscaling_min_cu
     type: string
-    default: CU_1
+    default: "0.5"
     required: false
     advanced: false
-    label: Lakebase capacity (SKU)
-    help: Lakebase SKU/size (autoscaling-only; capacity is the SKU, not a provisioned toggle).
-  - name: node_count
-    type: int
-    default: 1
+    label: Autoscaling min CU
+    help: Endpoint minimum compute units (0.5-32). Scale-to-zero via suspend timeout.
+  - name: autoscaling_max_cu
+    type: string
+    default: "2"
     required: false
     advanced: false
-    label: Lakebase node count
-    help: Number of Lakebase nodes.
+    label: Autoscaling max CU
+    help: Endpoint maximum compute units (0.5-32).
   - name: database
     type: string
     default: databricks_postgres
     required: false
     advanced: true
-    label: Postgres database name
-    help: Base PG database name inside the instance. Advanced -- set in config.yaml.
+    label: Workshop Postgres database name
+    help: >-
+      Workshop PG database (created explicitly -- the endpoint's default
+      `postgres` db has a restricted public schema). Advanced -- set in config.yaml.
 provides:
-  # Managed by the `database_instance` DABs resource (GA), NOT the Beta postgres surface.
-  database_instance: ["${prefix}-lakebase"]
+  # Autoscaling `postgres` surface: project id is the bare prefix; creating it
+  # auto-provisions a `production` branch + `primary` read-write endpoint.
+  postgres_project: ["${prefix}"]
+  postgres_endpoint: ["projects/${prefix}/branches/production/endpoints/primary"]
   database: ["databricks_postgres"]
 entrypoint: deploy.py
 teardown: teardown.py

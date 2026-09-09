@@ -37,11 +37,11 @@ This initial spec designs the **repo architecture** so modules can be added late
 - Persona workshop content (dispatch/map/whatif/etc. from FSM) — future modules
 
 ## 4. Constraints & Non-Negotiables
-- **Databricks-native, DABs-first across the ENTIRE project** — express every resource DABs can manage as a bundle resource: `app`, jobs, pipelines, `model_serving_endpoint`, `secret_scope`, `genie_spaces`, and the Lakebase **`database_instance`** (GA). SDK/REST only for what DABs cannot do at PP/GA.
-- **Feature-maturity gate:** only **Public Preview or GA** features. No Private Preview / Beta. Confirmed maturity (verified via CLI v1.13.0 + docs, 2026-09-09):
-  - `database` / Database Instances surface = **Public Preview** ✅ · `database_instance` bundle resource = **GA** ✅ — **this is the Lakebase surface we build on.**
-  - `postgres` / Autoscaling API (projects/branches/**roles**) = **Beta** ❌ · `postgres_role` bundle resource = **Beta** ❌ — **excluded.** (FSM is built on this Beta surface; we do NOT copy its Lakebase provisioning.)
-  - Lakebase + Data API = **GA** ✅ · Lakebase CDC = Public Preview ✅ · Lakebase Search = Beta ❌ (excluded).
+- **Databricks-native, DABs-first across the ENTIRE project** — express every resource DABs can manage as a bundle resource: `app`, jobs, pipelines, `model_serving_endpoint`, `secret_scope`, `genie_spaces`, and the Lakebase **autoscaling project/endpoint** (`postgres_project`/`postgres_endpoint`, or SDK `w.postgres`). SDK/REST only for what DABs cannot do.
+- **Feature-maturity gate:** only **Public Preview or GA** *features* — nothing in Private Preview / Beta that could change or vanish. CORRECTION (verified against the LIVE workspace 2026-09-09, reversing an earlier backwards reading):
+  - **Autoscaling `postgres` projects/branches/endpoints (min/max CU, scale-to-zero) = the Lakebase surface we build on.** It is the GA Lakebase product's primary surface — the workspace's real projects (`streamline-telco`, `naas-portal-poc`) run on it. Its CLI command group wears a `*Beta*` label, but that is tooling maturity, not a preview *feature*; accepted as the only path to the required autoscaling.
+  - **`database` / `database_instance` (fixed `--capacity CU_1`) = the legacy Provisioned tier — EXCLUDED** (no scale-to-zero; violates the always-autoscaling requirement).
+  - Data API = **GA** ✅ · Lakebase CDC = Public Preview ✅ · Lakebase Search = Beta ❌ (excluded).
 - **PG roles/grants via `CREATE ROLE` SQL** over psycopg (plain Postgres, gate-agnostic) — sidesteps the Beta `postgres_role` resource. FSM's SQL role/grant patterns port cleanly.
 - **Data API is two-phase (manual enable):** the notebook prints a loud, explicit "**you MUST enable the Data API manually**" instruction with steps; a **re-runnable** step (same or second notebook) then configures the dedicated SP, `databricks_auth`, role registration, and RLS/schema. (Programmatic `UpdateDataApi`/`db_schemas` may later remove the manual step — not v1.)
 - Deploy runs **inside Databricks** — no laptop CLI execution. `databricks bundle deploy` is invoked from within the workspace (commit → push → pull → run).
@@ -58,8 +58,9 @@ Global params (deploy notebook widgets), namespaced by a single `deployment_id`:
 | `deployment_id` / `prefix` | `acme-ws` | Namespaces ALL resources (catalogs, scopes, SP names, PG roles, app names) so multiple deployments coexist |
 | `mode` | `deploy` \| `teardown` | Single notebook, two modes |
 | `cloud` / `region` | `aws` / `us-west-2` | Host/endpoint patterns |
-| `lakebase_instance` | `${prefix}-lakebase` | Derived from prefix |
-| `database` | `databricks_postgres` | PG database name |
+| `lakebase_project` | `${prefix}` | Autoscaling `postgres` project id (auto-creates `production` branch + `primary` endpoint) |
+| `autoscaling_min_cu` / `autoscaling_max_cu` | `0.5` / `2` | Endpoint autoscaling range; scale-to-zero via suspend timeout |
+| `database` | `${prefix}_db` | Workshop PG database (created explicitly — the default `postgres` db has a restricted public schema) |
 | `admin_group` | `${prefix}-admins` | Databricks group gating the admin app |
 | `workshop_group` | `${prefix}-participants` | Workshop users |
 | `modules_enabled` | multiselect | Discovered from `modules/*/module.yaml` |
@@ -74,13 +75,12 @@ Global params (deploy notebook widgets), namespaced by a single `deployment_id`:
 5. **Notebook is the control plane** for MVP; admin app stays a lean DBA console.
 6. **Data API** harvested from FSM (`data_api.py`, `setup_data_api_sp.py`, `data_api_demo.sql`) — dedicated-SP + `databricks_auth` + `databricks_create_role`; the PGRST301 "owner-can't-use-it" pattern is the core of the setup. **Two-phase:** loud manual UI-enable instruction + re-runnable configure step (§4).
 7. **State/idempotency:** per-deployment config (prefix-derived names + captured IDs), DABs state for bundle-managed resources; teardown = `bundle destroy` for the bundle half + SDK teardown for the rest.
-8. **Lakebase surface = Database Instances (GA/PP), NOT Autoscaling (Beta).** We build the instance via the `database_instance` DABs resource and manage roles/grants with `CREATE ROLE` SQL. FSM's Autoscaling-based provisioning code is a *reference*, not a copy source, for the Lakebase layer; its SQL (schema, roles, features, Data API) ports directly.
+8. **Lakebase surface = Autoscaling `postgres` projects/branches/endpoints (scale-to-zero), NOT the provisioned `database_instance` tier.** *(Reversed 2026-09-09 after live verification — an earlier reading had these backwards.)* Provision the project/endpoint via `postgres_project`/`postgres_endpoint` DABs resources (or SDK `w.postgres`); connect via `generate-database-credential` on the endpoint (PG user = workspace email, password = OAuth token, `sslmode=require`); create the workshop DB + schema and roles/grants via `CREATE ROLE`/SQL. FSM's SQL ports directly; its provisioning code does not.
 
 ## 7. Open items (validate in P0/P1)
-- **Resolved:** `database_instance` = GA (use); Autoscaling `postgres`/`postgres_role` = Beta (exclude); Data API = GA with manual UI enable (two-phase per §4).
-- **Resolved:** `synced-database-table` is Public Preview on the `database` surface (via `databricks database create-synced-database-table`) → usable under the gate.
-- **Resolved:** Lakebase is **autoscaling-only** — "Provisioned" was the legacy type and has been fully replaced; there is no provisioned option on the GA surface, so "always autoscaling" is satisfied by construction. `--capacity` = SKU/size (not a provisioned toggle).
-- **Only remaining unknown:** stability of `databricks bundle deploy` invoked from inside a workspace notebook (validate empirically in P0/P1).
+- **Resolved (live-verified 2026-09-09):** the workspace's Lakebase runs on the **autoscaling `postgres` projects** surface (min/max CU + scale-to-zero); the provisioned `database_instance` surface has NO instances and is the legacy tier → we build on autoscaling `postgres`, reversing the earlier (wrong) `database_instance` choice. P1a is being reworked accordingly.
+- Data API = GA, manual UI enable (two-phase per §4).
+- **Verify at P1b (live):** exact SDK/DABs shapes on the `postgres` surface (`w.postgres` create-project / list-endpoints / generate-database-credential; `postgres_project`/`postgres_endpoint` bundle resources), endpoint host path (`status.hosts.host`), and `databricks bundle deploy` from inside a workspace notebook.
 
 ## 8. Phased plan → MVP (architect review at P4)
 - **P0 — Scaffold:** repo skeleton, `bootstrap/` engine, `module.yaml` schema, `databricks.yml` base, CI green.

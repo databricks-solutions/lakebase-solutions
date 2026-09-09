@@ -3,20 +3,29 @@
 # DABs-first: every resource DABs can manage is expressed here (SPEC section 4).
 # SDK/REST is reserved for what DABs cannot do at Public Preview / GA.
 #
-# Feature-maturity gate (PP/GA only):
-#   * database_instance  -> GA          (the Lakebase surface we build on)
-#   * secret_scope       -> GA
-#   * app                -> GA
+# Lakebase surface (SPEC section 4/8): the AUTOSCALING `postgres` projects/
+# branches/endpoints tier (min/max CU + scale-to-zero) -- NOT the legacy
+# provisioned `database_instance` tier (excluded: no scale-to-zero).
+#   * postgres_project / postgres_endpoint -> autoscaling Lakebase
+#   * secret_scope                         -> GA
+#   * app                                  -> GA
 #
 # INTENTIONALLY NOT USED:
-#   * postgres_role (Beta) -- PG roles/grants are created via `CREATE ROLE` SQL
-#     over psycopg in core/security, NOT via this Beta bundle resource.
-#   * Lakebase is autoscaling-only; `capacity` is the SKU/size, there is no
-#     provisioned toggle.
+#   * postgres_role -- PG roles/grants are created via `CREATE ROLE` SQL over
+#     psycopg in core/security, NOT via a bundle resource.
+#   * database_instance (provisioned tier) -- excluded; no scale-to-zero.
 #
 # NOTE: The deploy notebook (deploy.py) invokes `databricks bundle deploy` from
 # inside the workspace (commit -> push -> pull -> run). This file is kept
 # `bundle validate`-shaped; P0 does not run it.
+#
+# VERIFY LIVE AT P1b: the exact `postgres_project`/`postgres_endpoint` bundle
+# resource keys + spec shape (mirrored below from the `databricks postgres`
+# CLI create-project/create-endpoint payloads) against `databricks bundle
+# schema`. If the bundle cannot express the autoscaling project/endpoint
+# cleanly, provision via SDK `w.postgres.create_project` in core/lakebase/
+# deploy.py instead (the deploy step already resolves the endpoint it finds);
+# a commented SDK-fallback example is retained below.
 
 bundle:
   name: lakebase-solutions
@@ -25,12 +34,12 @@ variables:
   prefix:
     description: Deployment ID / prefix that namespaces every resource.
     default: acme-ws
-  capacity:
-    description: Lakebase SKU/size (autoscaling-only; capacity is the SKU, not a provisioned toggle).
-    default: CU_1
-  node_count:
-    description: Number of Lakebase nodes.
-    default: 1
+  autoscaling_min_cu:
+    description: Endpoint minimum compute units (0.5-32); scale-to-zero via suspend timeout.
+    default: "0.5"
+  autoscaling_max_cu:
+    description: Endpoint maximum compute units (0.5-32).
+    default: "2"
   region:
     description: Cloud region for host/endpoint patterns.
     default: us-west-2
@@ -51,13 +60,35 @@ variables:
     default: true
 
 resources:
-  # Lakebase Postgres instance (GA `database_instance` resource).
-  # Autoscaling-only: `capacity` selects the SKU/size; there is no provisioned option.
-  database_instances:
+  # Lakebase AUTOSCALING `postgres` project (+ its default `production` branch
+  # and `primary` read-write endpoint). The project id is the bare prefix;
+  # creating the project auto-provisions the branch + endpoint. The endpoint
+  # carries the autoscaling CU range + scale-to-zero suspend timeout.
+  #
+  # VERIFY LIVE AT P1b: exact resource keys/spec shape via `databricks bundle
+  # schema` (mirrored from the `databricks postgres` CLI JSON payloads).
+  postgres_projects:
     lakebase:
-      name: ${var.prefix}-lakebase
-      capacity: ${var.capacity}
-      node_count: ${var.node_count}
+      name: ${var.prefix}
+      spec:
+        display_name: ${var.prefix} Lakebase (workshop)
+  postgres_endpoints:
+    primary:
+      name: projects/${var.prefix}/branches/production/endpoints/primary
+      spec:
+        endpoint_type: ENDPOINT_TYPE_READ_WRITE
+        autoscaling_limit_min_cu: ${var.autoscaling_min_cu}
+        autoscaling_limit_max_cu: ${var.autoscaling_max_cu}
+        # Scale-to-zero: suspend the endpoint after this idle duration.
+        suspend_timeout_duration: 300s
+
+  # SDK-FALLBACK (if the bundle cannot express the above at P1b): drop the two
+  # resources and provision from core/lakebase/deploy.py instead, e.g.
+  #   w.postgres.create_project(
+  #       "${var.prefix}", spec={"display_name": "${var.prefix} Lakebase"})
+  #   # create_project auto-creates the `production` branch + `primary` endpoint;
+  #   # then w.postgres.update_endpoint(...) to set the autoscaling CU range.
+  # The deploy step already resolves whatever `primary` endpoint it finds.
 
   # Standalone secret scope for this deployment's credentials (PG user/password,
   # Data API SP client id/secret). Never reused across apps (SPEC section 4).
@@ -82,5 +113,5 @@ targets:
     # (deploy runs inside Databricks). Left unset here for the P0 skeleton.
     variables:
       prefix: acme-ws
-      capacity: CU_1
-      node_count: 1
+      autoscaling_min_cu: "0.5"
+      autoscaling_max_cu: "2"

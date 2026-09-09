@@ -39,10 +39,11 @@ repo scripts and through this same flow — never hand-patched in the workspace.
    - `deployment_id` *(required)* — namespaces every resource
    - `mode` = `deploy`
    - module multiselect — pick the modules for this engagement
-   - optional widgets (`capacity`, groups, …) carry sensible defaults; advanced
-     values live in `config.yaml`
+   - optional widgets (`autoscaling_min_cu`/`autoscaling_max_cu`, groups, …)
+     carry sensible defaults; advanced values live in `config.yaml`
 4. The notebook runs `databricks bundle deploy` for bundle-managed resources
-   (Lakebase `database_instance`, `secret_scope`, admin `app`) and SDK/SQL steps
+   (Lakebase autoscaling `postgres_project`/`postgres_endpoint`, `secret_scope`,
+   admin `app`) and SDK/SQL steps
    for the rest (PG roles via `CREATE ROLE`, grants, Genie, …), in dependency
    order (**core → modules**).
 
