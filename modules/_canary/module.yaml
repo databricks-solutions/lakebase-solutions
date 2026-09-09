@@ -1,0 +1,24 @@
+name: _canary
+version: 0.1.0
+kind: module
+personas: [app_developer]
+# Reference module: proves the discovery -> deps -> deploy -> health -> teardown
+# contract end to end. Not selected by default; opt in via the modules widget.
+enabled_by_default: false
+depends_on:
+  core: [lakebase, security]
+  modules: []
+parameters:
+  - name: canary_schema
+    type: string
+    default: canary
+    required: false
+    advanced: false
+    label: Canary schema
+    help: Postgres schema the canary creates its heartbeat table in.
+provides:
+  pg_schemas: ["canary"]
+  pg_tables: ["canary.heartbeat"]
+entrypoint: deploy.py
+teardown: teardown.py
+health_check: health.py

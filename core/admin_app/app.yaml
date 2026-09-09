@@ -1,0 +1,15 @@
+# Databricks App runtime config for the admin app (P0 stub).
+# TODO(P2): fork lakebase_admin's app source into this directory. Env vars
+# (PGHOST/PGDATABASE/PGUSER/PGPASSWORD via valueFrom the secret scope,
+# TARGET_SCHEMA, ADMIN_GROUP, DEFAULT_INSTANCE, Data API URL/SP) land then.
+command:
+  - "python"
+  - "app.py"
+
+env:
+  - name: TARGET_SCHEMA
+    value: "public"
+  # - name: PGUSER
+  #   valueFrom: "pguser"        # from the deployment's secret scope (P2)
+  # - name: PGPASSWORD
+  #   valueFrom: "pgpassword"    # from the deployment's secret scope (P2)

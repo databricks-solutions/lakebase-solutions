@@ -3,3 +3,13 @@
 __pycache__
 .idea/
 .env
+# Local deploy config (copied from config.template.yaml) -- never commit.
+config.yaml
+# Local virtualenvs
+.venv/
+# OMC / agent session + state -- never commit to the shared repo
+.omc/
+.isaac/
+# Python bytecode
+*.pyc
+

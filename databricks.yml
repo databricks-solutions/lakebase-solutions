@@ -1,0 +1,86 @@
+# Databricks Asset Bundle for lakebase-solutions.
+#
+# DABs-first: every resource DABs can manage is expressed here (SPEC section 4).
+# SDK/REST is reserved for what DABs cannot do at Public Preview / GA.
+#
+# Feature-maturity gate (PP/GA only):
+#   * database_instance  -> GA          (the Lakebase surface we build on)
+#   * secret_scope       -> GA
+#   * app                -> GA
+#
+# INTENTIONALLY NOT USED:
+#   * postgres_role (Beta) -- PG roles/grants are created via `CREATE ROLE` SQL
+#     over psycopg in core/security, NOT via this Beta bundle resource.
+#   * Lakebase is autoscaling-only; `capacity` is the SKU/size, there is no
+#     provisioned toggle.
+#
+# NOTE: The deploy notebook (deploy.py) invokes `databricks bundle deploy` from
+# inside the workspace (commit -> push -> pull -> run). This file is kept
+# `bundle validate`-shaped; P0 does not run it.
+
+bundle:
+  name: lakebase-solutions
+
+variables:
+  prefix:
+    description: Deployment ID / prefix that namespaces every resource.
+    default: acme-ws
+  capacity:
+    description: Lakebase SKU/size (autoscaling-only; capacity is the SKU, not a provisioned toggle).
+    default: CU_1
+  node_count:
+    description: Number of Lakebase nodes.
+    default: 1
+  region:
+    description: Cloud region for host/endpoint patterns.
+    default: us-west-2
+  database:
+    description: Postgres database name inside the Lakebase instance.
+    default: databricks_postgres
+  admin_group:
+    description: Databricks group gating the admin app.
+    default: acme-ws-admins
+  workshop_group:
+    description: Databricks group for workshop participants.
+    default: acme-ws-participants
+  secret_scope:
+    description: Standalone Databricks secret scope for this deployment.
+    default: acme-ws-secrets
+  enable_data_api:
+    description: Whether the Data API configure step runs (manual UI enable is still required).
+    default: true
+
+resources:
+  # Lakebase Postgres instance (GA `database_instance` resource).
+  # Autoscaling-only: `capacity` selects the SKU/size; there is no provisioned option.
+  database_instances:
+    lakebase:
+      name: ${var.prefix}-lakebase
+      capacity: ${var.capacity}
+      node_count: ${var.node_count}
+
+  # Standalone secret scope for this deployment's credentials (PG user/password,
+  # Data API SP client id/secret). Never reused across apps (SPEC section 4).
+  secret_scopes:
+    app_secrets:
+      name: ${var.secret_scope}
+
+  # The always-on admin app (Lakebase DBA console). It is the ONLY core app;
+  # each module ships its own separate Databricks App.
+  # App runtime config (env vars, command) lives in core/admin_app/app.yaml.
+  apps:
+    admin_app:
+      name: ${var.prefix}-admin-app
+      description: lakebase-solutions admin console (Lakebase DBA operations).
+      source_code_path: ./core/admin_app
+
+targets:
+  dev:
+    default: true
+    mode: development
+    # workspace.profile / host is supplied by the deploy notebook's environment
+    # (deploy runs inside Databricks). Left unset here for the P0 skeleton.
+    variables:
+      prefix: acme-ws
+      capacity: CU_1
+      node_count: 1

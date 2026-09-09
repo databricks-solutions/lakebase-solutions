@@ -1,0 +1,6 @@
+# Dev/CI dependencies for lakebase-solutions.
+# Pure-python: the pytest suite (manifest schema + DAG + orchestrator control
+# flow) runs with NO Databricks workspace.
+pyyaml>=6.0
+pydantic>=2.5
+pytest>=7.4

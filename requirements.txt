@@ -1,0 +1,8 @@
+# Runtime dependencies for lakebase-solutions deploy/orchestrator code.
+# The bootstrap engine itself needs only pyyaml + pydantic. The Databricks SDK
+# and psycopg are used by the (P1+) live deploy steps and the admin app.
+# TODO(P1): pin exact versions as core components land their live logic.
+pyyaml>=6.0
+pydantic>=2.5
+databricks-sdk>=0.87.0
+psycopg[binary,pool]>=3.1

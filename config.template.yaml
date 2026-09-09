@@ -1,0 +1,31 @@
+# lakebase-solutions -- deploy configuration template.
+#
+# Copy to `config.yaml` (gitignored) and edit. The deploy notebook (deploy.py)
+# reads REQUIRED and OPTIONAL params from widgets; ADVANCED params have NO widget
+# and are read only from this file.
+#
+#   cp config.template.yaml config.yaml
+#
+# Parameter tiers come from each component's module.yaml (`required` / `advanced`
+# flags). See docs/MODULE_AUTHORING.md.
+
+# --- REQUIRED ---------------------------------------------------------------
+# Must be set (no default). In the notebook these are prominent widgets.
+# deployment_id: acme-ws        # prefix that namespaces ALL resources
+
+# --- OPTIONAL (defaults shown) ----------------------------------------------
+# Widgets carry these defaults; override only if needed.
+# mode: deploy                  # deploy | teardown
+# cloud: aws                    # aws | azure | gcp
+# region: us-west-2             # cloud region for host/endpoint patterns
+# capacity: CU_1                # Lakebase SKU/size (autoscaling-only; SKU, not a provisioned toggle)
+# node_count: 1                 # number of Lakebase nodes
+# admin_group: ""               # Databricks admin group; blank = ${prefix}-admins
+# workshop_group: ""            # Databricks workshop group; blank = ${prefix}-participants
+# enable_data_api: true         # run the Data API configure step (manual UI enable still required)
+# modules: ""                   # comma-separated module names; empty = core only
+
+# --- ADVANCED ---------------------------------------------------------------
+# No widget -- set here only. Sensible defaults apply if omitted.
+# database: databricks_postgres  # base Postgres database name inside the instance
+# secret_scope: ""               # standalone secret scope; blank = ${prefix}-secrets
