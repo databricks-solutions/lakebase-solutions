@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Repo-local pre-push gate for lakebase-solutions.
+#
+# core.hooksPath can only point at ONE directory, and the Databricks secret-scan
+# hooks live at the GLOBAL core.hooksPath (~/.databricks/githooks). So when this
+# repo-local hooks dir is active, we must explicitly CHAIN the Databricks hook
+# first (preserving org secret scanning), then run the local test gate.
+set -euo pipefail
+
+# git feeds pre-push the list of refs on stdin; capture it so we can replay it
+# to the chained Databricks hook (which reads stdin).
+STDIN_DATA="$(cat || true)"
+
+DBX="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+if [ -n "${DBX}" ] && [ -x "${DBX}/pre-push" ]; then
+  printf '%s' "${STDIN_DATA}" | "${DBX}/pre-push" "$@" || {
+    echo "pre-push: Databricks secret-scan hook failed; aborting push." >&2
+    exit 1
+  }
+fi
+
+echo "pre-push: running test gate (make test)..." >&2
+if ! make test; then
+  echo "pre-push: tests FAILED; push aborted. (override with 'git push --no-verify' only if you know why)" >&2
+  exit 1
+fi

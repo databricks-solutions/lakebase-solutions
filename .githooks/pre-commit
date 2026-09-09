@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Delegates to the global Databricks secret-scan pre-commit hook so that
+# activating this repo-local hooks dir never disables commit-time scanning.
+set -euo pipefail
+DBX="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+if [ -n "${DBX}" ] && [ -x "${DBX}/pre-commit" ]; then
+  exec "${DBX}/pre-commit" "$@"
+fi
+exit 0

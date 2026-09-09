@@ -10,6 +10,7 @@ config.yaml
 # OMC / agent session + state -- never commit to the shared repo
 .omc/
 .isaac/
-# Python bytecode
+# Python bytecode + test caches
 *.pyc
+.pytest_cache/
 

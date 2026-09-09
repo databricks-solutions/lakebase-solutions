@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Delegates to the global Databricks secret-scan commit-msg hook (which scans the
+# commit message). Preserves org scanning when the repo-local hooks dir is active.
+set -euo pipefail
+DBX="$(git config --global --get core.hooksPath 2>/dev/null || true)"
+if [ -n "${DBX}" ] && [ -x "${DBX}/commit-msg" ]; then
+  exec "${DBX}/commit-msg" "$@"
+fi
+exit 0
