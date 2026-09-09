@@ -1,29 +1,103 @@
-"""core/lakebase deploy step (P0 stub).
+"""core/lakebase deploy step (P1).
 
-Responsibility: provision the Lakebase Postgres instance via the GA
-`database_instance` DABs resource (autoscaling-only). This step also owns the
-base database/schema bootstrap that later core components build on.
+The Lakebase Postgres *instance* itself is provisioned by the GA
+``database_instance`` DABs resource (``databricks.yml``); the secret *scope* is
+the GA ``secret_scope`` resource. This step owns the part DABs cannot express at
+PP/GA:
 
-P0: logs intent only -- no live calls.
+1. obtain a connection credential from the GA ``generate-database-credential``
+   surface (guarded/mockable via ``ctx.workspace_client()``),
+2. connect as admin and run **idempotent** SQL to create the workshop schema,
+3. write the instance connection info (host/db/schema/user/password) to the
+   deployment's standalone secret scope.
+
+When no live clients are injected (e.g. the orchestrator smoke tests), it logs
+intent and returns a ``stub`` result -- the live run happens in-workspace.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+from bootstrap.adapters import username_from_token
+
+# Connection-info secret keys this step writes (and teardown removes).
+CONN_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"]
+
+
+def workshop_schema_sql(schema: str) -> List[str]:
+    """Idempotent DDL that bootstraps the workshop schema.
+
+    ``CREATE SCHEMA IF NOT EXISTS`` is Postgres-native idempotency, so the step
+    is safe to re-run (immutable/repeatable deploy, SPEC section 4).
+    """
+
+    return [f'CREATE SCHEMA IF NOT EXISTS "{schema}"']
 
 
 def deploy(ctx: Any) -> Dict[str, Any]:
     instance = ctx.resolved_names.get("lakebase_instance", ctx.name("lakebase"))
-    capacity = ctx.params.get("capacity", "CU_1")
-    node_count = ctx.params.get("node_count", "1")
+    database = ctx.params.get("database") or "databricks_postgres"
+    schema = ctx.resolved_names.get("workshop_schema", "workshop")
+    scope = ctx.params.get("secret_scope") or ctx.resolved_names.get("secret_scope")
+
+    if not ctx.is_live():
+        ctx.logger.info(
+            "[stub] core/lakebase.deploy: no live clients injected; would ensure "
+            "schema %r in %s.%s and write connection secrets to %r. "
+            "P1 live run happens in-workspace.",
+            schema,
+            instance,
+            database,
+            scope,
+        )
+        return {"instance": instance, "database": database, "schema": schema, "status": "stub"}
+
+    w = ctx.workspace_client()
+
+    # (1) Obtain a connection credential (GA generate-database-credential) and
+    #     resolve the instance host. Both are guarded/mockable.
+    cred = w.database.generate_database_credential(instance_names=[instance])
+    token = getattr(cred, "token", None)
+    inst = w.database.get_database_instance(name=instance)
+    host = getattr(inst, "read_write_dns", None)
+
+    # (2) Connect as admin and run idempotent schema DDL.
+    conn = ctx.pg_connection(role="admin", database=database)
+    executed: List[str] = []
+    cur = conn.cursor()
+    for stmt in workshop_schema_sql(schema):
+        cur.execute(stmt)
+        executed.append(stmt)
+    conn.commit()
+
+    # (3) Persist connection info to the standalone secret scope.
+    secrets_written: Dict[str, str] = {
+        "pghost": host or "",
+        "pgdatabase": database,
+        "pgschema": schema,
+        "pguser": username_from_token(token),
+        "pgpassword": token or "",
+    }
+    for key, value in secrets_written.items():
+        w.secrets.put_secret(scope=scope, key=key, string_value=value)
+
     ctx.logger.info(
-        "[stub] would deploy Lakebase instance %r (capacity=%s, node_count=%s) "
-        "via the GA database_instance DABs resource (autoscaling-only).",
+        "core/lakebase.deploy: ensured schema %r in %s.%s; wrote %d connection "
+        "secret(s) to %r.",
+        schema,
         instance,
-        capacity,
-        node_count,
+        database,
+        len(secrets_written),
+        scope,
     )
-    # TODO(P1): set DABs var `prefix`/`capacity`/`node_count`, run
-    #   `databricks bundle deploy` for the database_instance, then create the
-    #   base database via `CREATE ROLE`/`CREATE SCHEMA` SQL over psycopg.
-    return {"instance": instance, "status": "stub"}
+    return {
+        "instance": instance,
+        "database": database,
+        "schema": schema,
+        "host": host,
+        "secret_scope": scope,
+        "sql": executed,
+        "secrets_written": sorted(secrets_written),
+        "status": "deployed",
+    }

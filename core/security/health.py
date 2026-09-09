@@ -1,21 +1,45 @@
-"""core/security health check (P0 stub).
+"""core/security health check (P1).
 
-Responsibility: confirm the secret scope + required keys exist and the app role
-can authenticate to Postgres.
+Verifies the app + read-only PG roles exist (``pg_roles``).
 
-P0: logs intent only -- no live calls.
+Needs only a PG connection; when none is injected it returns a ``stub`` result.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
+_ROLES_EXIST = "SELECT rolname FROM pg_roles WHERE rolname = ANY(%s)"
+
 
 def health_check(ctx: Any) -> Dict[str, Any]:
-    scope = ctx.params.get("secret_scope") or ctx.resolved_names.get("secret_scope")
+    app_role = ctx.resolved_names.get("pg_app_role", f"{ctx.deployment_id}_app")
+    ro_role = ctx.resolved_names.get("pg_readonly_role", f"{ctx.deployment_id}_readonly")
+    database = ctx.params.get("database") or "databricks_postgres"
+    expected = [app_role, ro_role]
+
+    if not ctx.has_pg_connection():
+        ctx.logger.info(
+            "[stub] core/security.health: no PG connection injected; would confirm "
+            "roles %r exist.",
+            expected,
+        )
+        return {"pg_roles": expected, "healthy": None, "status": "stub"}
+
+    conn = ctx.pg_connection(role="admin", database=database)
+    cur = conn.cursor()
+    cur.execute(_ROLES_EXIST, (expected,))
+    found = {row[0] for row in (cur.fetchall() or [])}
+    healthy = all(role in found for role in expected)
+
     ctx.logger.info(
-        "[stub] would verify secret scope %r has pguser/pgpassword and the app role connects.",
-        scope,
+        "core/security.health: expected roles %r; found %s.",
+        expected,
+        sorted(found),
     )
-    # TODO(P1): list secret keys; test PG login with the app role.
-    return {"secret_scope": scope, "healthy": None, "status": "stub"}
+    return {
+        "pg_roles": expected,
+        "found": sorted(found),
+        "healthy": healthy,
+        "status": "ok" if healthy else "unhealthy",
+    }
