@@ -7,10 +7,22 @@ __pycache__
 config.yaml
 # Local virtualenvs
 .venv/
-# OMC / agent session + state -- never commit to the shared repo
-.omc/
-.isaac/
 # Python bytecode + test caches
 *.pyc
 .pytest_cache/
+# --- Claude Code / agents: exclude personal & local, but KEEP shared team files ---
+# Shared (intentionally tracked): CLAUDE.md, AGENTS.md, .claude/settings.json, .mcp.json
+.claude/settings.local.json
+.claude/*.local.json
+.claude/todos/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/history.jsonl
+.claude/projects/
+.omc/
+.isaac/
+# Databricks local bundle state + auth caches -- never commit
+.databricks/
+# Editor/local (share a curated .vscode intentionally if desired)
+.vscode/
 
