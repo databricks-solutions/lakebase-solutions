@@ -7,10 +7,6 @@ engagement (by problem area or persona). Deployment is immutable/repeatable and
 driven by a **single parameterized notebook** — and **adding a module never
 requires editing that notebook**.
 
-> Status: **P0 scaffold.** The orchestrator engine, manifest schema, DABs base,
-> and CI are real and tested. Per-component deploy logic is stubbed (logs intent)
-> and lands in later phases. See [`SPEC_lakebase-solutions.md`](SPEC_lakebase-solutions.md).
-
 ## What it is
 
 - **Core (always deployed):** `lakebase`, `security`, `user_management`,
@@ -21,7 +17,7 @@ requires editing that notebook**.
   calls the `bootstrap/` engine, which discovers components/modules from
   `module.yaml` manifests, orders them by dependency, and deploys or tears down.
 
-## Quickstart (shape)
+## Quickstart
 
 Deployment runs **inside Databricks** (commit → push → pull → run); there is no
 laptop CLI execution.
@@ -34,7 +30,7 @@ laptop CLI execution.
      `workshop_group`, `enable_data_api`, `modules`
 3. Run. The notebook discovers core + selected modules, orders them, and
    deploys. `mode: teardown` removes everything in reverse.
-4. **Data API is two-phase:** the notebook prints a loud manual UI-enable
+4. **Data API is two-phase:** the notebook prints a manual UI-enable
    instruction; re-run afterward to configure the SP/role/RLS.
 
 ## Repository structure
@@ -58,8 +54,7 @@ docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
 - **DABs-first.** Lakebase via the **autoscaling** `postgres_project` /
   `postgres_endpoint` bundle resources (min/max CU + scale-to-zero), NOT the
   provisioned `database_instance` tier. **No `postgres_role` resource** — PG
-  roles/grants are created via `CREATE ROLE` SQL. See
-  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+  roles/grants are created via `CREATE ROLE` SQL. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - **Manifest-driven discovery.** The notebook never changes when a module is
   added; modules are found by scanning for `module.yaml`.
 - **Standalone assets.** Every module gets its own app, PG roles, and secret
@@ -69,7 +64,7 @@ docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q          # pure-python; no Databricks workspace needed
+make check         # pure-Python; no Databricks workspace needed
 ```
 
 To author a module, see [`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md)

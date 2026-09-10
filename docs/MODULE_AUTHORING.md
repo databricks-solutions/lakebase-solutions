@@ -108,7 +108,7 @@ def health_check(ctx):
 The manifest and DAG tests pick your module up automatically:
 
 ```bash
-pytest -q
+make check
 ```
 
 `test_manifests.py` validates your `module.yaml` against the schema and confirms

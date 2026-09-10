@@ -7,8 +7,7 @@ project -- the foundation every other component and module depends on.
   branch and `primary` read-write endpoint) via the `postgres_project` /
   `postgres_endpoint` bundle resources; the endpoint carries the
   `autoscaling_min_cu` / `autoscaling_max_cu` range + scale-to-zero suspend
-  timeout (SPEC section 4/8). NOT the legacy provisioned `database_instance`
-  tier.
+  timeout. NOT the legacy provisioned `database_instance` tier.
 - Creates the workshop **database** explicitly (the endpoint's default
   `postgres` db has a restricted `public` schema), then the workshop **schema**.
 - Connects as admin with `(workspace email, OAuth token from

@@ -1,9 +1,8 @@
 # Deployment
 
-`lakebase-solutions` follows an **immutable, workspace-run** deployment model —
-the same pattern as the `lakebase_fsm` project. You never execute against
-Databricks/Lakebase from your laptop. You commit, push, pull into the workspace,
-and run the single deploy notebook there.
+`lakebase-solutions` follows an **immutable, workspace-run** deployment model.
+You never execute against Databricks/Lakebase from your laptop. You commit,
+push, pull into the workspace, and run the single deploy notebook there.
 
 ## Model
 
@@ -63,7 +62,7 @@ Run `deploy.py` with `mode = teardown`. It tears down in **reverse** dependency
 order (modules → core): `databricks bundle destroy` for bundle-managed resources
 plus SDK/SQL teardown for the rest.
 
-## Carried-over gotchas (from `lakebase_fsm`)
+## Operational notes
 
 - **`config.yaml` is gitignored** (copied from `config.template.yaml`); it holds
   per-deployment names/IDs and is never committed.
@@ -73,8 +72,3 @@ plus SDK/SQL teardown for the rest.
 - **Re-running is safe:** steps are idempotent (create-if-not-exists / bundle
   convergence). A clean rebuild is teardown then deploy.
 
-## Status
-
-The `bundle deploy`-from-inside-a-notebook mechanic is the one item still to be
-validated live (see `SPEC_lakebase-solutions.md` §7). Until then, treat the exact
-invocation as provisional.

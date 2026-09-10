@@ -11,4 +11,4 @@ Databricks groups, and the Postgres roles that scope each attendee's DB access.
 
 **Provides:** `databricks_groups`, participant `pg_roles`.
 
-**Steps:** `deploy.py` -> `health.py`; `teardown.py` for cleanup. All P0 stubs.
+**Steps:** `deploy.py` -> `health.py`; `teardown.py` for cleanup.
