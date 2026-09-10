@@ -308,14 +308,35 @@ def run_bundle_stage(mode: str) -> None:
     bundle-deploy-from-notebook mechanic itself is validated at the live run.
     """
 
-    import subprocess  # deferred: import of deploy.py must not imply a shell-out
+    import os
+    import subprocess  # deferred: importing deploy.py must not imply a shell-out
 
     action = "deploy" if mode == "deploy" else "destroy"
     cmd = ["databricks", "bundle", action, "-t", "dev"]
     if action == "destroy":
         cmd.append("--auto-approve")  # non-interactive teardown from the notebook
-    print(f"[bundle] running: {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=str(_REPO_ROOT), check=True)
+
+    # The CLI has no configured profile inside a job, so authenticate it with the
+    # notebook's own runtime credentials (host + short-lived API token).
+    env = dict(os.environ)
+    try:
+        _c = dbutils.notebook.entry_point.getDbutils().notebook().getContext()  # type: ignore[name-defined]  # noqa: F821
+        env["DATABRICKS_HOST"] = _c.apiUrl().get()
+        env["DATABRICKS_TOKEN"] = _c.apiToken().get()
+    except Exception as exc:  # pragma: no cover - in-workspace only
+        print(f"[bundle] WARN: could not derive notebook credentials: {exc}")
+
+    print(f"[bundle] running: {' '.join(cmd)} (cwd={_REPO_ROOT})")
+    proc = subprocess.run(cmd, cwd=str(_REPO_ROOT), env=env, capture_output=True, text=True)
+    if proc.stdout:
+        print("[bundle stdout]\n" + proc.stdout[-4000:])
+    if proc.stderr:
+        print("[bundle stderr]\n" + proc.stderr[-4000:])
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"`databricks bundle {action} -t dev` failed (exit {proc.returncode}). "
+            f"stderr tail:\n{proc.stderr[-2000:]}"
+        )
     print(f"[bundle] {action} complete")
 
 
