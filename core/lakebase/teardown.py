@@ -1,84 +1,74 @@
-"""core/lakebase teardown step (P1).
+"""core/lakebase teardown step.
 
-Drops the workshop schema this component created (SQL) and removes the
-connection-info secrets it wrote. Runs LAST in teardown order because every
-other component depends on it.
+SDK-deletes the whole Lakebase surface this deployment provisioned. ``databricks
+bundle destroy`` cannot run on notebook/job compute, so teardown drives the
+Databricks Python SDK (``WorkspaceClient``) instead of the CLI:
 
-The autoscaling ``postgres`` **project/endpoint** and the **secret scope**
-themselves are bundle-managed (``postgres_project`` / ``postgres_endpoint`` /
-``secret_scope``) -- they are destroyed by ``databricks bundle destroy``, NOT
-here. Dropping the workshop schema (CASCADE) removes every workshop object; the
-workshop database shell is left in place (cheap, reusable across re-deploys).
+1. delete the autoscaling ``postgres`` **project**
+   (``w.postgres.delete_project``) -- this removes the ``production`` branch, the
+   ``primary`` endpoint, and every database/schema inside it, so an explicit
+   ``DROP SCHEMA`` is moot,
+2. delete the standalone secret **scope** (``w.secrets.delete_scope``) -- this
+   removes every connection secret the deploy step wrote in one call.
+
+Both deletes are best-effort (the project or scope may already be gone). Runs
+LAST in teardown order because every other component depends on it.
 
 When no live clients are injected it logs intent and returns a ``stub`` result.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-# Mirror of ``deploy.CONN_SECRET_KEYS`` -- kept local because the orchestrator
-# loads each step file flat (no package context), so relative imports between
-# sibling step files are not available at load time.
-CONN_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"]
-
-
-def workshop_schema_drop_sql(schema: str) -> List[str]:
-    """Idempotent DDL that removes the workshop schema and its contents."""
-
-    return [f'DROP SCHEMA IF EXISTS "{schema}" CASCADE']
+# Connection-info secret keys the deploy step wrote (documented here for
+# reference; teardown removes the whole scope rather than deleting keys 1-by-1).
+CONN_SECRET_KEYS = ["pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"]
 
 
 def teardown(ctx: Any) -> Dict[str, Any]:
     project = ctx.resolved_names.get("lakebase_project", ctx.deployment_id)
-    database = ctx.params.get("database") or "databricks_postgres"
-    schema = ctx.resolved_names.get("workshop_schema", "workshop")
     scope = ctx.params.get("secret_scope") or ctx.resolved_names.get("secret_scope")
 
-    if not ctx.is_live():
+    if not ctx.has_workspace_client():
         ctx.logger.info(
-            "[stub] core/lakebase.teardown: no live clients injected; would drop "
-            "schema %r from %s.%s and delete connection secrets from %r "
-            "(project/endpoint + scope are bundle-managed -- `bundle destroy`).",
-            schema,
+            "[stub] core/lakebase.teardown: no workspace client injected; would "
+            "SDK-delete postgres project %r and secret scope %r.",
             project,
-            database,
             scope,
         )
-        return {"project": project, "schema": schema, "status": "stub"}
-
-    conn = ctx.pg_connection(role="admin", database=database)
-    executed: List[str] = []
-    cur = conn.cursor()
-    for stmt in workshop_schema_drop_sql(schema):
-        cur.execute(stmt)
-        executed.append(stmt)
-    conn.commit()
+        return {"project": project, "secret_scope": scope, "status": "stub"}
 
     w = ctx.workspace_client()
-    deleted: List[str] = []
-    for key in CONN_SECRET_KEYS:
-        try:
-            w.secrets.delete_secret(scope=scope, key=key)
-            deleted.append(key)
-        except Exception as exc:  # secret may already be gone -- best effort
-            ctx.logger.warning("core/lakebase.teardown: delete secret %r failed: %s", key, exc)
+
+    # (1) Delete the autoscaling `postgres` project (removes branch/endpoint/DBs).
+    #     verify delete_project arg shape at live run.
+    project_deleted = False
+    try:
+        w.postgres.delete_project(project)
+        project_deleted = True
+    except Exception as exc:  # project may already be gone -- best effort
+        ctx.logger.warning("core/lakebase.teardown: delete project %r failed: %s", project, exc)
+
+    # (2) Delete the standalone secret scope (removes all connection secrets).
+    scope_deleted = False
+    try:
+        w.secrets.delete_scope(scope)
+        scope_deleted = True
+    except Exception as exc:  # scope may already be gone -- best effort
+        ctx.logger.warning("core/lakebase.teardown: delete scope %r failed: %s", scope, exc)
 
     ctx.logger.info(
-        "core/lakebase.teardown: dropped schema %r from %s.%s; deleted %d secret(s) "
-        "from %r. Project/endpoint + scope are bundle-managed (`bundle destroy`).",
-        schema,
+        "core/lakebase.teardown: SDK-deleted project %r (%s) and scope %r (%s).",
         project,
-        database,
-        len(deleted),
+        "ok" if project_deleted else "skip/err",
         scope,
+        "ok" if scope_deleted else "skip/err",
     )
     return {
         "project": project,
-        "database": database,
-        "schema": schema,
         "secret_scope": scope,
-        "sql": executed,
-        "secrets_deleted": deleted,
+        "project_deleted": project_deleted,
+        "scope_deleted": scope_deleted,
         "status": "torn_down",
     }

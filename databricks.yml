@@ -15,9 +15,13 @@
 #     psycopg in core/security, NOT via a bundle resource.
 #   * database_instance (provisioned tier) -- excluded; no scale-to-zero.
 #
-# NOTE: The deploy notebook (deploy.py) invokes `databricks bundle deploy` from
-# inside the workspace (commit -> push -> pull -> run). This file is
-# `bundle validate`-clean (zero warnings); P0 does not run it.
+# NOTE: In-workspace provisioning is done via the Databricks Python SDK
+# (`WorkspaceClient`), NOT the CLI: `databricks bundle deploy` cannot run on
+# notebook/job compute ("only supported for interactive use from the web
+# terminal ... use the Databricks Python SDK"), so the deploy notebook (deploy.py)
+# provisions the project/endpoint/scope/app through the SDK. This file is kept
+# for LOCAL `bundle validate` / CI only (it is `bundle validate`-clean, zero
+# warnings); it is not deployed from the workspace.
 #
 # POSTGRES RESOURCE SHAPE: the `postgres_projects`/`postgres_endpoints` resources
 # below use the FLAT schema the CLI expects (verified against `databricks bundle

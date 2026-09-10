@@ -18,13 +18,27 @@ lakebase_teardown = load_step("lakebase", "teardown.py")
 lakebase_health = load_step("lakebase", "health.py")
 
 
-def test_deploy_creates_database_and_schema_idempotently_and_writes_secrets():
-    ctx, conn, ws = live_context()
+def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
+    ctx, conn, ws = live_context(params={"autoscaling_min_cu": "1", "autoscaling_max_cu": "4"})
     result = lakebase_deploy.deploy(ctx)
 
     assert result["status"] == "deployed"
     assert result["schema"] == "workshop"
     assert result["project"] == "acme-ws"
+
+    # (0) The standalone secret scope is created first (idempotent).
+    assert ws.secrets.scopes_created == ["acme-ws-secrets"]
+    # (1) The autoscaling `postgres` project is created (auto-creates branch/endpoint).
+    assert ws.postgres.create_project_calls == ["acme-ws"]
+    # (2) The primary endpoint's autoscaling CU range is set from the params.
+    assert ws.postgres.update_endpoint_calls == [
+        ("projects/acme-ws/branches/production/endpoints/primary", "1", "4")
+    ]
+    # (2 cont.) Availability was polled via get_project before connecting.
+    assert ws.postgres.get_project_calls and ws.postgres.get_project_calls[0] == "acme-ws"
+    # Provisioning summary surfaced on the result.
+    assert result["provisioned"]["autoscaling_min_cu"] == "1"
+    assert result["provisioned"]["autoscaling_max_cu"] == "4"
 
     # Workshop DATABASE created first (autoscaling: default `postgres` db has a
     # restricted public schema), then the idempotent workshop schema DDL.
@@ -55,15 +69,18 @@ def test_deploy_creates_database_and_schema_idempotently_and_writes_secrets():
     assert ws.secrets.value_for("pgpassword") == "oauth-token-xyz"
 
 
-def test_teardown_drops_schema_and_deletes_secrets():
-    ctx, conn, ws = live_context()
+def test_teardown_sdk_deletes_project_and_scope():
+    ctx, _conn, ws = live_context()
     result = lakebase_teardown.teardown(ctx)
 
     assert result["status"] == "torn_down"
-    assert any('DROP SCHEMA IF EXISTS "workshop" CASCADE' == s for s in conn.executed_sql())
-    assert conn.committed == 1
-    deleted_keys = {key for _, key in ws.secrets.deleted}
-    assert deleted_keys == {"pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"}
+    # The whole autoscaling `postgres` project is SDK-deleted (removes branch/
+    # endpoint/DBs -- so an explicit DROP SCHEMA is moot).
+    assert ws.postgres.delete_project_calls == ["acme-ws"]
+    assert result["project_deleted"] is True
+    # The standalone secret scope is deleted (removes all connection secrets).
+    assert ws.secrets.scopes_deleted == ["acme-ws-secrets"]
+    assert result["scope_deleted"] is True
 
 
 def test_health_checks_select_one_and_schema_exists():

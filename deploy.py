@@ -12,8 +12,10 @@
 # MAGIC discovered from `modules/*/module.yaml` and appear in the modules
 # MAGIC multiselect automatically.
 # MAGIC
-# MAGIC > P0 note: per-step execution is stubbed (logs intent only). Real DABs /
-# MAGIC > SDK / SQL logic lands in P1+.
+# MAGIC > Off-Databricks (pytest) per-step execution is stubbed (logs intent
+# MAGIC > only). In-workspace, each step provisions live via the Databricks
+# MAGIC > Python SDK (`WorkspaceClient`) -- the CLI cannot run on notebook/job
+# MAGIC > compute, so there is no `databricks bundle` shell-out.
 
 # COMMAND ----------
 
@@ -295,63 +297,19 @@ def build_context(params: Dict[str, Any]) -> DeployContext:
     return ctx
 
 
-def run_bundle_stage(mode: str) -> None:
-    """Run ``databricks bundle deploy``/``destroy -t dev`` from the deploy notebook.
-
-    This creates (``deploy``) or removes (``teardown``) the bundle-managed
-    resources the SDK/SQL orchestrator does NOT own: the Lakebase ``postgres``
-    project + ``primary`` endpoint, the standalone secret scope, and the admin
-    app. It shells out to the Databricks CLI available in the workspace runtime.
-
-    Callers guard this behind ``_IN_DATABRICKS`` (see ``main``) so importing this
-    module off-Databricks -- as the pytest suite does -- never shells out. The
-    bundle-deploy-from-notebook mechanic itself is validated at the live run.
-    """
-
-    import os
-    import subprocess  # deferred: importing deploy.py must not imply a shell-out
-
-    action = "deploy" if mode == "deploy" else "destroy"
-    cmd = ["databricks", "bundle", action, "-t", "dev"]
-    if action == "destroy":
-        cmd.append("--auto-approve")  # non-interactive teardown from the notebook
-
-    # The CLI has no configured profile inside a job, so authenticate it with the
-    # notebook's own runtime credentials (host + short-lived API token).
-    env = dict(os.environ)
-    try:
-        _c = dbutils.notebook.entry_point.getDbutils().notebook().getContext()  # type: ignore[name-defined]  # noqa: F821
-        env["DATABRICKS_HOST"] = _c.apiUrl().get()
-        env["DATABRICKS_TOKEN"] = _c.apiToken().get()
-    except Exception as exc:  # pragma: no cover - in-workspace only
-        print(f"[bundle] WARN: could not derive notebook credentials: {exc}")
-
-    print(f"[bundle] running: {' '.join(cmd)} (cwd={_REPO_ROOT})")
-    proc = subprocess.run(cmd, cwd=str(_REPO_ROOT), env=env, capture_output=True, text=True)
-    if proc.stdout:
-        print("[bundle stdout]\n" + proc.stdout[-4000:])
-    if proc.stderr:
-        print("[bundle stderr]\n" + proc.stderr[-4000:])
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"`databricks bundle {action} -t dev` failed (exit {proc.returncode}).\n"
-            f"host={env.get('DATABRICKS_HOST')!r} token_set={bool(env.get('DATABRICKS_TOKEN'))}\n"
-            f"STDOUT:\n{proc.stdout[-1800:]}\n\nSTDERR:\n{proc.stderr[-1800:]}"
-        )
-    print(f"[bundle] {action} complete")
-
-
 def main(params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Entry point: build context from params and run the orchestrator.
 
     Advanced params (no widget) are overlaid from ``config.yaml``, then required
     params are validated before anything runs.
 
-    In-workspace (``_IN_DATABRICKS``) the DABs bundle stage brackets the
-    orchestrator: for ``deploy`` the bundle resources (project/endpoint/scope/
-    app) are created BEFORE the SDK/SQL steps so they exist; for ``teardown`` the
-    orchestrator tears down FIRST, then the bundle is destroyed. Off-Databricks
-    the bundle stage is skipped entirely (guarded).
+    All provisioning is done by the SDK-backed component steps themselves (a
+    ``WorkspaceClient`` from ``bootstrap.adapters``, injected in-workspace):
+    ``deploy`` runs the orchestrator forward; ``teardown`` runs it in teardown
+    mode. There is NO CLI shell-out -- the ``databricks bundle`` CLI cannot run on
+    notebook/job compute ("only supported for interactive use from the web
+    terminal ... use the Databricks Python SDK"), so the in-workspace notebook
+    provisions the project, endpoint, secret scope, and app via the SDK.
     """
 
     params = params or _read_params()
@@ -369,19 +327,7 @@ def main(params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     _validate_required(params)
     ctx = build_context(params)
     modules = _parse_modules(params.get("modules", ""))
-
-    # deploy: bundle-managed resources must exist before the orchestrator runs.
-    if _IN_DATABRICKS and ctx.mode == "deploy":  # pragma: no cover - in-workspace only
-        run_bundle_stage("deploy")
-
-    results = run(mode=ctx.mode, selected_modules=modules, ctx=ctx, root=_REPO_ROOT)
-
-    # teardown: destroy bundle-managed resources only after the orchestrator has
-    # torn down what depends on them.
-    if _IN_DATABRICKS and ctx.mode == "teardown":  # pragma: no cover - in-workspace only
-        run_bundle_stage("teardown")
-
-    return results
+    return run(mode=ctx.mode, selected_modules=modules, ctx=ctx, root=_REPO_ROOT)
 
 
 # COMMAND ----------

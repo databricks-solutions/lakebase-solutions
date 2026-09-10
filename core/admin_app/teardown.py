@@ -1,8 +1,8 @@
 """core/admin_app teardown step.
 
-Removes the admin app. The app is a GA `app` DABs resource, so teardown is a
-``databricks bundle destroy`` of that resource, driven from the in-workspace
-deploy notebook.
+Removes the admin app via the Databricks Python SDK (``w.apps.delete``).
+``databricks bundle destroy`` cannot run on notebook/job compute, so the delete
+is SDK-driven and best-effort (the app may already be gone).
 
 Needs a workspace client; when none is injected it logs intent and returns a
 ``stub`` result.
@@ -18,13 +18,18 @@ def teardown(ctx: Any) -> Dict[str, Any]:
 
     if not ctx.has_workspace_client():
         ctx.logger.info(
-            "[stub] core/admin_app.teardown: no workspace client injected; would delete "
-            "app %r (via `databricks bundle destroy` of the `app` resource).",
+            "[stub] core/admin_app.teardown: no workspace client injected; would "
+            "SDK-delete app %r (w.apps.delete).",
             app_name,
         )
         return {"app": app_name, "status": "stub"}
 
     w = ctx.workspace_client()
-    w.apps.delete(name=app_name)
-    ctx.logger.info("core/admin_app.teardown: deleted app %r.", app_name)
-    return {"app": app_name, "status": "deleted"}
+    deleted = False
+    try:
+        w.apps.delete(name=app_name)
+        deleted = True
+        ctx.logger.info("core/admin_app.teardown: deleted app %r.", app_name)
+    except Exception as exc:  # app may already be gone -- best effort
+        ctx.logger.warning("core/admin_app.teardown: delete app %r failed: %s", app_name, exc)
+    return {"app": app_name, "app_deleted": deleted, "status": "deleted" if deleted else "skipped"}

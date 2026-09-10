@@ -110,6 +110,14 @@ class FakeSecrets:
     def __init__(self) -> None:
         self.put: List[Tuple[str, str, str]] = []
         self.deleted: List[Tuple[str, str]] = []
+        self.scopes_created: List[str] = []
+        self.scopes_deleted: List[str] = []
+
+    def create_scope(self, scope: str, **_kw: Any) -> None:
+        self.scopes_created.append(scope)
+
+    def delete_scope(self, scope: str, **_kw: Any) -> None:
+        self.scopes_deleted.append(scope)
 
     def put_secret(self, scope: str, key: str, string_value: str) -> None:
         self.put.append((scope, key, string_value))
@@ -153,13 +161,21 @@ class _ListEndpointsResponse:
         self.endpoints = endpoints
 
 
-class FakePostgres:
-    """Fake ``w.postgres`` surface (autoscaling): endpoint lookup + credential.
+class _Project:
+    def __init__(self, name: str) -> None:
+        self.name = name
 
-    ``list_endpoints`` returns a response exposing ``.endpoints`` (each with a
-    hierarchical ``name`` and ``status.hosts[*].host``);
+
+class FakePostgres:
+    """Fake ``w.postgres`` surface (autoscaling): provisioning + lookup + credential.
+
+    Provisioning: ``create_project`` (records the project id; auto-creates the
+    branch/endpoint in the real API), ``create_endpoint`` / ``update_endpoint``
+    (records the endpoint resource + autoscaling CU range), ``get_project``
+    (records the poll). Lookup: ``list_endpoints`` returns a response exposing
+    ``.endpoints`` (each with a hierarchical ``name`` and ``status.hosts[*].host``).
     ``generate_database_credential`` mints an OAuth token for an endpoint
-    resource path.
+    resource path. ``delete_project`` records teardown.
     """
 
     def __init__(
@@ -175,6 +191,42 @@ class FakePostgres:
         self._endpoint = endpoint
         self.list_calls: List[str] = []
         self.cred_calls: List[str] = []
+        self.create_project_calls: List[str] = []
+        self.get_project_calls: List[str] = []
+        self.delete_project_calls: List[str] = []
+        self.create_endpoint_calls: List[Tuple[str, Any, Any]] = []
+        self.update_endpoint_calls: List[Tuple[str, Any, Any]] = []
+
+    def create_project(self, name: str, **_kw: Any) -> _Project:
+        self.create_project_calls.append(name)
+        return _Project(name)
+
+    def get_project(self, name: str, **_kw: Any) -> _Project:
+        self.get_project_calls.append(name)
+        return _Project(name)
+
+    def delete_project(self, name: str, **_kw: Any) -> None:
+        self.delete_project_calls.append(name)
+
+    def create_endpoint(
+        self,
+        name: str,
+        autoscaling_limit_min_cu: Any = None,
+        autoscaling_limit_max_cu: Any = None,
+        **_kw: Any,
+    ) -> _Endpoint:
+        self.create_endpoint_calls.append((name, autoscaling_limit_min_cu, autoscaling_limit_max_cu))
+        return _Endpoint(name, self._host)
+
+    def update_endpoint(
+        self,
+        name: str,
+        autoscaling_limit_min_cu: Any = None,
+        autoscaling_limit_max_cu: Any = None,
+        **_kw: Any,
+    ) -> _Endpoint:
+        self.update_endpoint_calls.append((name, autoscaling_limit_min_cu, autoscaling_limit_max_cu))
+        return _Endpoint(name, self._host)
 
     def list_endpoints(self, parent: str) -> _ListEndpointsResponse:
         self.list_calls.append(parent)
@@ -203,11 +255,51 @@ class FakeCurrentUser:
         return _Me(self._user_name)
 
 
+class _App:
+    def __init__(self, name: str, url: str = "https://app.example") -> None:
+        self.name = name
+        self.url = url
+        self.app_status = "RUNNING"
+
+
+class FakeApps:
+    """Minimal ``w.apps`` surface: create / get / deploy / delete with recording.
+
+    ``get`` raises ``KeyError`` until the app has been created (so the admin_app
+    step's create-if-missing path is exercised); ``create`` registers it.
+    """
+
+    def __init__(self) -> None:
+        self.created: List[str] = []
+        self.deployed: List[Tuple[str, Optional[str]]] = []
+        self.deleted: List[str] = []
+        self._apps: Dict[str, _App] = {}
+
+    def get(self, name: str, **_kw: Any) -> _App:
+        if name not in self._apps:
+            raise KeyError(f"app not found: {name}")
+        return self._apps[name]
+
+    def create(self, name: str, **_kw: Any) -> _App:
+        self.created.append(name)
+        app = _App(name)
+        self._apps[name] = app
+        return app
+
+    def deploy(self, app_name: str, source_code_path: Optional[str] = None, **_kw: Any) -> None:
+        self.deployed.append((app_name, source_code_path))
+
+    def delete(self, name: str, **_kw: Any) -> None:
+        self.deleted.append(name)
+        self._apps.pop(name, None)
+
+
 class FakeWorkspaceClient:
     def __init__(self, email: str = "admin@example.com", host: str = "host.example") -> None:
         self.secrets = FakeSecrets()
         self.postgres = FakePostgres(host=host)
         self.current_user = FakeCurrentUser(email)
+        self.apps = FakeApps()
 
 
 # --------------------------------------------------------------------------- #
