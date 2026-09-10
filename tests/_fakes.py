@@ -227,6 +227,14 @@ class FakeApiClient:
         m = method.upper()
         p = path.rstrip("/")
 
+        # --- Service principal OAuth (M2M) secrets REST ---
+        if "/credentials/secrets/" in p and m == "DELETE":
+            return {}
+        if p.endswith("/credentials/secrets") and m == "POST":
+            return {"id": "sec-1", "secret": "sp-oauth-secret-xyz", "status": "ACTIVE"}
+        if p.endswith("/credentials/secrets") and m == "GET":
+            return {"secrets": []}
+
         # --- Databricks Apps REST (/api/2.0/apps) ---
         if p.endswith("/deployments") and m == "POST":
             return {"deployment_id": "dep-1", "status": {"state": "SUCCEEDED"}}

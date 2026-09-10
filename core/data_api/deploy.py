@@ -317,21 +317,35 @@ def _ensure_service_principal(w: Any, sp_name: str, logger: Any) -> Dict[str, An
     return {"id": sp.id, "application_id": sp.application_id, "created": created}
 
 
-def _mint_sp_secret(w: Any, sp_internal_id: Any, lifetime: str, logger: Any) -> Optional[str]:
-    """Mint an OAuth M2M secret for the SP (removing the oldest if the cap is hit)."""
+def _sp_secrets_path(sp_internal_id: Any) -> str:
+    """REST path for a service principal's OAuth (M2M) secrets."""
 
+    return f"/api/2.0/accounts/servicePrincipals/{sp_internal_id}/credentials/secrets"
+
+
+def _mint_sp_secret(w: Any, sp_internal_id: Any, lifetime: str, logger: Any) -> Optional[str]:
+    """Mint an OAuth (M2M) secret for the SP via REST (cap-aware).
+
+    The typed ``w.service_principal_secrets_proxy`` service is NOT present on the
+    notebook-runtime SDK (``'WorkspaceClient' has no attribute
+    'service_principal_secrets_proxy'``) -- exactly like ``postgres``/``apps`` --
+    so this drives the REST surface directly:
+    ``POST /api/2.0/accounts/servicePrincipals/<id>/credentials/secrets`` ->
+    ``{"id", "secret", "status": "ACTIVE"}`` (a long-lived secret; ``lifetime`` is
+    not applicable to this endpoint and is accepted only for signature
+    compatibility). If the per-SP secret cap is hit, delete the oldest and retry.
+    """
+
+    base = _sp_secrets_path(sp_internal_id)
     try:
-        sec = w.service_principal_secrets_proxy.create(
-            service_principal_id=sp_internal_id, lifetime=lifetime
-        )
+        sec = w.api_client.do("POST", base)
     except Exception:
-        old = list(w.service_principal_secrets_proxy.list(service_principal_id=sp_internal_id))
-        if old:
-            w.service_principal_secrets_proxy.delete(
-                service_principal_id=sp_internal_id, secret_id=old[0].id
-            )
-        sec = w.service_principal_secrets_proxy.create(
-            service_principal_id=sp_internal_id, lifetime=lifetime
-        )
-    logger.info("core/data_api: minted SP OAuth secret (lifetime=%s).", lifetime)
-    return getattr(sec, "secret", None)
+        listed = w.api_client.do("GET", base)
+        items = listed.get("secrets", []) if isinstance(listed, dict) else (listed or [])
+        if items:
+            oldest_id = items[0].get("id") if isinstance(items[0], dict) else getattr(items[0], "id", None)
+            if oldest_id:
+                w.api_client.do("DELETE", f"{base}/{oldest_id}")
+        sec = w.api_client.do("POST", base)
+    logger.info("core/data_api: minted SP OAuth secret via REST.")
+    return sec.get("secret") if isinstance(sec, dict) else getattr(sec, "secret", None)
