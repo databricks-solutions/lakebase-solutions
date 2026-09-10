@@ -27,32 +27,38 @@ def health_check(ctx: Any) -> Dict[str, Any]:
     import json
     import urllib.request
 
-    w = ctx.workspace_client()
-    app = w.apps.get(name=app_name)
-    base_url = (getattr(app, "url", "") or "").rstrip("/")
-    token = w.config.token or ""
+    # Best-effort: the admin app is a deferred/optional step, so a health failure
+    # (incl. w.apps method variance on the runtime SDK) must NOT abort the run.
+    try:
+        w = ctx.workspace_client()
+        app = w.apps.get(name=app_name)
+        base_url = (getattr(app, "url", "") or "").rstrip("/")
+        token = w.config.token or ""
 
-    req = urllib.request.Request(
-        f"{base_url}/api/health",
-        headers={"Authorization": f"Bearer {token}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        code = resp.getcode()
-        body = json.loads(resp.read().decode() or "{}")
+        req = urllib.request.Request(
+            f"{base_url}/api/health",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            code = resp.getcode()
+            body = json.loads(resp.read().decode() or "{}")
 
-    healthy = code == 200 and body.get("status") == "ok"
-    ctx.logger.info(
-        "core/admin_app.health: GET %s/api/health -> HTTP %s (status=%s, db=%s).",
-        base_url,
-        code,
-        body.get("status"),
-        body.get("db"),
-    )
-    return {
-        "app": app_name,
-        "http_status": code,
-        "db": body.get("db"),
-        "healthy": healthy,
-        "status": "ok" if healthy else "unhealthy",
-    }
+        healthy = code == 200 and body.get("status") == "ok"
+        ctx.logger.info(
+            "core/admin_app.health: GET %s/api/health -> HTTP %s (status=%s, db=%s).",
+            base_url,
+            code,
+            body.get("status"),
+            body.get("db"),
+        )
+        return {
+            "app": app_name,
+            "http_status": code,
+            "db": body.get("db"),
+            "healthy": healthy,
+            "status": "ok" if healthy else "unhealthy",
+        }
+    except Exception as exc:
+        ctx.logger.warning("[admin_app] health deferred: %s", exc)
+        return {"app": app_name, "healthy": None, "error": str(exc), "status": "deferred"}
