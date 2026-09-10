@@ -20,6 +20,18 @@
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Runtime dependency
+# MAGIC The steps connect to Lakebase Postgres with **psycopg v3**, which is not
+# MAGIC preinstalled on the job runtime. Installing it notebook-scoped (auto-restarts
+# MAGIC Python). Off-Databricks (pytest) this `%pip` line is an inert comment.
+
+# COMMAND ----------
+
+# MAGIC %pip install --quiet "psycopg[binary]"
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Import guard
 # MAGIC `dbutils` only exists inside Databricks. Guarding it keeps this file
 # MAGIC importable off-Databricks (the pytest suite imports this module).
