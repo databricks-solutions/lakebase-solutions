@@ -36,11 +36,12 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     post_projects = [
         c for c in api.calls if c[0] == "POST" and c[1] == "/api/2.0/postgres/projects"
     ]
+    # project_id is passed as a query param (verified live); the body is spec-only.
     assert post_projects == [
         (
             "POST",
             "/api/2.0/postgres/projects",
-            {"project_id": "acme-ws", "spec": {"display_name": "acme-ws"}},
+            {"spec": {"display_name": "acme-ws"}},
         )
     ]
 

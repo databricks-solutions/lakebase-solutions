@@ -186,10 +186,13 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         if not _is_not_found(exc):
             raise
         try:
+            # project_id is a QUERY parameter (verified via CLI debug); the body
+            # carries only the spec.
             w.api_client.do(
                 "POST",
                 f"{POSTGRES_API_BASE}/projects",
-                body={"project_id": project, "spec": {"display_name": project}},
+                query={"project_id": project},
+                body={"spec": {"display_name": project}},
             )
             provisioned["project_created"] = True
         except Exception as create_exc:
