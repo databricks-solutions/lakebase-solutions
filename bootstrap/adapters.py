@@ -6,25 +6,28 @@ section 4/8): hierarchical ``postgres`` projects -> ``production`` branch ->
 ``primary`` read-write endpoint (min/max CU + scale-to-zero), NOT the legacy
 provisioned ``database_instance`` tier.
 
-* the workspace client is the plain ``databricks.sdk.WorkspaceClient``;
-* the endpoint host comes from ``status.hosts.host`` on the endpoint returned by
-  ``w.postgres.list_endpoints(projects/<id>/branches/production)``;
+* the workspace client is the plain ``databricks.sdk.WorkspaceClient``; the
+  autoscaling ``postgres`` service is NOT typed on the notebook-runtime SDK
+  (``WorkspaceClient`` has no ``postgres`` attribute there), so every Postgres
+  call goes through the **REST API** via ``w.api_client.do(method, path,
+  body=..., query=...)`` -- always present on any SDK version -- NOT the typed
+  autoscaling-postgres service;
+* the endpoint host comes from ``status.hosts.host`` on an endpoint returned by
+  ``GET /api/2.0/postgres/projects/<id>/branches/production/endpoints``;
 * the ADMIN PG credential is ``(workspace email, OAuth token)`` -- the token is
-  minted by ``w.postgres.generate_database_credential(<endpoint resource>)`` and
-  the connecting user is the workspace email (``w.current_user.me().user_name``),
-  NOT a JWT ``sub`` claim; ``sslmode=require``;
+  the ``token`` field of ``POST /api/2.0/postgres/credentials`` (body
+  ``{"endpoint": "<endpoint resource>"}``) and the connecting user is the
+  workspace email (``w.current_user.me().user_name``), NOT a JWT ``sub`` claim;
+  ``sslmode=require``;
 * non-admin PG roles (``app`` / ``readonly``) still authenticate with the
   native username/password pair that ``core/security`` wrote to the standalone
   secret scope (unchanged);
 * PG roles/grants are created with ``CREATE ROLE`` SQL by the ``core/security``
   step, not a bundle ``postgres_role`` resource.
 
-**Verify live at P1b:** the SDK shapes below are the expected equivalents of the
-``databricks postgres`` CLI (``w.postgres.list_endpoints`` /
-``w.postgres.generate_database_credential`` / ``w.current_user.me().user_name``);
-they cannot be imported/checked offline, so the resolvers are defensive about
-response shape (endpoint list vs. ``.endpoints``; ``status.hosts`` list vs.
-single object).
+``w.api_client.do`` returns a parsed ``dict`` and raises on HTTP error, so the
+resolvers below parse dicts and are defensive about response shape (endpoint
+list vs. ``.endpoints``; ``status.hosts`` as a dict vs. a list).
 
 **Import safety:** every third-party import (``databricks-sdk``, ``psycopg``) is
 deferred inside the function that needs it, so importing this module never
@@ -40,6 +43,7 @@ import json
 from typing import Any, Optional
 
 __all__ = [
+    "POSTGRES_API_BASE",
     "default_workspace_client_factory",
     "default_pg_connection_factory",
     "endpoint_resource_name",
@@ -50,6 +54,9 @@ __all__ = [
 # Autoscaling Lakebase creates these by default when a project is provisioned.
 DEFAULT_BRANCH = "production"
 DEFAULT_ENDPOINT = "primary"
+
+# Base path for the autoscaling Postgres REST API (called via w.api_client.do).
+POSTGRES_API_BASE = "/api/2.0/postgres"
 
 
 def default_workspace_client_factory() -> Any:
@@ -93,10 +100,19 @@ def endpoint_resource_name(
 
 
 def _host_from_endpoint(endpoint: Any) -> Optional[str]:
-    """Extract ``status.hosts.host`` from an endpoint (list or single host)."""
+    """Extract ``status.hosts.host`` from an endpoint (REST dict; hosts dict or list).
 
-    status = getattr(endpoint, "status", None)
-    hosts = getattr(status, "hosts", None)
+    The REST response is a parsed ``dict`` (``status.hosts`` is typically a single
+    ``{"host": ...}`` object, occasionally a list); a legacy typed object is still
+    handled defensively via ``getattr``.
+    """
+
+    if isinstance(endpoint, dict):
+        status = endpoint.get("status") or {}
+        hosts = status.get("hosts") if isinstance(status, dict) else None
+    else:  # defensive: legacy typed object
+        status = getattr(endpoint, "status", None)
+        hosts = getattr(status, "hosts", None)
     if hosts is None:
         return None
     if isinstance(hosts, (list, tuple)):
@@ -118,20 +134,26 @@ def resolve_endpoint_host(
 ) -> Optional[str]:
     """Resolve the read-write endpoint host for a project/branch (autoscaling).
 
-    Lists the branch's endpoints and returns ``status.hosts.host`` for the
-    endpoint whose resource name ends in ``endpoints/<endpoint>`` (falling back
-    to the first endpoint). Response shape is handled defensively (a list, or an
-    object exposing ``.endpoints``).
+    Calls ``GET /api/2.0/postgres/projects/<id>/branches/<branch>/endpoints`` via
+    ``w.api_client.do`` and returns ``status.hosts.host`` for the endpoint whose
+    resource name ends in ``endpoints/<endpoint>`` (falling back to the first
+    endpoint). The parsed-dict response shape is handled defensively (a bare list,
+    or a dict exposing ``.endpoints``).
     """
 
-    resp = w.postgres.list_endpoints(f"projects/{project}/branches/{branch}")
-    endpoints = getattr(resp, "endpoints", None)
+    resp = w.api_client.do(
+        "GET", f"{POSTGRES_API_BASE}/projects/{project}/branches/{branch}/endpoints"
+    )
+    if isinstance(resp, dict):
+        endpoints = resp.get("endpoints")
+    else:
+        endpoints = None
     if endpoints is None:
-        endpoints = list(resp) if resp is not None else []
+        endpoints = list(resp) if isinstance(resp, (list, tuple)) else []
 
     chosen = None
     for ep in endpoints:
-        name = getattr(ep, "name", "") or ""
+        name = (ep.get("name") if isinstance(ep, dict) else getattr(ep, "name", "")) or ""
         if name.rsplit("/", 1)[-1] == endpoint or name.endswith(f"endpoints/{endpoint}"):
             chosen = ep
             break
@@ -150,8 +172,9 @@ def default_pg_connection_factory(
     ``role`` selects credentials:
 
     * ``None`` / ``"admin"`` -- authenticate as the **workspace email** with an
-      OAuth token minted by ``generate_database_credential`` on the ``primary``
-      endpoint; used for DDL (``CREATE DATABASE`` / ``CREATE SCHEMA`` / roles).
+      OAuth token minted by ``POST /api/2.0/postgres/credentials`` for the
+      ``primary`` endpoint; used for DDL (``CREATE DATABASE`` / ``CREATE SCHEMA``
+      / roles).
     * any other role (``"app"``, ``"readonly"``, ...) -- authenticate with the
       native-password secret pair that ``core/security`` wrote to the standalone
       secret scope at deploy time.
@@ -167,9 +190,13 @@ def default_pg_connection_factory(
     dbname = database or ctx.params.get("database") or "databricks_postgres"
 
     if role in (None, "admin"):
-        cred = w.postgres.generate_database_credential(endpoint_resource_name(project))
+        cred = w.api_client.do(
+            "POST",
+            f"{POSTGRES_API_BASE}/credentials",
+            body={"endpoint": endpoint_resource_name(project)},
+        )
         pg_user = w.current_user.me().user_name
-        pg_password = getattr(cred, "token", None)
+        pg_password = cred.get("token") if isinstance(cred, dict) else getattr(cred, "token", None)
     else:
         scope = ctx.params.get("secret_scope") or ctx.resolved_names["secret_scope"]
         pg_user = _read_secret(w, scope, f"{role}-role-username")

@@ -135,107 +135,86 @@ class FakeSecrets:
         return None
 
 
-class _Credential:
-    def __init__(self, token: str) -> None:
-        self.token = token
+class FakeNotFound(Exception):
+    """Fake 404 raised by :class:`FakeApiClient` for a missing postgres project.
+
+    Mirrors ``databricks.sdk.errors.NotFound`` enough for the deploy step's
+    offline-safe 404 detection: carries ``error_code`` + ``status_code``.
+    """
+
+    def __init__(self, message: str = "RESOURCE_DOES_NOT_EXIST") -> None:
+        super().__init__(message)
+        self.error_code = "RESOURCE_DOES_NOT_EXIST"
+        self.status_code = 404
 
 
-class _Host:
-    def __init__(self, host: str) -> None:
-        self.host = host
+class FakeApiClient:
+    """Fake ``w.api_client`` for the autoscaling Postgres REST API.
 
+    Records every ``do(method, path, body=..., query=..., headers=...)`` call as
+    ``(method, path, body)`` in ``.calls`` and returns canned parsed-dict
+    responses keyed by path (matching the real REST shapes):
 
-class _EndpointStatus:
-    def __init__(self, hosts: List[_Host]) -> None:
-        self.hosts = hosts
-
-
-class _Endpoint:
-    def __init__(self, name: str, host: str) -> None:
-        self.name = name
-        self.status = _EndpointStatus([_Host(host)])
-
-
-class _ListEndpointsResponse:
-    def __init__(self, endpoints: List[_Endpoint]) -> None:
-        self.endpoints = endpoints
-
-
-class _Project:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-
-class FakePostgres:
-    """Fake ``w.postgres`` surface (autoscaling): provisioning + lookup + credential.
-
-    Provisioning: ``create_project`` (records the project id; auto-creates the
-    branch/endpoint in the real API), ``create_endpoint`` / ``update_endpoint``
-    (records the endpoint resource + autoscaling CU range), ``get_project``
-    (records the poll). Lookup: ``list_endpoints`` returns a response exposing
-    ``.endpoints`` (each with a hierarchical ``name`` and ``status.hosts[*].host``).
-    ``generate_database_credential`` mints an OAuth token for an endpoint
-    resource path. ``delete_project`` records teardown.
+    * ``GET  /api/2.0/postgres/projects/<id>`` -> a project dict when
+      ``project_exists`` is True, else raises :class:`FakeNotFound` (so the deploy
+      step exercises its create path);
+    * ``POST /api/2.0/postgres/projects`` -> ``{}``;
+    * ``GET  .../branches/production/endpoints`` -> one endpoint with
+      ``status.hosts.host`` + ``status.current_state``;
+    * ``PATCH .../endpoints/primary`` -> ``{}``;
+    * ``POST /api/2.0/postgres/credentials`` -> ``{"token": <fake jwt>}``;
+    * ``DELETE /api/2.0/postgres/projects/<id>`` -> ``{}``.
     """
 
     def __init__(
         self,
         host: str = "host.example",
         token: str = "oauth-token-xyz",
-        branch: str = "production",
         endpoint: str = "primary",
+        project_exists: bool = False,
     ) -> None:
         self._host = host
         self._token = token
-        self._branch = branch
         self._endpoint = endpoint
-        self.list_calls: List[str] = []
-        self.cred_calls: List[str] = []
-        self.create_project_calls: List[str] = []
-        self.get_project_calls: List[str] = []
-        self.delete_project_calls: List[str] = []
-        self.create_endpoint_calls: List[Tuple[str, Any, Any]] = []
-        self.update_endpoint_calls: List[Tuple[str, Any, Any]] = []
+        self._project_exists = project_exists
+        self.calls: List[Tuple[str, str, Any]] = []
 
-    def create_project(self, name: str, **_kw: Any) -> _Project:
-        self.create_project_calls.append(name)
-        return _Project(name)
-
-    def get_project(self, name: str, **_kw: Any) -> _Project:
-        self.get_project_calls.append(name)
-        return _Project(name)
-
-    def delete_project(self, name: str, **_kw: Any) -> None:
-        self.delete_project_calls.append(name)
-
-    def create_endpoint(
+    def do(
         self,
-        name: str,
-        autoscaling_limit_min_cu: Any = None,
-        autoscaling_limit_max_cu: Any = None,
-        **_kw: Any,
-    ) -> _Endpoint:
-        self.create_endpoint_calls.append((name, autoscaling_limit_min_cu, autoscaling_limit_max_cu))
-        return _Endpoint(name, self._host)
+        method: str,
+        path: str,
+        body: Any = None,
+        query: Any = None,
+        headers: Any = None,
+    ) -> Dict[str, Any]:
+        self.calls.append((method, path, body))
+        m = method.upper()
+        p = path.rstrip("/")
 
-    def update_endpoint(
-        self,
-        name: str,
-        autoscaling_limit_min_cu: Any = None,
-        autoscaling_limit_max_cu: Any = None,
-        **_kw: Any,
-    ) -> _Endpoint:
-        self.update_endpoint_calls.append((name, autoscaling_limit_min_cu, autoscaling_limit_max_cu))
-        return _Endpoint(name, self._host)
+        if m == "POST" and p.endswith("/postgres/credentials"):
+            return {"token": self._token}
+        if m == "POST" and p.endswith("/postgres/projects"):
+            return {}
+        if m == "GET" and p.endswith("/endpoints"):
+            return {
+                "endpoints": [
+                    {"status": {"hosts": {"host": self._host}, "current_state": "AVAILABLE"}}
+                ]
+            }
+        if m == "PATCH" and "/endpoints/" in p:
+            return {}
+        if m == "DELETE" and "/postgres/projects/" in p:
+            return {}
+        if m == "GET" and "/postgres/projects/" in p:
+            if self._project_exists:
+                return {"project_id": p.rsplit("/", 1)[-1], "spec": {}}
+            raise FakeNotFound()
+        return {}
 
-    def list_endpoints(self, parent: str) -> _ListEndpointsResponse:
-        self.list_calls.append(parent)
-        name = f"{parent}/endpoints/{self._endpoint}"
-        return _ListEndpointsResponse([_Endpoint(name, self._host)])
+    def calls_for(self, method: str) -> List[Tuple[str, str, Any]]:
+        """Recorded ``(method, path, body)`` tuples for a given HTTP method."""
 
-    def generate_database_credential(self, name: str) -> _Credential:
-        self.cred_calls.append(name)
-        return _Credential(self._token)
+        return [c for c in self.calls if c[0].upper() == method.upper()]
 
 
 class _Me:
@@ -297,7 +276,7 @@ class FakeApps:
 class FakeWorkspaceClient:
     def __init__(self, email: str = "admin@example.com", host: str = "host.example") -> None:
         self.secrets = FakeSecrets()
-        self.postgres = FakePostgres(host=host)
+        self.api_client = FakeApiClient(host=host)
         self.current_user = FakeCurrentUser(email)
         self.apps = FakeApps()
 

@@ -26,19 +26,37 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     assert result["schema"] == "workshop"
     assert result["project"] == "acme-ws"
 
+    api = ws.api_client
+
     # (0) The standalone secret scope is created first (idempotent).
     assert ws.secrets.scopes_created == ["acme-ws-secrets"]
-    # (1) The autoscaling `postgres` project is created (auto-creates branch/endpoint).
-    assert ws.postgres.create_project_calls == ["acme-ws"]
-    # (2) The primary endpoint's autoscaling CU range is set from the params.
-    assert ws.postgres.update_endpoint_calls == [
-        ("projects/acme-ws/branches/production/endpoints/primary", "1", "4")
+
+    # (1) The autoscaling `postgres` project is created via REST: GET (404) then POST.
+    assert ("GET", "/api/2.0/postgres/projects/acme-ws", None) in api.calls
+    post_projects = [
+        c for c in api.calls if c[0] == "POST" and c[1] == "/api/2.0/postgres/projects"
     ]
-    # (2 cont.) Availability was polled via get_project before connecting.
-    assert ws.postgres.get_project_calls and ws.postgres.get_project_calls[0] == "acme-ws"
+    assert post_projects == [
+        (
+            "POST",
+            "/api/2.0/postgres/projects",
+            {"project_id": "acme-ws", "spec": {"display_name": "acme-ws"}},
+        )
+    ]
+
+    # (2) The primary endpoint's autoscaling CU range is PATCHed from the params.
+    assert api.calls_for("PATCH") == [
+        (
+            "PATCH",
+            "/api/2.0/postgres/projects/acme-ws/branches/production/endpoints/primary",
+            {"spec": {"autoscaling_limit_min_cu": 1.0, "autoscaling_limit_max_cu": 4.0}},
+        )
+    ]
+    # (2 cont.) Availability was polled via GET project (create-check + poll) before connecting.
+    assert api.calls.count(("GET", "/api/2.0/postgres/projects/acme-ws", None)) >= 2
     # Provisioning summary surfaced on the result.
-    assert result["provisioned"]["autoscaling_min_cu"] == "1"
-    assert result["provisioned"]["autoscaling_max_cu"] == "4"
+    assert result["provisioned"]["autoscaling_min_cu"] == 1.0
+    assert result["provisioned"]["autoscaling_max_cu"] == 4.0
 
     # Workshop DATABASE created first (autoscaling: default `postgres` db has a
     # restricted public schema), then the idempotent workshop schema DDL.
@@ -49,12 +67,20 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     # maintenance connection.
     assert conn.committed == 1
 
-    # A connection credential was minted for the PRIMARY endpoint of the project.
-    assert ws.postgres.cred_calls == [
-        "projects/acme-ws/branches/production/endpoints/primary"
+    # A connection credential was minted for the PRIMARY endpoint via POST /credentials.
+    assert [c for c in api.calls if c[1] == "/api/2.0/postgres/credentials"] == [
+        (
+            "POST",
+            "/api/2.0/postgres/credentials",
+            {"endpoint": "projects/acme-ws/branches/production/endpoints/primary"},
+        )
     ]
-    # The endpoint host was resolved from the production branch's endpoints.
-    assert ws.postgres.list_calls == ["projects/acme-ws/branches/production"]
+    # The endpoint host was resolved from the production branch's endpoints (REST GET).
+    assert (
+        "GET",
+        "/api/2.0/postgres/projects/acme-ws/branches/production/endpoints",
+        None,
+    ) in api.calls
 
     # Connection info written to the standalone secret scope.
     keys = ws.secrets.keys_written()
@@ -74,9 +100,9 @@ def test_teardown_sdk_deletes_project_and_scope():
     result = lakebase_teardown.teardown(ctx)
 
     assert result["status"] == "torn_down"
-    # The whole autoscaling `postgres` project is SDK-deleted (removes branch/
-    # endpoint/DBs -- so an explicit DROP SCHEMA is moot).
-    assert ws.postgres.delete_project_calls == ["acme-ws"]
+    # The whole autoscaling `postgres` project is deleted via REST DELETE (removes
+    # branch/endpoint/DBs -- so an explicit DROP SCHEMA is moot).
+    assert ws.api_client.calls == [("DELETE", "/api/2.0/postgres/projects/acme-ws", None)]
     assert result["project_deleted"] is True
     # The standalone secret scope is deleted (removes all connection secrets).
     assert ws.secrets.scopes_deleted == ["acme-ws-secrets"]

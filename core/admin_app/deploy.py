@@ -7,12 +7,13 @@ source path through the SDK. Its runtime config lives in ``app.yaml`` (PG
 connection from the deployment's secret scope via ``valueFrom``, plus
 ``TARGET_SCHEMA`` / ``ADMIN_GROUP``).
 
-**Robustness:** the create/deploy is wrapped so an app-SDK hiccup does NOT abort
-the whole run. On failure it logs ``[admin_app] deploy needs attention: <err>``
-and returns a ``{"status": "deferred", ...}`` result instead of raising -- the
-infra (Lakebase/security) validates independently, and the app can be iterated
-on separately. The exact ``w.apps`` request shapes are best-effort equivalents
-of the apps CLI and are marked "verify at live run".
+**Robustness:** the create/deploy is wrapped so any failure -- including
+``w.apps`` being ABSENT on the notebook-runtime SDK (``AttributeError``) -- does
+NOT abort the whole run. On failure it logs ``[admin_app] deferred: <err>`` and
+returns a ``{"status": "deferred", ...}`` result instead of raising -- the infra
+(Lakebase/security) validates independently, and the app can be iterated on
+separately. The exact ``w.apps`` request shapes are best-effort equivalents of
+the apps CLI and are marked "verify at live run".
 
 Needs only a workspace client; when none is injected (e.g. the orchestrator
 smoke tests) it logs intent and returns a ``stub`` result.
@@ -61,6 +62,10 @@ def deploy(ctx: Any) -> Dict[str, Any]:
 
     w = ctx.workspace_client()
     try:
+        # `w.apps` may be entirely absent on the notebook-runtime SDK; touching it
+        # raises AttributeError, which the broad except below turns into a defer.
+        if getattr(w, "apps", None) is None:
+            raise AttributeError("WorkspaceClient has no attribute 'apps'")
         created = _ensure_app(w, app_name, ctx.logger)
         # Deploy the app from its workspace source path. verify arg shape at live run.
         w.apps.deploy(app_name=app_name, source_code_path=source_path)
@@ -94,8 +99,9 @@ def deploy(ctx: Any) -> Dict[str, Any]:
             "status": "deployed",
         }
     except Exception as exc:
-        # An app-SDK hiccup must NOT abort the whole run: log and defer.
-        ctx.logger.error("[admin_app] deploy needs attention: %s", exc)
+        # Any failure (incl. w.apps absent -> AttributeError) must NOT abort the
+        # whole run: log and defer.
+        ctx.logger.error("[admin_app] deferred: %s", exc)
         return {
             "app": app_name,
             "admin_group": admin_group,

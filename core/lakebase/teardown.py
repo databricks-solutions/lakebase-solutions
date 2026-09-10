@@ -4,10 +4,11 @@ SDK-deletes the whole Lakebase surface this deployment provisioned. ``databricks
 bundle destroy`` cannot run on notebook/job compute, so teardown drives the
 Databricks Python SDK (``WorkspaceClient``) instead of the CLI:
 
-1. delete the autoscaling ``postgres`` **project**
-   (``w.postgres.delete_project``) -- this removes the ``production`` branch, the
-   ``primary`` endpoint, and every database/schema inside it, so an explicit
-   ``DROP SCHEMA`` is moot,
+1. delete the autoscaling ``postgres`` **project** via REST
+   (``DELETE /api/2.0/postgres/projects/<id>`` through ``w.api_client.do`` -- the
+   notebook-runtime SDK has no typed autoscaling-postgres service) -- this removes the
+   ``production`` branch, the ``primary`` endpoint, and every database/schema
+   inside it, so an explicit ``DROP SCHEMA`` is moot,
 2. delete the standalone secret **scope** (``w.secrets.delete_scope``) -- this
    removes every connection secret the deploy step wrote in one call.
 
@@ -20,6 +21,8 @@ When no live clients are injected it logs intent and returns a ``stub`` result.
 from __future__ import annotations
 
 from typing import Any, Dict
+
+from bootstrap.adapters import POSTGRES_API_BASE
 
 # Connection-info secret keys the deploy step wrote (documented here for
 # reference; teardown removes the whole scope rather than deleting keys 1-by-1).
@@ -41,11 +44,11 @@ def teardown(ctx: Any) -> Dict[str, Any]:
 
     w = ctx.workspace_client()
 
-    # (1) Delete the autoscaling `postgres` project (removes branch/endpoint/DBs).
-    #     verify delete_project arg shape at live run.
+    # (1) Delete the autoscaling `postgres` project (removes branch/endpoint/DBs)
+    #     via REST DELETE.
     project_deleted = False
     try:
-        w.postgres.delete_project(project)
+        w.api_client.do("DELETE", f"{POSTGRES_API_BASE}/projects/{project}")
         project_deleted = True
     except Exception as exc:  # project may already be gone -- best effort
         ctx.logger.warning("core/lakebase.teardown: delete project %r failed: %s", project, exc)
