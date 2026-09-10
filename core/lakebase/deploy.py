@@ -113,11 +113,22 @@ def _wait_for_primary_endpoint(w: Any, project: str, logger: Any) -> Any:
             w.api_client.do("GET", f"{POSTGRES_API_BASE}/projects/{project}")
         except Exception as exc:  # pragma: no cover - live-only shape variance
             logger.info("core/lakebase.deploy: GET project %r not ready yet: %s", project, exc)
-        endpoint = resolve_primary_endpoint(w, project)
+        # Project creation is ASYNC: right after POST the project (and its
+        # branch/endpoints) are briefly not queryable and GET endpoints 404s with
+        # "project not found". That is a not-ready signal, NOT a fatal error -- so
+        # swallow it and keep polling rather than aborting the whole deploy.
+        try:
+            endpoint = resolve_primary_endpoint(w, project)
+        except Exception as exc:  # pragma: no cover - live-only provisioning lag
+            logger.info("core/lakebase.deploy: endpoints for %r not ready yet: %s", project, exc)
+            endpoint = None
         if endpoint is not None and _host_from_endpoint_obj(endpoint):
             return endpoint
         time.sleep(_ENDPOINT_POLL_DELAY_SECONDS)  # pragma: no cover - live-only wait
-    return resolve_primary_endpoint(w, project)  # pragma: no cover - final best-effort
+    try:  # pragma: no cover - final best-effort after the budget
+        return resolve_primary_endpoint(w, project)
+    except Exception:
+        return None
 
 
 def _host_from_endpoint_obj(endpoint: Any) -> str:
@@ -161,14 +172,27 @@ def _apply_autoscaling_cu(
     last_min: Any = None
     last_max: Any = None
     for attempt in range(_CU_PATCH_ATTEMPTS):
-        w.api_client.do(
-            "PATCH",
-            f"{POSTGRES_API_BASE}/{endpoint_name}",
-            query={"update_mask": "spec.autoscaling_limit_min_cu,spec.autoscaling_limit_max_cu"},
-            body={"spec": {"autoscaling_limit_min_cu": min_cu, "autoscaling_limit_max_cu": max_cu}},
-        )
-        endpoint = resolve_primary_endpoint(w, project)
-        last_min, last_max = endpoint_cu(endpoint) if endpoint is not None else (None, None)
+        try:
+            w.api_client.do(
+                "PATCH",
+                f"{POSTGRES_API_BASE}/{endpoint_name}",
+                query={
+                    "update_mask": "spec.autoscaling_limit_min_cu,spec.autoscaling_limit_max_cu"
+                },
+                body={
+                    "spec": {"autoscaling_limit_min_cu": min_cu, "autoscaling_limit_max_cu": max_cu}
+                },
+            )
+            endpoint = resolve_primary_endpoint(w, project)
+            last_min, last_max = endpoint_cu(endpoint) if endpoint is not None else (None, None)
+        except Exception as exc:  # pragma: no cover - live-only: transient/endpoint lag
+            logger.info(
+                "core/lakebase.deploy: CU PATCH attempt %d not ready (%s); retrying.",
+                attempt + 1,
+                exc,
+            )
+            time.sleep(_CU_PATCH_DELAY_SECONDS)
+            continue
         if _cu_matches(last_min, min_cu) and _cu_matches(last_max, max_cu):
             logger.info(
                 "core/lakebase.deploy: autoscaling CU set to %s-%s on %r (verified).",
