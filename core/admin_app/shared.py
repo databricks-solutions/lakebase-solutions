@@ -179,7 +179,10 @@ def get_user_databricks_groups(email: str) -> list[str]:
     groups: list[str] = []
     try:
         w = get_workspace_client()
-        user_list = w.users.list(filter=f'userName eq "{email}"')
+        # Escape the value before building the SCIM filter so a crafted email
+        # (e.g. one containing a double-quote) cannot alter the filter.
+        safe_email = email.replace("\\", "\\\\").replace('"', '\\"')
+        user_list = w.users.list(filter=f'userName eq "{safe_email}"')
         for u in user_list:
             if u.groups:
                 groups = [g.display for g in u.groups if g.display]

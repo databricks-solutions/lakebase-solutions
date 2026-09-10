@@ -96,15 +96,17 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 @admin_bp.before_request
 def check_admin_access():
-    """Gate every ``/api/admin/*`` endpoint on admin access.
+    """Gate every ``/api/admin/*`` endpoint on admin access (fail CLOSED).
 
     * Anonymous callers are blocked unless ``ALLOW_ANONYMOUS_ADMIN=true``
       (local dev only).
     * Members of the configured admin group (``ADMIN_GROUP``, plus the
       workspace ``admins`` group) are allowed.
-    * Otherwise, authenticated users are allowed by default so a fresh deploy
-      is usable. Set ``STRICT_ADMIN=true`` to require admin-group membership
-      and return 403 for everyone else.
+    * Everyone else is DENIED by default -- this console runs destructive
+      operations (password rotation, VACUUM/REINDEX, backend cancel, backup
+      restore), so it fails closed. A SCIM lookup failure also denies (it does
+      NOT fall through to allow). Set ``STRICT_ADMIN=false`` to intentionally
+      open the console to any authenticated user (e.g. a trusted workshop).
     """
     user = get_current_user()
     if user.get("email") == "anonymous":
@@ -112,14 +114,14 @@ def check_admin_access():
             return None
         return jsonify({"error": "Authentication required"}), 401
 
+    # Default STRICT: only STRICT_ADMIN=false opens access to any authenticated user.
+    open_access = os.environ.get("STRICT_ADMIN", "true").lower() == "false"
     try:
-        if get_role_from_groups(user["email"]) == "admin":
-            return None
+        is_admin = get_role_from_groups(user["email"]) == "admin"
     except Exception:
-        # SCIM lookup failed — fall through to the lenient/strict decision.
-        pass
-
-    if os.environ.get("STRICT_ADMIN", "").lower() != "true":
+        # SCIM lookup failed -> deny (fail closed), do not fall through to allow.
+        is_admin = False
+    if is_admin or open_access:
         return None
 
     return jsonify({
@@ -1502,6 +1504,13 @@ def admin_vacuum_analyze():
         pool = current_pool()
         request_data = request.get_json(silent=True) or {}
         table_name = request_data.get("table")
+        # Reject any table identifier that isn't a plain SQL identifier BEFORE it
+        # is interpolated into pgstattuple()/VACUUM below (prevents SQL injection).
+        if table_name:
+            try:
+                table_name = validate_identifier(table_name, "table")
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
         with pool.connection() as conn:
             conn.autocommit = True
@@ -1749,6 +1758,12 @@ def admin_reindex():
         pool = current_pool()
         request_data = request.get_json(silent=True) or {}
         table_name = request_data.get("table")
+        # Validate the table identifier before it is interpolated into REINDEX.
+        if table_name:
+            try:
+                table_name = validate_identifier(table_name, "table")
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
         with pool.connection() as conn:
             conn.autocommit = True  # REINDEX CONCURRENTLY cannot run in a transaction
@@ -1784,6 +1799,12 @@ def admin_refresh_matviews():
         pool = current_pool()
         request_data = request.get_json(silent=True) or {}
         one = request_data.get("view")
+        # Validate the view identifier before it is interpolated into REFRESH.
+        if one:
+            try:
+                one = validate_identifier(one, "view")
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
 
         with pool.connection() as conn:
             conn.autocommit = True

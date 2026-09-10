@@ -32,13 +32,14 @@ env:
     value: "workshop"
 
   # ── Access control ───────────────────────────────────────────────────────
-  # Members of ADMIN_GROUP (and the workspace `admins` group) are admins. Left
-  # unset, any authenticated app viewer is allowed; set STRICT_ADMIN=true to
-  # require admin-group membership (403 otherwise).
+  # Members of ADMIN_GROUP (and the workspace `admins` group) are admins. The
+  # console fails CLOSED: it requires admin-group membership and returns 403
+  # otherwise. Set STRICT_ADMIN=false to intentionally open it to any
+  # authenticated viewer (e.g. a trusted, throwaway workshop).
   - name: ADMIN_GROUP
     value: "admins"
-  # - name: STRICT_ADMIN
-  #   value: "true"
+  - name: STRICT_ADMIN
+    value: "true"
 
   # ── Multi-instance (optional) ─────────────────────────────────────────────
   # The default instance uses the native PG* creds above. Every other instance
