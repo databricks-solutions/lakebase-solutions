@@ -44,7 +44,6 @@ from bootstrap.adapters import (
     POSTGRES_API_BASE,
     endpoint_cu,
     endpoint_resource_name,
-    resolve_endpoint_host,
     resolve_primary_endpoint,
 )
 
@@ -321,6 +320,20 @@ def deploy(ctx: Any) -> Dict[str, Any]:
     #     endpoint on Lakebase defaults in earlier runs.
     endpoint = _wait_for_primary_endpoint(w, project, ctx.logger)
     host = _host_from_endpoint_obj(endpoint) if endpoint is not None else None
+    if not host:
+        # The project's primary endpoint never became reachable within the budget.
+        # `create-project` is a long-running operation, so this normally means the
+        # project is still provisioning -- OR the project id is in a post-deletion
+        # cooldown (re-using a just-deleted deployment_id can leave the id
+        # unusable for a while). Fail loud and actionable rather than letting a
+        # downstream "project not found" bubble up opaquely.
+        raise RuntimeError(
+            f"lakebase: primary endpoint for project {project!r} did not become "
+            f"available within ~{int(_ENDPOINT_POLL_ATTEMPTS * _ENDPOINT_POLL_DELAY_SECONDS / 60)} "
+            "minutes. The project may still be provisioning, or (if you just tore "
+            "down a deployment with this id) the id may be in a post-deletion "
+            "cooldown -- retry, or use a fresh deployment_id."
+        )
     cu_result = _apply_autoscaling_cu(w, endpoint_name, project, min_cu, max_cu, ctx.logger)
     provisioned["autoscaling_min_cu"] = cu_result["min_cu"]
     provisioned["autoscaling_max_cu"] = cu_result["max_cu"]
@@ -328,8 +341,6 @@ def deploy(ctx: Any) -> Dict[str, Any]:
 
     # (3) Resolve an admin connection credential for the primary endpoint.
     #     PG user is the workspace email; password is the OAuth token.
-    if not host:  # pragma: no cover - live-only: endpoint never surfaced a host
-        host = resolve_endpoint_host(w, project)
     cred = w.api_client.do(
         "POST",
         f"{POSTGRES_API_BASE}/credentials",
