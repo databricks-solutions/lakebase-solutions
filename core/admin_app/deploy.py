@@ -1,11 +1,15 @@
-"""core/admin_app deploy step (P0 stub).
+"""core/admin_app deploy step.
 
-Responsibility: deploy the always-on admin app (Lakebase DBA console) via the GA
-`app` DABs resource. Source for the app is this directory (see databricks.yml
-`apps.admin_app.source_code_path: ./core/admin_app`). App runtime config lives in
-`app.yaml`. The console itself is a fork of `lakebase_admin` (harvested in P2).
+Deploys the always-on admin app (the Lakebase DBA console) via the GA `app`
+DABs resource. The app source is this directory (see databricks.yml
+``apps.admin_app.source_code_path: ./core/admin_app``) and its runtime config
+lives in ``app.yaml`` (PG connection from the deployment's secret scope via
+``valueFrom``, plus ``TARGET_SCHEMA`` / ``ADMIN_GROUP``).
 
-P0: logs intent only -- no live calls.
+The bundle expresses the app resource itself, so this step's job is to confirm
+the app was created and record its identity. It needs only a workspace client;
+when none is injected (e.g. the orchestrator smoke tests) it logs intent and
+returns a ``stub`` result -- the live run happens in-workspace.
 """
 
 from __future__ import annotations
@@ -15,12 +19,32 @@ from typing import Any, Dict
 
 def deploy(ctx: Any) -> Dict[str, Any]:
     app_name = ctx.resolved_names.get("admin_app", ctx.name("admin-app"))
+    admin_group = ctx.params.get("admin_group") or ctx.resolved_names.get("admin_group")
+
+    if not ctx.has_workspace_client():
+        ctx.logger.info(
+            "[stub] core/admin_app.deploy: no workspace client injected; would confirm "
+            "app %r (deployed via the DABs `app` resource, source core/admin_app) is "
+            "created and gated by group %r.",
+            app_name,
+            admin_group,
+        )
+        return {"app": app_name, "admin_group": admin_group, "status": "stub"}
+
+    w = ctx.workspace_client()
+    app = w.apps.get(name=app_name)
+    status = getattr(getattr(app, "compute_status", None), "state", None) or getattr(app, "app_status", None)
+
     ctx.logger.info(
-        "[stub] would deploy admin app %r via the DABs `app` resource "
-        "(source: core/admin_app), gated by group %r.",
+        "core/admin_app.deploy: confirmed app %r (gated by group %r); status=%s.",
         app_name,
-        ctx.params.get("admin_group") or ctx.resolved_names.get("admin_group"),
+        admin_group,
+        status,
     )
-    # TODO(P2): harvest lakebase_admin app source here; wire PG creds + Data API
-    #   env from the secret scope; `databricks bundle deploy` the app resource.
-    return {"app": app_name, "status": "stub"}
+    return {
+        "app": app_name,
+        "admin_group": admin_group,
+        "url": getattr(app, "url", None),
+        "compute_status": str(status) if status is not None else None,
+        "status": "deployed",
+    }

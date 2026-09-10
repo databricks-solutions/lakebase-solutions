@@ -1,15 +1,64 @@
-# Databricks App runtime config for the admin app (P0 stub).
-# TODO(P2): fork lakebase_admin's app source into this directory. Env vars
-# (PGHOST/PGDATABASE/PGUSER/PGPASSWORD via valueFrom the secret scope,
-# TARGET_SCHEMA, ADMIN_GROUP, DEFAULT_INSTANCE, Data API URL/SP) land then.
+# Databricks App runtime config for the always-on admin app (Lakebase DBA console).
+#
+# The default Postgres connection uses native PG auth. The connection secrets are
+# written to this deployment's standalone secret scope by core/lakebase and read
+# here at runtime via `valueFrom` (the app registers each key as an app resource,
+# so `valueFrom: <key>` resolves the secret at launch — nothing is baked into the
+# image or committed to git):
+#   pghost / pgdatabase / pguser / pgpassword
+# The host is the autoscaling `primary` endpoint host; the driver adds
+# `sslmode=require` (see shared.py `_build_conninfo`). psycopg v3 is used throughout.
 command:
   - "python"
   - "app.py"
 
 env:
+  # ── Lakebase / Postgres connection (native PG auth via the secret scope) ──
+  - name: PGHOST
+    valueFrom: "pghost"
+  - name: PGDATABASE
+    valueFrom: "pgdatabase"
+  - name: PGUSER
+    valueFrom: "pguser"
+  - name: PGPASSWORD
+    valueFrom: "pgpassword"
+  # - name: PGPORT          # optional, defaults to 5432
+  #   value: "5432"
+
+  # ── Schema this console administers ──────────────────────────────────────
+  # Default `public`; set to the workshop schema (`workshop`) to point the
+  # explorer, maintenance, and backup tools at the workshop objects.
   - name: TARGET_SCHEMA
     value: "public"
-  # - name: PGUSER
-  #   valueFrom: "pguser"        # from the deployment's secret scope (P2)
-  # - name: PGPASSWORD
-  #   valueFrom: "pgpassword"    # from the deployment's secret scope (P2)
+
+  # ── Access control ───────────────────────────────────────────────────────
+  # Members of ADMIN_GROUP (and the workspace `admins` group) are admins. Left
+  # unset, any authenticated app viewer is allowed; set STRICT_ADMIN=true to
+  # require admin-group membership (403 otherwise).
+  - name: ADMIN_GROUP
+    value: "admins"
+  # - name: STRICT_ADMIN
+  #   value: "true"
+
+  # ── Multi-instance (optional) ─────────────────────────────────────────────
+  # The default instance uses the native PG* creds above. Every other instance
+  # the selector lists is reached with a short-lived OAuth database credential,
+  # minted on behalf of the signed-in user when a forwarded token is present.
+  # Set DEFAULT_INSTANCE to the project id whose native creds are configured
+  # above so the selector marks it as the default target.
+  # - name: DEFAULT_INSTANCE
+  #   value: "<lakebase-project-id>"
+
+  # ── Backup persistence to a UC Volume (optional) ─────────────────────────
+  # Unset → fresh generate + download still work; save/list/restore disabled.
+  # Requires SQL_WAREHOUSE_ID for the volume create-if-missing step.
+  # - name: BACKUP_VOLUME
+  #   value: "/Volumes/main/default/lakebase_backups"
+  # - name: SQL_WAREHOUSE_ID
+  #   value: "<warehouse-id>"
+
+  # ── Credential rotation (optional) ───────────────────────────────────────
+  # Workspace path of a rotation notebook. Unset → the rotation trigger returns
+  # a graceful "not configured" response.
+  # - name: ROTATION_NOTEBOOK_PATH
+  #   value: "/Workspace/.../rotate_pg_password"

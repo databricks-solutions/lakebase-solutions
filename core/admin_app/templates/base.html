@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html data-theme="dbx-dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Lakebase Admin Console{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/themes.css">
+    {% block head_extra %}{% endblock %}
+    <script>
+        // Apply the saved theme before first paint (dbx-dark default, dbx-light toggle).
+        (function () {
+            var saved = localStorage.getItem('lbadmin-theme') || 'dbx-dark';
+            document.documentElement.setAttribute('data-theme', saved);
+        })();
+
+        // Attach the selected Lakebase instance to every same-origin /api call.
+        // Installed here (head) so it wraps fetch before any page script runs —
+        // the whole console then targets whichever instance the selector picked.
+        (function () {
+            var _fetch = window.fetch;
+            window.fetch = function (input, init) {
+                try {
+                    var url = (typeof input === 'string') ? input : (input && input.url) || '';
+                    var sameOriginApi = url && (url.charAt(0) === '/' || url.indexOf(location.origin) === 0) && url.indexOf('/api/') !== -1;
+                    if (sameOriginApi) {
+                        var inst = null;
+                        try { inst = localStorage.getItem('lbadmin-instance'); } catch (e) {}
+                        if (inst) {
+                            init = init || {};
+                            var h = new Headers(init.headers || {});
+                            h.set('X-Lakebase-Instance', inst);
+                            init.headers = h;
+                        }
+                    }
+                } catch (e) {}
+                var p = _fetch.call(this, input, init);
+                // Surface admin API failures (e.g. an instance you must consent to
+                // reach, or have no access on) as a single dismissible banner.
+                try {
+                    if (url && url.indexOf('/api/admin/') !== -1) {
+                        p.then(function (resp) {
+                            if (!resp.ok) {
+                                resp.clone().json().then(function (j) {
+                                    if (j && j.error && String(j.error).trim()) {
+                                        window.dispatchEvent(new CustomEvent(
+                                            'lbadmin-api-error', { detail: String(j.error).trim() }));
+                                    }
+                                }).catch(function () {});
+                            }
+                        }).catch(function () {});
+                    }
+                } catch (e) {}
+                return p;
+            };
+        })();
+    </script>
+    <style>
+        /* Standalone single-page layout. */
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            background: var(--bg-primary, #0b0f14);
+            color: var(--text-primary, #e6e6e6);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .top-bar {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            height: 52px;
+            flex-shrink: 0;
+            padding: 0 20px;
+            background: var(--bg-secondary, #12181f);
+            border-bottom: 1px solid var(--border-primary, #263140);
+        }
+        .top-bar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-primary, #e6e6e6);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .top-bar-brand img { width: 22px; height: 22px; }
+        .top-bar-sep { width: 1px; height: 22px; background: var(--border-primary, #263140); }
+        .top-bar-title { font-size: 0.95rem; font-weight: 600; color: var(--text-secondary, #9aa7b4); }
+        .top-bar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+        .lakebase-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 0.72rem; font-weight: 600;
+            padding: 4px 10px; border-radius: 999px;
+            background: var(--bg-tertiary, #1a222c);
+            border: 1px solid var(--border-primary, #263140);
+            color: var(--text-secondary, #9aa7b4);
+        }
+        .lakebase-chip img { width: 15px; height: 15px; }
+        .theme-toggle {
+            background: none; border: 1px solid var(--border-primary, #263140);
+            color: var(--text-secondary, #9aa7b4); cursor: pointer;
+            border-radius: 8px; padding: 5px 9px; font-size: 14px; line-height: 1;
+        }
+        .theme-toggle:hover { color: var(--text-primary, #e6e6e6); }
+        .page-content { flex: 1; overflow-y: auto; padding: 20px 24px 48px; }
+
+        /* ── Instance selector (searchable combobox) ── */
+        .inst-selector { position: relative; }
+        .inst-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            max-width: 320px; padding: 5px 10px; cursor: pointer;
+            font-size: 0.8rem; font-weight: 600;
+            background: var(--bg-tertiary, #1a222c);
+            border: 1px solid var(--border-primary, #263140);
+            color: var(--text-primary, #e6e6e6); border-radius: 8px;
+        }
+        .inst-btn .inst-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .inst-btn .inst-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-primary, #1B7FE3); flex-shrink: 0; }
+        .inst-btn .inst-caret { color: var(--text-secondary, #9aa7b4); font-size: 0.7rem; }
+        .inst-panel {
+            position: absolute; top: calc(100% + 6px); right: 0; width: 340px;
+            background: var(--bg-secondary, #12181f);
+            border: 1px solid var(--border-primary, #263140);
+            border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            z-index: 3000; overflow: hidden;
+        }
+        .inst-panel[hidden] { display: none; }
+        .inst-search-wrap { padding: 10px; border-bottom: 1px solid var(--border-primary, #263140); }
+        .inst-search {
+            width: 100%; box-sizing: border-box; padding: 7px 10px;
+            font-size: 0.82rem; border-radius: 7px;
+            background: var(--bg-primary, #0b0f14);
+            border: 1px solid var(--border-primary, #263140);
+            color: var(--text-primary, #e6e6e6);
+        }
+        .inst-list { max-height: 340px; overflow-y: auto; padding: 6px; }
+        .inst-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px; border-radius: 7px; cursor: pointer;
+            font-size: 0.82rem; color: var(--text-primary, #e6e6e6);
+        }
+        .inst-item:hover { background: var(--bg-tertiary, #1a222c); }
+        .inst-item.active { background: var(--bg-tertiary, #1a222c); outline: 1px solid var(--accent-primary, #1B7FE3); }
+        .inst-item .inst-item-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .inst-item .inst-item-meta { margin-left: auto; font-size: 0.68rem; color: var(--text-secondary, #9aa7b4); font-family: var(--font-mono, monospace); white-space: nowrap; }
+        .inst-item .inst-badge { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 1px 6px; border-radius: 999px; background: var(--accent-primary, #1B7FE3); color: #fff; }
+        .inst-empty { padding: 14px; text-align: center; font-size: 0.78rem; color: var(--text-secondary, #9aa7b4); }
+    </style>
+</head>
+<body data-page="{{ page_id }}">
+
+    <div class="top-bar">
+        <a href="/" class="top-bar-brand">
+            <img src="/static/databricks-symbol.svg" alt="Databricks">
+            Lakebase Admin Console
+        </a>
+        <div class="top-bar-sep"></div>
+        <div class="top-bar-title">{% block page_title %}Admin{% endblock %}</div>
+        <div class="top-bar-right">
+            <div class="inst-selector">
+                <button class="inst-btn" id="instBtn" title="Switch Lakebase instance" onclick="toggleInstancePanel(event)">
+                    <img src="/static/lakebase-icon-full-color.webp" alt="" style="width:15px;height:15px;">
+                    <span class="inst-name" id="instBtnName">Loading…</span>
+                    <span class="inst-caret">&#x25BE;</span>
+                </button>
+                <div class="inst-panel" id="instPanel" hidden>
+                    <div class="inst-search-wrap">
+                        <input class="inst-search" id="instSearch" type="text" placeholder="Search instances…" autocomplete="off" oninput="renderInstanceList()">
+                    </div>
+                    <div class="inst-list" id="instList"><div class="inst-empty">Loading instances…</div></div>
+                </div>
+            </div>
+            <button class="theme-toggle" id="themeToggle" title="Toggle light / dark" onclick="toggleTheme()">&#x1F319;</button>
+        </div>
+    </div>
+
+    <div class="page-content">
+        <div id="apiErrorBanner" style="display:none;margin:0 0 16px;padding:11px 14px;border-radius:8px;
+             background:rgba(255,111,66,0.12);border:1px solid #FF6F42;color:var(--text-primary,#e6e6e6);
+             font-size:0.82rem;align-items:flex-start;gap:10px;">
+            <span style="font-size:1rem;line-height:1.2;">⚠️</span>
+            <span id="apiErrorMsg" style="flex:1;"></span>
+            <button onclick="document.getElementById('apiErrorBanner').style.display='none'"
+                    style="background:none;border:none;color:var(--text-secondary,#9aa7b4);cursor:pointer;font-size:15px;line-height:1;">×</button>
+        </div>
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        function _syncThemeIcon() {
+            var t = document.documentElement.getAttribute('data-theme');
+            var btn = document.getElementById('themeToggle');
+            if (btn) btn.innerHTML = (t === 'dbx-light') ? '&#x2600;' : '&#x1F319;';
+        }
+        function toggleTheme() {
+            var cur = document.documentElement.getAttribute('data-theme');
+            var next = (cur === 'dbx-light') ? 'dbx-dark' : 'dbx-light';
+            document.documentElement.setAttribute('data-theme', next);
+            try { localStorage.setItem('lbadmin-theme', next); } catch (e) {}
+            _syncThemeIcon();
+        }
+        _syncThemeIcon();
+
+        // ── Confirmation modal (single + double confirm) ────────────────────
+        // window.lbConfirm(opts) → Promise<bool>. opts:
+        //   {title, message, confirmLabel, danger, doubleConfirm,
+        //    doubleTitle, doubleMessage, doubleConfirmLabel}
+        // doubleConfirm=true requires TWO explicit approvals — used for any action
+        // that could delete data. Nothing destructive runs without going through this.
+        window.lbConfirm = function (opts) {
+            opts = opts || {};
+            return new Promise(function (resolve) {
+                var ov = document.createElement('div');
+                ov.style.cssText = 'position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;';
+                var card = document.createElement('div');
+                function render(step) {
+                    var isDouble = !!opts.doubleConfirm;
+                    var stern = (step === 2) || !!opts.danger;
+                    var accent = stern ? '#FF4444' : 'var(--accent-primary,#1B7FE3)';
+                    var title = step === 2 ? (opts.doubleTitle || 'Are you absolutely sure?') : (opts.title || 'Please confirm');
+                    var message = step === 2 ? (opts.doubleMessage || opts.message || '') : (opts.message || '');
+                    var okLabel = step === 2 ? (opts.doubleConfirmLabel || 'Yes — I understand, proceed')
+                                             : (isDouble ? 'Continue…' : (opts.confirmLabel || 'Confirm'));
+                    card.style.cssText = 'max-width:480px;width:90%;background:var(--bg-secondary,#12181f);border:1px solid ' + accent + ';border-radius:12px;padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.55);';
+                    card.innerHTML =
+                        '<div style="font-size:1.05rem;font-weight:700;color:var(--text-primary,#e6e6e6);margin-bottom:8px;">' + (step === 2 ? '⚠️ ' : '') + title + '</div>' +
+                        '<div style="font-size:0.85rem;color:var(--text-secondary,#9aa7b4);line-height:1.5;margin-bottom:18px;white-space:pre-wrap;"></div>' +
+                        '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+                        '<button id="_lbc_cancel" style="padding:7px 14px;border-radius:8px;border:1px solid var(--border-primary,#263140);background:transparent;color:var(--text-secondary,#9aa7b4);cursor:pointer;font-size:0.82rem;">Cancel</button>' +
+                        '<button id="_lbc_ok" style="padding:7px 14px;border-radius:8px;border:1px solid ' + accent + ';background:' + accent + ';color:#fff;cursor:pointer;font-size:0.82rem;font-weight:600;"></button>' +
+                        '</div>';
+                    card.querySelector('div:nth-child(2)').textContent = message;  // safe text insert
+                    card.querySelector('#_lbc_ok').textContent = okLabel;
+                    card.querySelector('#_lbc_cancel').onclick = function () { cleanup(); resolve(false); };
+                    card.querySelector('#_lbc_ok').onclick = function () {
+                        if (isDouble && step === 1) { render(2); } else { cleanup(); resolve(true); }
+                    };
+                }
+                function cleanup() { try { document.body.removeChild(ov); } catch (e) {} document.removeEventListener('keydown', onKey); }
+                function onKey(e) { if (e.key === 'Escape') { cleanup(); resolve(false); } }
+                document.addEventListener('keydown', onKey);
+                ov.onclick = function (e) { if (e.target === ov) { cleanup(); resolve(false); } };
+                ov.appendChild(card);
+                document.body.appendChild(ov);
+                render(1);
+            });
+        };
+
+        // ── Instance selector ──────────────────────────────────────────────
+        var _instances = [];
+        var _activeInstance = null;
+
+        function _savedInstance() {
+            try { return localStorage.getItem('lbadmin-instance'); } catch (e) { return null; }
+        }
+
+        function loadInstances() {
+            fetch('/api/admin/instances')
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    _instances = data.instances || [];
+                    _activeInstance = _savedInstance() || data.active || data.default || null;
+                    // If the saved instance is no longer discoverable, keep showing it
+                    // (it may still be reachable) but don't crash the list.
+                    var match = _instances.filter(function (i) { return i.name === _activeInstance; })[0];
+                    var label = match ? (match.display || match.name) : (_activeInstance || 'default');
+                    document.getElementById('instBtnName').textContent = label;
+                    renderInstanceList();
+                })
+                .catch(function () {
+                    document.getElementById('instBtnName').textContent = _savedInstance() || 'default';
+                    document.getElementById('instList').innerHTML =
+                        '<div class="inst-empty">Could not load instances.</div>';
+                });
+        }
+
+        function renderInstanceList() {
+            var q = (document.getElementById('instSearch').value || '').toLowerCase();
+            var list = document.getElementById('instList');
+            var rows = _instances.filter(function (i) {
+                return !q || (i.name + ' ' + (i.display || '')).toLowerCase().indexOf(q) !== -1;
+            });
+            if (!rows.length) {
+                list.innerHTML = '<div class="inst-empty">No instances match “' +
+                    q.replace(/</g, '&lt;') + '”.</div>';
+                return;
+            }
+            list.innerHTML = rows.map(function (i) {
+                var active = (i.name === _activeInstance) ? ' active' : '';
+                var def = i.is_default ? '<span class="inst-badge">default</span>' : '';
+                var state = i.state ? String(i.state).replace('CURRENT_STATE_', '').replace('POSTGRES_ENDPOINT_STATE_', '') : '';
+                return '<div class="inst-item' + active + '" onclick="selectInstance(\'' +
+                    String(i.name).replace(/'/g, "\\'") + '\')">' +
+                    '<span class="inst-dot"></span>' +
+                    '<span class="inst-item-name">' + (i.display || i.name) + '</span>' +
+                    def +
+                    '<span class="inst-item-meta">' + state + '</span></div>';
+            }).join('');
+        }
+
+        function selectInstance(name) {
+            try { localStorage.setItem('lbadmin-instance', name); } catch (e) {}
+            location.reload();  // re-fetch every panel against the new instance
+        }
+
+        function toggleInstancePanel(evt) {
+            if (evt) evt.stopPropagation();
+            var panel = document.getElementById('instPanel');
+            panel.hidden = !panel.hidden;
+            if (!panel.hidden) {
+                var s = document.getElementById('instSearch');
+                s.value = ''; renderInstanceList(); s.focus();
+            }
+        }
+
+        document.addEventListener('click', function (e) {
+            var sel = document.querySelector('.inst-selector');
+            var panel = document.getElementById('instPanel');
+            if (panel && !panel.hidden && sel && !sel.contains(e.target)) panel.hidden = true;
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { var p = document.getElementById('instPanel'); if (p) p.hidden = true; }
+        });
+
+        loadInstances();
+
+        // Surface admin API errors (e.g. instance connection/consent issues) as a
+        // transient banner: never blank, and auto-dismisses so a one-off hiccup
+        // doesn't leave a permanent red bar.
+        var _apiErrTimer = null;
+        window.addEventListener('lbadmin-api-error', function (e) {
+            var msg = (e.detail && String(e.detail).trim()) || '';
+            if (!msg) return;  // nothing meaningful to show — don't flash an empty bar
+            if (/invalid scope|required scopes|on-behalf-of/i.test(msg)) {
+                msg += '  →  Reopen this app in your browser and approve the "postgres" ' +
+                       'permission when prompted, so the console can query this instance as you.';
+            }
+            var banner = document.getElementById('apiErrorBanner');
+            var el = document.getElementById('apiErrorMsg');
+            if (el && banner) {
+                el.textContent = msg;
+                banner.style.display = 'flex';
+                if (_apiErrTimer) clearTimeout(_apiErrTimer);
+                _apiErrTimer = setTimeout(function () { banner.style.display = 'none'; }, 12000);
+            }
+        });
+    </script>
+</body>
+</html>

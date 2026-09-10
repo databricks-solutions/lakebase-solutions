@@ -1,0 +1,1635 @@
+{% extends "base.html" %}
+{% block title %}Lakebase Admin — FieldOps{% endblock %}
+{% block page_title %}Lakebase Admin{% endblock %}
+
+{% block content %}
+<!-- Access Denied Overlay (hidden by default, shown if 403) -->
+<div id="adminAccessDenied" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg-primary,#0F0F14);display:none;align-items:center;justify-content:center;">
+    <div style="text-align:center;max-width:420px;padding:40px;">
+        <div style="font-size:48px;margin-bottom:16px;">&#128274;</div>
+        <h2 style="color:var(--text-primary);margin-bottom:8px;">Admin Access Required</h2>
+        <p style="color:var(--text-muted);font-size:14px;line-height:1.6;margin-bottom:20px;">
+            Your account doesn't have the <strong>admin</strong> role needed to access the Lakebase Control Center.
+        </p>
+        <div id="adminDeniedUser" style="padding:12px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border-primary);margin-bottom:20px;">
+            <div style="font-size:12px;color:var(--text-muted);">Logged in as</div>
+            <div id="adminDeniedEmail" style="font-size:14px;font-weight:600;color:var(--text-primary);margin-top:4px;">—</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Role: <span id="adminDeniedRole">user</span></div>
+        </div>
+        <p style="color:var(--text-muted);font-size:12px;">Contact your workspace administrator to request admin access.</p>
+        <a href="/" style="display:inline-block;margin-top:16px;padding:10px 24px;background:var(--accent-primary);color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">Back to Dashboard</a>
+    </div>
+</div>
+
+<div id="adminContent" style="padding:24px;max-width:1400px;margin:0 auto;">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;">
+    <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg, var(--accent-primary), var(--accent-hover));display:flex;align-items:center;justify-content:center;">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+    </div>
+    <div>
+      <h1 style="margin:0;font-size:1.5rem;font-weight:700;color:var(--text-primary);">Lakebase Control Center</h1>
+      <p style="margin:0;font-size:0.85rem;color:var(--text-secondary);">Database administration, security, and monitoring</p>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button onclick="refreshAll()" style="padding:8px 16px;border-radius:8px;border:1px solid var(--border-primary);background:var(--bg-tertiary);color:var(--text-primary);cursor:pointer;font-size:0.85rem;">Refresh All</button>
+    </div>
+  </div>
+
+  <!-- KPI Row -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;" id="kpiRow">
+    <div class="admin-kpi" id="kpi-dbsize"><div class="admin-kpi-label">Database Size</div><div class="admin-kpi-value">--</div></div>
+    <div class="admin-kpi" id="kpi-tables"><div class="admin-kpi-label">Tables</div><div class="admin-kpi-value">--</div></div>
+    <div class="admin-kpi" id="kpi-indexes"><div class="admin-kpi-label">Indexes</div><div class="admin-kpi-value">--</div></div>
+    <div class="admin-kpi" id="kpi-connections"><div class="admin-kpi-label">Connections</div><div class="admin-kpi-value">--</div></div>
+    <div class="admin-kpi" id="kpi-events"><div class="admin-kpi-label">Matviews</div><div class="admin-kpi-value">--</div></div>
+  </div>
+
+  <!-- Instance Dependencies -->
+  <div class="admin-card" id="depsCard" style="margin-bottom:24px;">
+    <div class="admin-card-header">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7L9 18l-5-5"/></svg>
+      Instance Dependencies
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+        <span id="depsSummary" style="font-size:0.72rem;color:var(--text-secondary);"></span>
+        <button id="depsProvisionAll" onclick="provisionAllMissing()" style="display:none;padding:4px 12px;border-radius:6px;border:1px solid var(--accent-primary);background:var(--accent-primary);color:#fff;cursor:pointer;font-size:0.75rem;">Provision all missing</button>
+        <button onclick="loadDependencies()" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.75rem;">Recheck</button>
+      </div>
+    </div>
+    <div id="depsBody" style="padding:14px 16px;"><div class="admin-loading">Checking dependencies…</div></div>
+  </div>
+
+  <script>
+    function _depBadge(s) {
+      if (s === 'present')     return '<span class="admin-badge" style="background:#00A972;color:#fff;">present</span>';
+      if (s === 'missing')     return '<span class="admin-badge yellow">missing</span>';
+      if (s === 'unavailable') return '<span class="admin-badge" style="background:#555;color:#ddd;">unavailable</span>';
+      return '<span class="admin-badge">' + s + '</span>';
+    }
+    function loadDependencies() {
+      var body = document.getElementById('depsBody');
+      var sum = document.getElementById('depsSummary');
+      var pAll = document.getElementById('depsProvisionAll');
+      fetch('/api/admin/dependencies').then(function (r) { return r.json(); }).then(function (d) {
+        if (d.error) {
+          body.innerHTML = '<div style="color:#FF6F42;font-size:0.8rem;">Could not check dependencies on this instance: ' + d.error + '</div>';
+          sum.textContent = ''; pAll.style.display = 'none'; return;
+        }
+        var deps = d.dependencies || [];
+        var missing = deps.filter(function (x) { return x.status === 'missing'; });
+        body.innerHTML = deps.map(function (x) {
+          var btn = (x.status === 'missing')
+            ? '<button onclick="provisionDependency(\'' + x.key + '\')" style="margin-left:auto;padding:3px 10px;border-radius:6px;border:1px solid var(--accent-primary);background:transparent;color:var(--accent-primary);cursor:pointer;font-size:0.72rem;">Provision</button>'
+            : '';
+          var note = (x.status === 'unavailable') ? ' <span style="color:var(--text-secondary);font-size:0.68rem;">(not offered by this server)</span>' : '';
+          return '<div class="admin-row" style="align-items:center;">'
+            + '<span class="admin-label" style="min-width:190px;">' + x.label + (x.required ? ' <span style="color:#FF6F42;">*</span>' : '') + '</span>'
+            + '<span class="admin-value" style="flex:1;display:flex;align-items:center;gap:8px;">' + _depBadge(x.status)
+            + '<span style="color:var(--text-secondary);font-size:0.72rem;">' + x.description + note + '</span></span>'
+            + btn + '</div>';
+        }).join('') || '<div class="admin-loading">No dependencies to check.</div>';
+        if (missing.length) { sum.textContent = missing.length + ' missing'; sum.style.color = '#FFAB2E'; pAll.style.display = 'inline-block'; }
+        else { sum.textContent = 'all present'; sum.style.color = '#00A972'; pAll.style.display = 'none'; }
+      }).catch(function () {
+        body.innerHTML = '<div style="color:#FF6F42;font-size:0.8rem;">Could not reach the dependencies check.</div>';
+      });
+    }
+    function provisionDependency(key) { _provisionDeps([key]); }
+    function provisionAllMissing() { _provisionDeps(null); }
+    function _provisionDeps(items) {
+      var inst = (document.getElementById('instBtnName') || {}).textContent || 'this instance';
+      var what = items ? ('the "' + items[0] + '" dependency') : 'all missing dependencies';
+      lbConfirm({
+        title: 'Provision on ' + inst + '?',
+        message: 'This will create ' + what + ' on instance "' + inst + '".\n\n' +
+                 'Objects are created additively (CREATE … IF NOT EXISTS) — nothing existing ' +
+                 'is dropped or overwritten. It runs as you (your Postgres permissions).',
+        confirmLabel: 'Create'
+      }).then(function (ok) {
+        if (!ok) return;
+        _doProvision(items);
+      });
+    }
+    function _doProvision(items) {
+      var body = document.getElementById('depsBody');
+      body.style.opacity = '0.55';
+      var payload = items ? { items: items, confirm: true } : { confirm: true };
+      fetch('/api/admin/dependencies/provision', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        body.style.opacity = '1';
+        var errs = (d.results || []).filter(function (r) { return r.status === 'error'; });
+        if (d.error || errs.length) {
+          var msg = d.error || ('Could not provision: ' + errs.map(function (e) { return e.key + ' — ' + e.error; }).join('; '));
+          window.dispatchEvent(new CustomEvent('lbadmin-api-error', { detail: msg }));
+        }
+        loadDependencies();
+        if (typeof loadInstanceInfo === 'function') loadInstanceInfo();
+      }).catch(function () { body.style.opacity = '1'; });
+    }
+    loadDependencies();
+  </script>
+
+  <!-- Live Query Dashboard (Full Width) -->
+  <div class="admin-card" style="margin-bottom:24px;">
+    <div class="admin-card-header">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Live Query Dashboard
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
+        <span id="lqdLastUpdate" style="font-size:0.7rem;color:var(--text-secondary);">--</span>
+        <button id="lqdAutoRefreshBtn" onclick="toggleLqdAutoRefresh()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--accent-primary);background:transparent;color:var(--accent-primary);cursor:pointer;font-size:0.75rem;display:flex;align-items:center;gap:6px;">
+          <span class="admin-card-dot green" id="lqdRefreshDot" style="width:6px;height:6px;"></span> Auto-refresh
+        </button>
+      </div>
+    </div>
+    <!-- KPI Strip -->
+    <div id="lqdKpiStrip" style="display:flex;gap:0;border-bottom:1px solid var(--border-primary);background:var(--bg-tertiary);">
+      <div class="lqd-kpi"><span class="lqd-kpi-val" id="lqdActive">--</span><span class="lqd-kpi-lbl">Active</span></div>
+      <div class="lqd-kpi"><span class="lqd-kpi-val" id="lqdWaiting">--</span><span class="lqd-kpi-lbl">Waiting</span></div>
+      <div class="lqd-kpi"><span class="lqd-kpi-val" id="lqdBlocked">--</span><span class="lqd-kpi-lbl">Blocked</span></div>
+      <div class="lqd-kpi"><span class="lqd-kpi-val" id="lqdLongest">--</span><span class="lqd-kpi-lbl">Longest (s)</span></div>
+    </div>
+    <!-- Activity History Chart -->
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border-primary);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">Session Activity History</span>
+        <span id="ashSelectionBadge" style="display:none;margin-left:8px;padding:2px 8px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);border-radius:4px;font-size:0.7rem;color:#3B82F6;font-weight:600;vertical-align:middle;">
+          <span id="ashSelectionRange"></span>
+          <button onclick="clearAshSelection()" style="background:none;border:none;color:#3B82F6;cursor:pointer;font-size:0.8rem;margin-left:4px;padding:0 2px;vertical-align:middle;font-weight:700;" title="Clear selection (Esc)">&times;</button>
+        </span>
+        <span style="font-size:0.65rem;color:var(--text-secondary);">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#00A972;margin-right:3px;vertical-align:middle;"></span>Active
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FFAB2E;margin-left:8px;margin-right:3px;vertical-align:middle;"></span>Waiting
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#FF4444;margin-left:8px;margin-right:3px;vertical-align:middle;"></span>Blocked
+          <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#3B82F6;margin-left:8px;margin-right:3px;vertical-align:middle;"></span>Idle in Txn
+          <span style="display:inline-block;width:12px;height:0;border-top:2px dashed #9CA3AF;margin-left:8px;margin-right:3px;vertical-align:middle;"></span>Connections
+        </span>
+      </div>
+      <div style="position:relative;">
+        <canvas id="lqdHistoryChart" width="800" height="120" style="width:100%;height:120px;cursor:crosshair;"></canvas>
+        <div id="ashTooltip" style="display:none;position:absolute;top:0;left:0;background:rgba(20,20,30,0.95);color:#fff;padding:10px 14px;border-radius:8px;font-size:0.75rem;pointer-events:none;z-index:100;min-width:180px;box-shadow:0 4px 20px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);"></div>
+      </div>
+    </div>
+    <!-- Tab Bar -->
+    <div style="display:flex;border-bottom:1px solid var(--border-primary);background:var(--bg-secondary);">
+      <button class="lqd-tab active" data-tab="sessions" onclick="switchLqdTab('sessions',this)">Session Activity</button>
+      <button class="lqd-tab" data-tab="locks" onclick="switchLqdTab('locks',this)">Locks & Blocking</button>
+      <button class="lqd-tab" data-tab="perf" onclick="switchLqdTab('perf',this)">Query Performance</button>
+    </div>
+    <!-- Tab Content -->
+    <div id="lqdContent" style="padding:16px;max-height:500px;overflow-y:auto;">
+      <div class="admin-loading">Loading sessions...</div>
+    </div>
+  </div>
+
+  <!-- Two Column Layout -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+    <!-- Left Column -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Connection Health -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <span class="admin-card-dot" id="connDot"></span>
+          Connection Health
+        </div>
+        <div id="connBody" style="padding:16px;">
+          <div class="admin-loading">Testing connections...</div>
+        </div>
+      </div>
+
+      <!-- Password Rotation -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          Password Rotation
+        </div>
+        <div id="rotationBody" style="padding:16px;">
+          <div class="admin-loading">Loading rotation status...</div>
+        </div>
+      </div>
+
+      <!-- Roles & Permissions -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          Roles &amp; Permissions
+        </div>
+        <div id="rolesBody" style="padding:16px;">
+          <div class="admin-loading">Loading roles...</div>
+        </div>
+      </div>
+
+      <!-- Backup & Recovery -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Backup &amp; Recovery
+        </div>
+        <div id="backupBody" style="padding:16px;">
+          <div class="admin-loading">Loading backup info...</div>
+        </div>
+      </div>
+
+      <!-- pg_dump Backup -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          pg_dump &mdash; SQL Backup
+          <button id="pgDumpBtn" onclick="runPgDump()" style="margin-left:auto;padding:4px 14px;border-radius:6px;border:1px solid var(--accent-primary);background:var(--accent-primary);color:white;cursor:pointer;font-size:0.75rem;font-weight:600;">Create Backup</button>
+        </div>
+        <div id="pgDumpBody" style="padding:16px;">
+          <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.6;">
+            Generate a standard <code>pg_dump</code>-compatible SQL backup of the <code>{{ schema }}</code> schema.
+            Backups are saved to a <strong>Unity Catalog Volume</strong> and use <code>COPY</code> format — restorable on <strong>any</strong> PostgreSQL instance with <code>psql&nbsp;-f&nbsp;backup.sql</code>.
+            <div style="margin-top:8px;padding:8px 12px;background:var(--bg-tertiary);border-radius:6px;border:1px solid var(--border-primary);font-family:var(--font-mono, monospace);font-size:0.75rem;color:var(--text-secondary);">
+              This is standard, open-source PostgreSQL — not proprietary. Any existing PG toolchain works with Lakebase.
+            </div>
+          </div>
+        </div>
+        <div id="pgDumpBackups" style="padding:0 16px 16px;"></div>
+      </div>
+
+      <!-- VACUUM / ANALYZE + Table Bloat -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+          Table Maintenance
+          <button id="vacuumAllBtn" onclick="runVacuumAll()" style="margin-left:auto;padding:4px 14px;border-radius:6px;border:1px solid #FFAB2E;background:transparent;color:#FFAB2E;cursor:pointer;font-size:0.75rem;font-weight:600;">VACUUM ANALYZE All</button>
+        </div>
+        <div id="bloatBody" style="padding:16px;">
+          <div class="admin-loading">Loading table bloat stats...</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Table Sizes -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+          Table Sizes
+        </div>
+        <div id="tablesBody" style="padding:16px;max-height:300px;overflow-y:auto;">
+          <div class="admin-loading">Loading tables...</div>
+        </div>
+      </div>
+
+      <!-- PG Features -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          Server-Side Features
+        </div>
+        <div id="featuresBody" style="padding:16px;">
+          <div class="admin-loading">Loading features...</div>
+        </div>
+      </div>
+
+      <!-- Materialized Views -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Materialized Views
+          <button onclick="refreshMatviews()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid var(--accent-primary);background:transparent;color:var(--accent-primary);cursor:pointer;font-size:0.75rem;">Refresh</button>
+        </div>
+        <div id="matviewBody" style="padding:16px;">
+          <div class="admin-loading">Loading matviews...</div>
+        </div>
+      </div>
+
+      <!-- Cluster Scaling -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="9" height="9" rx="1"/><rect x="13" y="2" width="9" height="9" rx="1"/><rect x="2" y="13" width="9" height="9" rx="1"/><rect x="13" y="13" width="9" height="9" rx="1"/></svg>
+          Cluster Topology
+          <button onclick="loadClusterStatus()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.75rem;">Refresh</button>
+        </div>
+        <div id="clusterBody" style="padding:16px;">
+          <div class="admin-loading">Loading cluster status...</div>
+        </div>
+      </div>
+
+      <!-- Slow Queries (pg_stat_statements) -->
+      <div class="admin-card">
+        <div class="admin-card-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Slow Query Analysis
+          <span style="margin-left:4px;font-size:0.7rem;color:var(--text-secondary);font-weight:400;">pg_stat_statements</span>
+          <button onclick="loadSlowQueries()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.75rem;">Refresh</button>
+        </div>
+        <div id="slowQueriesBody" style="padding:16px;max-height:400px;overflow-y:auto;">
+          <div class="admin-loading">Loading...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+</div>
+
+<style>
+.admin-kpi {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md, 10px);
+    padding: 16px;
+    text-align: center;
+}
+.admin-kpi-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.admin-kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-mono, monospace);
+}
+.admin-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md, 10px);
+    overflow: hidden;
+}
+.admin-card-header {
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+}
+.admin-card-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-secondary);
+    display: inline-block;
+}
+.admin-card-dot.green { background: #00A972; }
+.admin-card-dot.red { background: #FF4444; }
+.admin-card-dot.yellow { background: #FFAB2E; }
+.admin-loading {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 8px 0;
+}
+.admin-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 0.85rem;
+}
+.admin-row:last-child { border-bottom: none; }
+.admin-label { color: var(--text-secondary); }
+.admin-value { color: var(--text-primary); font-family: var(--font-mono, monospace); font-weight: 500; }
+.admin-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 600;
+}
+.admin-badge.green { background: rgba(0,169,114,0.15); color: #00A972; }
+.admin-badge.red { background: rgba(255,68,68,0.15); color: #FF4444; }
+.admin-badge.blue { background: rgba(59,130,246,0.15); color: #3B82F6; }
+.admin-badge.yellow { background: rgba(255,171,46,0.15); color: #FFAB2E; }
+.admin-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
+.admin-table th { text-align:left; padding:6px 8px; color:var(--text-secondary); font-weight:600; border-bottom:1px solid var(--border-primary); }
+.admin-table td { padding:6px 8px; color:var(--text-primary); border-bottom:1px solid var(--border-primary); }
+.admin-table tr:last-child td { border-bottom:none; }
+.admin-bar { height:6px; border-radius:3px; background:var(--bg-tertiary); overflow:hidden; flex:1; }
+.admin-bar-fill { height:100%; border-radius:3px; transition:width 0.3s ease; }
+
+.lqd-kpi {
+    flex:1; padding:10px 16px; text-align:center;
+    border-right:1px solid var(--border-primary);
+}
+.lqd-kpi:last-child { border-right:none; }
+.lqd-kpi-val { font-size:1.3rem; font-weight:700; font-family:var(--font-mono,monospace); color:var(--text-primary); display:block; }
+.lqd-kpi-lbl { font-size:0.7rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; }
+.lqd-tab {
+    padding:10px 20px; border:none; background:transparent;
+    color:var(--text-secondary); font-size:0.8rem; font-weight:600;
+    cursor:pointer; border-bottom:2px solid transparent; transition:all 0.2s;
+}
+.lqd-tab:hover { color:var(--text-primary); }
+.lqd-tab.active { color:var(--accent-primary); border-bottom-color:var(--accent-primary); }
+.lqd-state { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+.lqd-state.active { background:#00A972; }
+.lqd-state.waiting { background:#FFAB2E; }
+.lqd-state.idle-txn { background:#FF8C00; }
+.lqd-state.blocked { background:#FF4444; }
+.lqd-blocked-row { background:rgba(255,68,68,0.08) !important; }
+.lqd-blocker-row { background:rgba(255,171,46,0.08) !important; }
+.lqd-tier { display:inline-block; padding:1px 6px; border-radius:3px; font-size:0.7rem; font-weight:600; }
+.lqd-tier.critical { background:rgba(255,68,68,0.15); color:#FF4444; }
+.lqd-tier.slow { background:rgba(255,171,46,0.15); color:#FFAB2E; }
+.lqd-tier.moderate { background:rgba(59,130,246,0.15); color:#3B82F6; }
+.lqd-tier.fast { background:rgba(0,169,114,0.15); color:#00A972; }
+.lqd-cache-bar { display:inline-block; width:60px; height:6px; border-radius:3px; background:var(--bg-tertiary); overflow:hidden; vertical-align:middle; margin-right:4px; }
+.lqd-cache-fill { height:100%; border-radius:3px; }
+.rotation-pulse {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #3B82F6;
+    animation: rotation-pulse-anim 1s ease-in-out infinite;
+}
+@keyframes rotation-pulse-anim {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.5); }
+}
+</style>
+
+<script>
+function refreshAll() {
+    loadInstanceInfo();
+    loadConnectionTest();
+    loadRotationStatus();
+    loadBackupInfo();
+    loadTableBloat();
+    loadClusterStatus();
+    loadSlowQueries();
+    loadBackupList();
+    loadLqdSummary();
+    loadLqdTab();
+    loadLqdHistory();
+}
+
+function loadInstanceInfo() {
+    fetch('/api/admin/instance-info').then(r => {
+        if (r.status === 403 || r.status === 401) {
+            return r.json().then(function(err) {
+                // Show access denied overlay
+                var overlay = document.getElementById('adminAccessDenied');
+                overlay.style.display = 'flex';
+                document.getElementById('adminContent').style.display = 'none';
+                document.getElementById('adminDeniedEmail').textContent = err.user || 'Unknown';
+                return null;
+            });
+        }
+        return r.json();
+    }).then(data => {
+        if (!data || data.error) return;
+
+        // KPIs
+        document.querySelector('#kpi-dbsize .admin-kpi-value').textContent = data.database_size || '--';
+        document.querySelector('#kpi-tables .admin-kpi-value').textContent = (data.tables || []).length;
+        document.querySelector('#kpi-indexes .admin-kpi-value').textContent = data.index_count || 0;
+
+        let totalConns = (data.connections || []).reduce((s, c) => s + c.count, 0);
+        document.querySelector('#kpi-connections .admin-kpi-value').textContent = totalConns;
+
+        // Materialized-view count (generic DBA metric)
+        document.querySelector('#kpi-events .admin-kpi-value').textContent = (data.matviews || []).length;
+
+        // Table sizes
+        let tablesHtml = '<table class="admin-table"><thead><tr><th>Table</th><th>Rows</th><th>Size</th><th></th></tr></thead><tbody>';
+        let maxSize = Math.max(...(data.tables || []).map(t => t.size_bytes || 0), 1);
+        (data.tables || []).forEach(t => {
+            let pct = Math.round((t.size_bytes / maxSize) * 100);
+            let color = pct > 60 ? '#FF6F42' : pct > 30 ? '#FFAB2E' : '#00A972';
+            tablesHtml += `<tr>
+                <td><code>${t.name}</code></td>
+                <td style="font-family:var(--font-mono);text-align:right;">${(t.rows||0).toLocaleString()}</td>
+                <td style="font-family:var(--font-mono);text-align:right;">${t.size}</td>
+                <td style="width:100px;"><div class="admin-bar"><div class="admin-bar-fill" style="width:${pct}%;background:${color};"></div></div></td>
+            </tr>`;
+        });
+        tablesHtml += '</tbody></table>';
+        document.getElementById('tablesBody').innerHTML = tablesHtml;
+
+        // Features
+        let featHtml = '';
+        (data.triggers || []).forEach(t => {
+            featHtml += `<div class="admin-row"><span class="admin-label">Trigger</span><span class="admin-value">${t.name} <span class="admin-badge blue">${t.timing} ${t.event}</span> on ${t.table}</span></div>`;
+        });
+        (data.functions || []).forEach(f => {
+            let badge = f.security === 'DEFINER' ? '<span class="admin-badge yellow">SECURITY DEFINER</span>' : '';
+            featHtml += `<div class="admin-row"><span class="admin-label">Function</span><span class="admin-value">${f.name} ${badge}</span></div>`;
+        });
+        document.getElementById('featuresBody').innerHTML = featHtml || '<div class="admin-loading">No server-side features found</div>';
+
+        // Matviews
+        let mvHtml = '';
+        (data.matviews || []).forEach(mv => {
+            mvHtml += `<div class="admin-row"><span class="admin-label">${mv.name}</span><span class="admin-value">${mv.size} <span class="admin-badge blue">owner: ${mv.owner.split('@')[0]}</span></span></div>`;
+        });
+        document.getElementById('matviewBody').innerHTML = mvHtml || '<div class="admin-loading">No materialized views</div>';
+
+        // Roles
+        let rolesHtml = '';
+        (data.roles || []).forEach(r => {
+            let loginBadge = r.can_login ? '<span class="admin-badge green">LOGIN</span>' : '<span class="admin-badge red">NOLOGIN</span>';
+            let memberOf = (r.member_of || []).length > 0 ? `<span class="admin-badge blue">inherits: ${r.member_of.join(', ')}</span>` : '';
+            rolesHtml += `<div class="admin-row"><span class="admin-value">${r.name}</span><span>${loginBadge} ${memberOf}</span></div>`;
+        });
+        document.getElementById('rolesBody').innerHTML = rolesHtml || '<div class="admin-loading">No app roles found</div>';
+    });
+}
+
+function loadConnectionTest() {
+    document.getElementById('connBody').innerHTML = '<div class="admin-loading">Testing connections...</div>';
+    fetch('/api/admin/connection-test').then(r => r.json()).then(data => {
+        let html = '';
+        let allGood = true;
+
+        // Show connection for each instance type
+        function renderConn(label, c) {
+            if (c.status === 'connected') {
+                html += `<div class="admin-row"><span class="admin-label"><span class="admin-card-dot green" style="display:inline-block;margin-right:6px;"></span>${label}</span><span class="admin-value admin-badge green">Connected</span></div>`;
+                html += `<div class="admin-row"><span class="admin-label" style="padding-left:20px;">User</span><span class="admin-value">${c.user}</span></div>`;
+                if (c.host) html += `<div class="admin-row"><span class="admin-label" style="padding-left:20px;">Host</span><span class="admin-value" style="font-size:0.75rem;">${c.host}</span></div>`;
+            } else if (c.status === 'not_configured') {
+                html += `<div class="admin-row"><span class="admin-label" style="opacity:0.5;"><span class="admin-card-dot" style="display:inline-block;margin-right:6px;background:#666;"></span>${label}</span><span class="admin-value" style="opacity:0.5;">${c.message || 'Not Active'}</span></div>`;
+            } else {
+                allGood = false;
+                html += `<div class="admin-row"><span class="admin-label"><span class="admin-card-dot red" style="display:inline-block;margin-right:6px;"></span>${label}</span><span class="admin-value admin-badge red">${c.status}</span></div>`;
+                if (c.message) html += `<div class="admin-row"><span class="admin-label" style="padding-left:20px;">Error</span><span style="color:#FF4444;font-size:0.8rem;">${c.message.substring(0,100)}</span></div>`;
+            }
+        }
+        renderConn('Lakebase (Autoscaling)', data.lakebase || {});
+
+        document.getElementById('connBody').innerHTML = html;
+        let dot = document.getElementById('connDot');
+        dot.className = 'admin-card-dot ' + (allGood ? 'green' : 'yellow');
+    });
+}
+
+var _rotationRunId = null;
+var _rotationPollTimer = null;
+
+function loadRotationStatus() {
+    fetch('/api/admin/rotation-status').then(r => r.json()).then(data => {
+        if (data.error) { document.getElementById('rotationBody').innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+        let html = `
+            <div class="admin-row"><span class="admin-label">Current Role</span><span class="admin-value">${data.current_role}</span></div>
+            <div class="admin-row"><span class="admin-label">Active Slot</span><span class="admin-value"><span class="admin-badge green">${data.active_suffix.toUpperCase()}</span></span></div>
+            <div class="admin-row"><span class="admin-label">Standby Slot</span><span class="admin-value"><span class="admin-badge red">${data.standby_suffix.toUpperCase()}</span> (NOLOGIN)</span></div>
+        `;
+        let roles = data.roles || {};
+        for (let [name, canLogin] of Object.entries(roles)) {
+            let badge = canLogin ? '<span class="admin-badge green">LOGIN</span>' : '<span class="admin-badge red">NOLOGIN</span>';
+            html += `<div class="admin-row"><span class="admin-label">${name}</span><span>${badge}</span></div>`;
+        }
+        html += `<div style="margin-top:12px;padding:8px 12px;border-radius:6px;background:var(--bg-tertiary);font-size:0.8rem;color:var(--text-secondary);">
+            Rotation swaps active/standby roles with new passwords. Scheduled weekly (Sundays 6 AM ET).
+        </div>`;
+
+        // Force Rotation button
+        html += `<div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+            <button id="forceRotateBtn" onclick="triggerForceRotation()" style="padding:8px 20px;border-radius:8px;border:none;background:linear-gradient(135deg, var(--accent-primary), var(--accent-hover));color:white;cursor:pointer;font-size:0.85rem;font-weight:600;display:flex;align-items:center;gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                Force Rotation
+            </button>
+            <span id="rotationMsg" style="font-size:0.8rem;color:var(--text-secondary);"></span>
+        </div>`;
+
+        // DAG container (hidden until rotation starts)
+        html += `<div id="rotationDag" style="display:none;margin-top:16px;"></div>`;
+
+        document.getElementById('rotationBody').innerHTML = html;
+    });
+}
+
+function triggerForceRotation() {
+    if (!confirm('This will rotate passwords and briefly restart the app. Continue?')) return;
+    var btn = document.getElementById('forceRotateBtn');
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    document.getElementById('rotationMsg').textContent = 'Submitting rotation job...';
+    document.getElementById('rotationDag').style.display = 'block';
+
+    fetch('/api/admin/trigger-rotation', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('rotationMsg').innerHTML = `<span style="color:#FF4444;">Error: ${data.error}</span>`;
+                btn.disabled = false; btn.style.opacity = '1';
+                return;
+            }
+            _rotationRunId = data.run_id;
+            document.getElementById('rotationMsg').textContent = `Job submitted (run ${data.run_id})`;
+            renderRotationDag([
+                {name:'Detect Active Role',status:'pending'},
+                {name:'Update Standby Password',status:'pending'},
+                {name:'Update Secrets',status:'pending'},
+                {name:'Redeploy App',status:'pending'},
+                {name:'Wait for Ready',status:'pending'},
+                {name:'Disable Old Role',status:'pending'}
+            ], 'running');
+            pollRotationStatus();
+        })
+        .catch(err => {
+            document.getElementById('rotationMsg').innerHTML = `<span style="color:#FF4444;">Failed: ${err}</span>`;
+            btn.disabled = false; btn.style.opacity = '1';
+        });
+}
+
+function pollRotationStatus() {
+    if (!_rotationRunId) return;
+    fetch(`/api/admin/rotation-job-status?run_id=${_rotationRunId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) return;
+            renderRotationDag(data.steps, data.overall);
+            var elapsed = data.elapsed_seconds ? ` (${Math.round(data.elapsed_seconds)}s)` : '';
+            if (data.overall === 'success') {
+                document.getElementById('rotationMsg').innerHTML = `<span style="color:#00A972;">Rotation complete${elapsed}</span>`;
+                if (data.run_page_url) {
+                    document.getElementById('rotationMsg').innerHTML += ` <a href="${data.run_page_url}" target="_blank" style="font-size:0.75rem;color:var(--accent-primary);">View run</a>`;
+                }
+                var btn = document.getElementById('forceRotateBtn');
+                if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+                setTimeout(loadRotationStatus, 5000);
+                return;
+            }
+            if (data.overall === 'failed') {
+                document.getElementById('rotationMsg').innerHTML = `<span style="color:#FF4444;">Rotation failed${elapsed}</span>`;
+                if (data.run_page_url) {
+                    document.getElementById('rotationMsg').innerHTML += ` <a href="${data.run_page_url}" target="_blank" style="font-size:0.75rem;color:var(--accent-primary);">View run</a>`;
+                }
+                var btn = document.getElementById('forceRotateBtn');
+                if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+                return;
+            }
+            document.getElementById('rotationMsg').textContent = `Running${elapsed}...`;
+            _rotationPollTimer = setTimeout(pollRotationStatus, 3000);
+        });
+}
+
+function renderRotationDag(steps, overall) {
+    var colors = {
+        pending: {bg:'var(--bg-tertiary)',border:'var(--border-primary)',text:'var(--text-secondary)',icon:''},
+        running: {bg:'rgba(59,130,246,0.12)',border:'#3B82F6',text:'#3B82F6',icon:'<span class="rotation-pulse"></span>'},
+        success: {bg:'rgba(0,169,114,0.12)',border:'#00A972',text:'#00A972',icon:'&#10003;'},
+        failed:  {bg:'rgba(255,68,68,0.12)',border:'#FF4444',text:'#FF4444',icon:'&#10007;'}
+    };
+    var html = '<div style="display:flex;align-items:center;gap:0;overflow-x:auto;padding:8px 0;">';
+    steps.forEach(function(step, i) {
+        var c = colors[step.status] || colors.pending;
+        var borderStyle = step.status === 'pending' ? 'dashed' : 'solid';
+        html += `<div style="display:flex;flex-direction:column;align-items:center;min-width:100px;flex-shrink:0;">
+            <div style="padding:8px 10px;border-radius:8px;border:2px ${borderStyle} ${c.border};background:${c.bg};text-align:center;font-size:0.7rem;font-weight:600;color:${c.text};position:relative;width:90px;">
+                <div style="font-size:0.85rem;margin-bottom:2px;">${c.icon || (i+1)}</div>
+                ${step.name}
+            </div>
+        </div>`;
+        if (i < steps.length - 1) {
+            var arrowColor = step.status === 'success' ? '#00A972' : 'var(--border-primary)';
+            html += `<div style="display:flex;align-items:center;flex-shrink:0;"><svg width="24" height="16" viewBox="0 0 24 16"><line x1="0" y1="8" x2="18" y2="8" stroke="${arrowColor}" stroke-width="2"/><polygon points="16,4 22,8 16,12" fill="${arrowColor}"/></svg></div>`;
+        }
+    });
+    html += '</div>';
+    document.getElementById('rotationDag').innerHTML = html;
+}
+
+function loadBackupInfo() {
+    fetch('/api/admin/backup-info').then(r => r.json()).then(data => {
+        if (data.error) { document.getElementById('backupBody').innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+        let html = `
+            <div class="admin-row"><span class="admin-label">WAL Position</span><span class="admin-value" style="font-size:0.75rem;">${data.current_wal_lsn}</span></div>
+            <div class="admin-row"><span class="admin-label">WAL File</span><span class="admin-value" style="font-size:0.7rem;">${data.current_wal_file}</span></div>
+            <div style="margin-top:12px;padding:10px 12px;border-radius:6px;background:rgba(0,169,114,0.08);border:1px solid rgba(0,169,114,0.2);font-size:0.8rem;color:var(--text-secondary);">
+                <strong style="color:#00A972;">Continuous Backups</strong><br>
+                ${data.note}
+            </div>
+        `;
+        // Maintenance stats
+        if (data.maintenance && data.maintenance.length > 0) {
+            html += '<div style="margin-top:12px;"><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">VACUUM / ANALYZE</div>';
+            html += '<table class="admin-table"><thead><tr><th>Table</th><th>Last Vacuum</th><th>Last Analyze</th></tr></thead><tbody>';
+            data.maintenance.forEach(m => {
+                let vac = m.last_autovacuum || m.last_vacuum || 'never';
+                let ana = m.last_autoanalyze || m.last_analyze || 'never';
+                if (vac !== 'never') vac = new Date(vac).toLocaleDateString();
+                if (ana !== 'never') ana = new Date(ana).toLocaleDateString();
+                html += `<tr><td><code>${m.table}</code></td><td>${vac}</td><td>${ana}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+        document.getElementById('backupBody').innerHTML = html;
+    });
+}
+
+// ── Live Query Dashboard ──
+var _lqdTab = 'sessions';
+var _lqdAutoRefresh = true;
+var _lqdTimer = null;
+
+function loadLqdSummary() {
+    fetch('/api/admin/live-dashboard/summary').then(r=>r.json()).then(d=>{
+        if(d.error) return;
+        document.getElementById('lqdActive').textContent = d.active;
+        document.getElementById('lqdWaiting').textContent = d.waiting;
+        document.getElementById('lqdBlocked').textContent = d.blocked;
+        document.getElementById('lqdLongest').textContent = d.longest_sec;
+        // Color blocked KPI red if > 0
+        document.getElementById('lqdBlocked').style.color = d.blocked > 0 ? '#FF4444' : '';
+        document.getElementById('lqdLastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    });
+}
+
+function switchLqdTab(tab, btn) {
+    _lqdTab = tab;
+    document.querySelectorAll('.lqd-tab').forEach(t => t.classList.remove('active'));
+    if(btn) btn.classList.add('active');
+    loadLqdTab();
+}
+
+function loadLqdTab() {
+    if (_lqdTab === 'sessions') loadLqdSessions();
+    else if (_lqdTab === 'locks') loadLqdLocks();
+    else if (_lqdTab === 'perf') loadLqdPerf();
+}
+
+function loadLqdSessions() {
+    let url = '/api/admin/live-dashboard/sessions';
+    if (_ashSelection) {
+        url += '?start=' + encodeURIComponent(_ashSelection.startTime) + '&end=' + encodeURIComponent(_ashSelection.endTime);
+    }
+    fetch(url).then(r=>r.json()).then(d=>{
+        if(d.error){document.getElementById('lqdContent').innerHTML=`<div style="color:#FF4444;">${d.error}</div>`;return;}
+        let ss = d.sessions || [];
+        let isHistorical = d.mode === 'historical';
+        if(ss.length===0){document.getElementById('lqdContent').innerHTML='<div class="admin-loading" style="text-align:center;padding:32px;">' + (isHistorical ? 'No ASH samples in selected range' : 'No active sessions') + '</div>';return;}
+        let html = '<table class="admin-table"><thead><tr><th>PID</th><th>State</th><th>Wait</th><th>Duration</th><th>Txn</th><th>User</th><th>Query</th><th></th></tr></thead><tbody>';
+        ss.forEach(s=>{
+            let stCls = s.blocked_by_count>0?'blocked':s.state==='active'&&!s.wait_event?'active':s.wait_event?'waiting':s.state==='snapshot'?'snapshot':'idle-txn';
+            let rowCls = s.blocked_by_count>0?' class="lqd-blocked-row"':'';
+            let wait = s.wait_event?`<span style="font-size:0.7rem;">${s.wait_type||''}: ${s.wait_event}</span>`:'<span style="color:var(--text-secondary);font-size:0.75rem;">--</span>';
+            let dur = s.duration_sec>0?s.duration_sec.toFixed(1)+'s':'--';
+            let txn = s.xact_sec>0?s.xact_sec.toFixed(1)+'s':'--';
+            let blocked = s.blocked_by_count>0?` <span class="admin-badge red" style="font-size:0.65rem;">blocked by ${s.blocking_pids.join(',')}</span>`:'';
+            let qPreview = (s.query||'').substring(0,80).replace(/</g,'&lt;');
+            let qSafe = btoa(unescape(encodeURIComponent(s.query||'')));  // base64 encode to avoid HTML escaping issues
+            html += `<tr${rowCls}><td style="font-family:var(--font-mono);">${s.pid}</td>`;
+            html += `<td><span class="lqd-state ${stCls}"></span>${s.state}${blocked}</td>`;
+            html += `<td>${wait}</td>`;
+            html += `<td style="font-family:var(--font-mono);">${dur}</td>`;
+            html += `<td style="font-family:var(--font-mono);">${txn}</td>`;
+            html += `<td>${s.user}</td>`;
+            html += `<td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;" title="${(s.query||'').replace(/"/g,'&quot;')}">${qPreview}</code><button data-query="${qSafe}" onclick="copyQueryB64(this)" style="flex-shrink:0;padding:1px 5px;border-radius:3px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.65rem;" title="Copy full query">&#128203;</button></td>`;
+            if (isHistorical) {
+                html += '<td></td>';
+            } else {
+                html += `<td><button onclick="cancelQuery(${s.pid})" style="padding:2px 8px;border-radius:4px;border:1px solid #FF4444;background:transparent;color:#FF4444;cursor:pointer;font-size:0.7rem;">Cancel</button></td>`;
+            }
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('lqdContent').innerHTML = html;
+    });
+}
+
+function copyQueryB64(btn) {
+    let b64 = btn.getAttribute('data-query');
+    let text = decodeURIComponent(escape(atob(b64)));
+    copyQueryText(btn, text);
+}
+
+function copyQueryText(btn, text) {
+    navigator.clipboard.writeText(text).then(function() {
+        let orig = btn.innerHTML;
+        btn.innerHTML = '&#10003;';
+        btn.style.color = '#00A972';
+        setTimeout(function() { btn.innerHTML = orig; btn.style.color = ''; }, 1500);
+    }).catch(function() {
+        // Fallback for non-HTTPS
+        let ta = document.createElement('textarea');
+        ta.value = decoded;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        let orig = btn.innerHTML;
+        btn.innerHTML = '&#10003;';
+        btn.style.color = '#00A972';
+        setTimeout(function() { btn.innerHTML = orig; btn.style.color = ''; }, 1500);
+    });
+}
+
+function loadLqdLocks() {
+    fetch('/api/admin/live-dashboard/locks').then(r=>r.json()).then(d=>{
+        if(d.error){document.getElementById('lqdContent').innerHTML=`<div style="color:#FF4444;">${d.error}</div>`;return;}
+        let html = '';
+        let tree = d.blocking_tree || [];
+        if(tree.length===0){
+            html += '<div style="text-align:center;padding:24px;"><div style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:rgba(0,169,114,0.1);border-radius:8px;border:1px solid rgba(0,169,114,0.2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span style="color:#00A972;font-weight:600;">No blocking detected</span></div></div>';
+        } else {
+            html += '<div style="margin-bottom:16px;"><div style="font-weight:600;font-size:0.8rem;color:var(--text-secondary);margin-bottom:8px;">BLOCKING TREE</div>';
+            html += '<table class="admin-table"><thead><tr><th>Blocker PID</th><th>Blocker State</th><th>Blocker Query</th><th></th><th>Blocked PID</th><th>Wait</th><th>Duration</th><th>Blocked Query</th></tr></thead><tbody>';
+            tree.forEach(b=>{
+                html += `<tr class="lqd-blocker-row"><td style="font-family:var(--font-mono);font-weight:700;">${b.blocker_pid}</td>`;
+                html += `<td>${b.blocker_state}</td>`;
+                html += `<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(b.blocker_query||'').replace(/"/g,'&quot;')}"><code style="font-size:0.75rem;">${(b.blocker_query||'').substring(0,60)}</code></td>`;
+                html += `<td style="text-align:center;color:#FF4444;font-weight:700;">&#10140;</td>`;
+                html += `<td style="font-family:var(--font-mono);color:#FF4444;font-weight:700;">${b.blocked_pid}</td>`;
+                html += `<td style="font-size:0.7rem;">${b.wait_type||''}: ${b.wait_event||''}</td>`;
+                html += `<td style="font-family:var(--font-mono);">${b.blocked_duration?b.blocked_duration.toFixed(1)+'s':'--'}</td>`;
+                html += `<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(b.blocked_query||'').replace(/"/g,'&quot;')}"><code style="font-size:0.75rem;">${(b.blocked_query||'').substring(0,60)}</code></td>`;
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        // Lock summary
+        let locks = d.lock_summary || [];
+        if(locks.length>0){
+            html += '<div style="font-weight:600;font-size:0.8rem;color:var(--text-secondary);margin-bottom:8px;">LOCK SUMMARY</div>';
+            html += '<table class="admin-table"><thead><tr><th>Type</th><th>Mode</th><th>Status</th><th style="text-align:right;">Count</th></tr></thead><tbody>';
+            locks.forEach(l=>{
+                let status = l.granted?'<span class="admin-badge green">HELD</span>':'<span class="admin-badge red">WAITING</span>';
+                html += `<tr><td>${l.type}</td><td style="font-size:0.8rem;">${l.mode}</td><td>${status}</td><td style="text-align:right;font-family:var(--font-mono);">${l.count}</td></tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        document.getElementById('lqdContent').innerHTML = html;
+    });
+}
+
+function loadLqdPerf() {
+    if (_ashSelection) {
+        // Historical mode: pg_stat_statements has no time dimension, but we can show
+        // query snapshots captured by the ASH sampler during the selected period
+        let url = '/api/admin/live-dashboard/query-stats?start=' + encodeURIComponent(_ashSelection.startTime) + '&end=' + encodeURIComponent(_ashSelection.endTime);
+        fetch(url).then(r=>r.json()).then(d=>{
+            if (d.mode === 'historical' && (!d.queries || d.queries.length === 0)) {
+                document.getElementById('lqdContent').innerHTML = '<div class="admin-loading" style="text-align:center;padding:32px;"><div style="font-size:0.85rem;color:var(--text-secondary);">No query snapshots captured during this period.</div><div style="font-size:0.75rem;color:var(--text-secondary);margin-top:8px;">The ASH sampler captures active queries every 10 seconds.<br>Try selecting a wider time range, or check the Session Activity tab.</div></div>';
+                return;
+            }
+            renderQueryPerf(d);
+        });
+        return;
+    }
+    fetch('/api/admin/live-dashboard/query-stats').then(r=>r.json()).then(d=>renderQueryPerf(d));
+}
+
+function renderQueryPerf(d) {
+    if(d.error){document.getElementById('lqdContent').innerHTML=`<div style="color:#FF4444;">${d.error}</div>`;return;}
+    let qs = d.queries || [];
+    let isHistorical = d.mode === 'historical';
+    if(qs.length===0){document.getElementById('lqdContent').innerHTML='<div class="admin-loading">No query stats available</div>';return;}
+    let headerExtra = isHistorical ? '<th>Time</th><th>Duration</th>' : '<th>Calls</th><th>Avg (ms)</th><th>Max (ms)</th><th>Total (ms)</th><th>Rows</th><th>Cache Hit</th><th>Tier</th>';
+    let html = '<table class="admin-table"><thead><tr><th>Query</th>' + headerExtra + '</tr></thead><tbody>';
+    qs.forEach(q=>{
+        let qPreview = (q.query||'').substring(0,100).replace(/</g,'&lt;');
+        let qSafe = btoa(unescape(encodeURIComponent(q.query||'')));
+        html += `<tr>`;
+        html += `<td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;"><code style="font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;" title="${(q.query||'').replace(/"/g,'&quot;')}">${qPreview}</code><button data-query="${qSafe}" onclick="copyQueryB64(this)" style="flex-shrink:0;padding:1px 5px;border-radius:3px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.65rem;" title="Copy full query">&#128203;</button></td>`;
+        if (isHistorical) {
+            let t = q.sample_time ? new Date(q.sample_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '--';
+            let dur = q.duration_sec > 0 ? q.duration_sec.toFixed(1) + 's' : '--';
+            html += `<td style="font-family:var(--font-mono);font-size:0.75rem;">${t}</td>`;
+            html += `<td style="font-family:var(--font-mono);">${dur}</td>`;
+        } else {
+            let cacheColor = q.cache_hit_pct>=90?'#00A972':q.cache_hit_pct>=50?'#FFAB2E':'#FF4444';
+            let cacheBar = `<span class="lqd-cache-bar"><span class="lqd-cache-fill" style="width:${q.cache_hit_pct}%;background:${cacheColor};"></span></span>${q.cache_hit_pct}%`;
+            html += `<td style="text-align:right;font-family:var(--font-mono);">${(q.calls||0).toLocaleString()}</td>`;
+            html += `<td style="text-align:right;font-family:var(--font-mono);">${(q.avg_ms||0).toFixed(1)}</td>`;
+            html += `<td style="text-align:right;font-family:var(--font-mono);">${(q.max_ms||0).toFixed(1)}</td>`;
+            html += `<td style="text-align:right;font-family:var(--font-mono);">${(q.total_ms||0).toFixed(0)}</td>`;
+            html += `<td style="text-align:right;font-family:var(--font-mono);">${(q.rows||0).toLocaleString()}</td>`;
+            html += `<td>${cacheBar}</td>`;
+            html += `<td><span class="lqd-tier ${q.tier}">${q.tier}</span></td>`;
+        }
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('lqdContent').innerHTML = html;
+}
+
+function cancelQuery(pid) {
+    if(!confirm('Cancel query on PID ' + pid + '?')) return;
+    fetch('/api/admin/cancel-query', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({pid:pid})})
+        .then(r=>r.json()).then(d=>{
+            if(d.success) { loadLqdSessions(); loadLqdSummary(); }
+            else alert('Failed to cancel PID ' + pid);
+        });
+}
+
+var _ashSamples = [];
+var _ashChartMeta = null; // stores pad, cW, cH, maxVal, W, H for hover
+var _ashDrag = {active: false, startX: 0, currentX: 0, startIdx: -1, endIdx: -1};
+var _ashSelection = null; // {startIdx, endIdx, startTime, endTime} when a range is selected
+var _ashFullSamples = []; // full 60-min samples before zoom
+
+function loadLqdHistory() {
+    if (_ashSelection) return; // don't reload when zoomed into a selection
+    fetch('/api/admin/live-dashboard/history?minutes=60').then(r=>r.json()).then(d=>{
+        _ashSamples = d.samples || [];
+        _ashFullSamples = _ashSamples.slice();
+        drawAshChart(_ashSamples);
+    });
+}
+
+function clearAshSelection() {
+    _ashSelection = null;
+    _ashDrag = {active: false, startX: 0, currentX: 0, startIdx: -1, endIdx: -1};
+    document.getElementById('ashSelectionBadge').style.display = 'none';
+    _ashSamples = _ashFullSamples.slice();
+    drawAshChart(_ashSamples);
+    // Reload live sessions
+    loadLqdSessions();
+}
+
+function applyAshSelection(startIdx, endIdx) {
+    if (startIdx === endIdx || _ashSamples.length < 2) return;
+    let lo = Math.min(startIdx, endIdx);
+    let hi = Math.max(startIdx, endIdx);
+    if (hi - lo < 1) return;
+
+    let startTime = _ashSamples[lo].time;
+    let endTime = _ashSamples[hi].time;
+    _ashSelection = {startIdx: lo, endIdx: hi, startTime: startTime, endTime: endTime};
+
+    // Show badge
+    let sT = new Date(startTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    let eT = new Date(endTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('ashSelectionRange').textContent = sT + ' - ' + eT;
+    document.getElementById('ashSelectionBadge').style.display = 'inline';
+
+    // Zoom chart: re-fetch for the selected range
+    fetch('/api/admin/live-dashboard/history?start=' + encodeURIComponent(startTime) + '&end=' + encodeURIComponent(endTime))
+        .then(r=>r.json()).then(d=>{
+            _ashSamples = d.samples || [];
+            drawAshChart(_ashSamples);
+        });
+
+    // Load historical sessions for the range
+    loadLqdSessions();
+}
+
+function getAshIdxFromX(mx) {
+    if (!_ashChartMeta || _ashSamples.length < 2) return -1;
+    let m = _ashChartMeta;
+    if (mx < m.pad.left || mx > m.pad.left + m.cW) return -1;
+    let ratio = (mx - m.pad.left) / m.cW;
+    let idx = Math.round(ratio * (_ashSamples.length - 1));
+    return Math.max(0, Math.min(idx, _ashSamples.length - 1));
+}
+
+function drawAshChart(samples) {
+    let canvas = document.getElementById('lqdHistoryChart');
+    if(!canvas) return;
+    let ctx = canvas.getContext('2d');
+    let dpr = window.devicePixelRatio || 1;
+    let rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    let W = rect.width, H = rect.height;
+    let pad = {top:4, bottom:16, left:30, right:8};
+    let cW = W - pad.left - pad.right;
+    let cH = H - pad.top - pad.bottom;
+
+    ctx.clearRect(0, 0, W, H);
+
+    if(samples.length < 2) {
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#888';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Collecting samples... (data appears after ~30s)', W/2, H/2);
+        _ashChartMeta = null;
+        return;
+    }
+
+    let maxVal = 1;
+    samples.forEach(s => {
+        let stacked = s.active+s.waiting+s.blocked+s.idle_txn;
+        let total = s.total || 0;
+        let m = Math.max(stacked, total);
+        if(m>maxVal) maxVal=m;
+    });
+    maxVal = Math.ceil(maxVal * 1.2) || 1;
+
+    _ashChartMeta = {pad, cW, cH, maxVal, W, H};
+
+    let colors = {active:'#00A972', waiting:'#FFAB2E', blocked:'#FF4444', idle_txn:'#3B82F6'};
+    let layers = ['idle_txn','blocked','waiting','active'];
+
+    // Grid lines
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border-primary') || '#333';
+    ctx.lineWidth = 0.5;
+    for(let i=0;i<=4;i++){
+        let y = pad.top + cH - (i/4)*cH;
+        ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+cW,y);ctx.stroke();
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#888';
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxVal*i/4), pad.left-4, y+3);
+    }
+
+    // Time labels
+    if(samples.length > 0) {
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary') || '#888';
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        let firstT = new Date(samples[0].time);
+        let lastT = new Date(samples[samples.length-1].time);
+        ctx.fillText(firstT.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), pad.left, H-2);
+        ctx.fillText(lastT.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), pad.left+cW, H-2);
+        if(samples.length > 10) {
+            let midT = new Date(samples[Math.floor(samples.length/2)].time);
+            ctx.fillText(midT.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), pad.left+cW/2, H-2);
+        }
+    }
+
+    // Stacked areas
+    let n = samples.length;
+    layers.forEach(layer => {
+        ctx.beginPath();
+        ctx.fillStyle = colors[layer] + '88';
+        let belowLayers = layers.slice(0, layers.indexOf(layer));
+        for(let i=n-1;i>=0;i--){
+            let x = pad.left + (i/(n-1))*cW;
+            let below = 0;
+            belowLayers.forEach(bl => below += samples[i][bl]);
+            let y = pad.top + cH - (below/maxVal)*cH;
+            if(i===n-1) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        for(let i=0;i<n;i++){
+            let x = pad.left + (i/(n-1))*cW;
+            let val = 0;
+            belowLayers.forEach(bl => val += samples[i][bl]);
+            val += samples[i][layer];
+            let y = pad.top + cH - (val/maxVal)*cH;
+            ctx.lineTo(x,y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.strokeStyle = colors[layer];
+        ctx.lineWidth = 1.5;
+        for(let i=0;i<n;i++){
+            let x = pad.left + (i/(n-1))*cW;
+            let val = 0;
+            belowLayers.forEach(bl => val += samples[i][bl]);
+            val += samples[i][layer];
+            let y = pad.top + cH - (val/maxVal)*cH;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+    });
+
+    // Total connections dashed reference line (subtle — only visible on hover)
+    let hasTotal = samples.some(s => (s.total || 0) > 0);
+    if(hasTotal) {
+        ctx.beginPath();
+        ctx.setLineDash([2, 6]);
+        ctx.strokeStyle = 'rgba(156, 163, 175, 0.25)';
+        ctx.lineWidth = 0.75;
+        for(let i=0;i<n;i++){
+            let x = pad.left + (i/(n-1))*cW;
+            let y = pad.top + cH - ((samples[i].total||0)/maxVal)*cH;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Setup hover + drag events (only once)
+    if(!canvas._hoverBound) {
+        canvas._hoverBound = true;
+        let tooltip = document.getElementById('ashTooltip');
+
+        // Drag selection: mousedown
+        canvas.addEventListener('mousedown', function(e) {
+            if(!_ashChartMeta || _ashSamples.length < 2) return;
+            let rect = canvas.getBoundingClientRect();
+            let mx = e.clientX - rect.left;
+            let idx = getAshIdxFromX(mx);
+            if(idx < 0) return;
+            _ashDrag = {active: true, startX: mx, currentX: mx, startIdx: idx, endIdx: idx};
+            tooltip.style.display = 'none';
+            e.preventDefault();
+        });
+
+        // Drag selection: mousemove (draw overlay while dragging, or show tooltip)
+        canvas.addEventListener('mousemove', function(e) {
+            if(!_ashChartMeta || _ashSamples.length < 2) { tooltip.style.display='none'; return; }
+            let rect = canvas.getBoundingClientRect();
+            let mx = e.clientX - rect.left;
+            let my = e.clientY - rect.top;
+            let m = _ashChartMeta;
+
+            if(_ashDrag.active) {
+                // Dragging: update overlay
+                _ashDrag.currentX = Math.max(m.pad.left, Math.min(mx, m.pad.left + m.cW));
+                _ashDrag.endIdx = getAshIdxFromX(_ashDrag.currentX);
+                tooltip.style.display = 'none';
+                // Redraw chart then overlay on top (drawAshChart leaves ctx.scale(dpr,dpr), so use CSS px)
+                drawAshChart(_ashSamples);
+                let ctx2 = canvas.getContext('2d');
+                // All coords in CSS px (context already scaled by DPR from drawAshChart)
+                let x1 = Math.min(_ashDrag.startX, _ashDrag.currentX);
+                let x2 = Math.max(_ashDrag.startX, _ashDrag.currentX);
+                // Blue highlight region
+                ctx2.fillStyle = 'rgba(59,130,246,0.15)';
+                ctx2.fillRect(x1, m.pad.top, x2 - x1, m.cH);
+                // Border edges
+                ctx2.strokeStyle = 'rgba(59,130,246,0.6)';
+                ctx2.lineWidth = 2;
+                ctx2.beginPath();
+                ctx2.moveTo(x1, m.pad.top); ctx2.lineTo(x1, m.pad.top + m.cH);
+                ctx2.moveTo(x2, m.pad.top); ctx2.lineTo(x2, m.pad.top + m.cH);
+                ctx2.stroke();
+                // Time labels at drag edges
+                let loIdx = Math.min(_ashDrag.startIdx, _ashDrag.endIdx);
+                let hiIdx = Math.max(_ashDrag.startIdx, _ashDrag.endIdx);
+                if(loIdx >= 0 && hiIdx < _ashSamples.length) {
+                    ctx2.fillStyle = 'rgba(59,130,246,0.9)';
+                    ctx2.font = '9px sans-serif';
+                    ctx2.textAlign = 'center';
+                    let sT = new Date(_ashSamples[loIdx].time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+                    let eT = new Date(_ashSamples[hiIdx].time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+                    ctx2.fillText(sT, x1, m.H - 2);
+                    ctx2.fillText(eT, x2, m.H - 2);
+                }
+                return;
+            }
+
+            // Normal hover (not dragging)
+            if(mx < m.pad.left || mx > m.pad.left + m.cW) { tooltip.style.display='none'; return; }
+            let ratio = (mx - m.pad.left) / m.cW;
+            let idx = Math.round(ratio * (_ashSamples.length - 1));
+            idx = Math.max(0, Math.min(idx, _ashSamples.length - 1));
+            let s = _ashSamples[idx];
+            let stacked = s.active + s.waiting + s.blocked + s.idle_txn;
+            let totalConns = s.total || stacked;
+            let t = new Date(s.time);
+            let timeStr = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+            // Build tooltip HTML
+            let html = '<div style="font-weight:700;margin-bottom:6px;font-size:0.8rem;border-bottom:1px solid rgba(255,255,255,0.15);padding-bottom:4px;">' + timeStr + '</div>';
+            html += '<div style="font-size:0.75rem;color:rgba(255,255,255,0.6);margin-bottom:4px;">Connections: <span style="color:#fff;font-weight:600;">' + totalConns + '</span></div>';
+            if(s.longest > 0) {
+                html += '<div style="font-size:0.75rem;color:rgba(255,255,255,0.6);margin-bottom:6px;">Longest Query: <span style="color:#FFAB2E;font-weight:600;">' + s.longest + 's</span></div>';
+            }
+            let items = [
+                {label:'Active', val:s.active, color:'#00A972'},
+                {label:'Waiting', val:s.waiting, color:'#FFAB2E'},
+                {label:'Blocked', val:s.blocked, color:'#FF4444'},
+                {label:'Idle in Txn', val:s.idle_txn, color:'#3B82F6'}
+            ];
+            items.forEach(function(it) {
+                let pct = stacked > 0 ? Math.round(it.val / stacked * 100) : 0;
+                let barW = stacked > 0 ? (it.val / stacked * 100) : 0;
+                html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
+                html += '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + it.color + ';flex-shrink:0;"></span>';
+                html += '<span style="flex:1;font-size:0.75rem;">' + it.label + '</span>';
+                html += '<span style="font-family:var(--font-mono,monospace);font-size:0.75rem;font-weight:600;min-width:20px;text-align:right;">' + it.val + '</span>';
+                html += '<div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,0.1);overflow:hidden;flex-shrink:0;"><div style="width:' + barW + '%;height:100%;background:' + it.color + ';border-radius:2px;"></div></div>';
+                html += '<span style="font-size:0.65rem;color:rgba(255,255,255,0.5);min-width:28px;text-align:right;">' + pct + '%</span>';
+                html += '</div>';
+            });
+            tooltip.innerHTML = html;
+            tooltip.style.display = 'block';
+
+            // Position tooltip relative to canvas container
+            let container = canvas.parentElement;
+            let contRect = container.getBoundingClientRect();
+            let ttW = 200;
+            let ttX = (e.clientX - contRect.left) + 12;
+            let ttY = (e.clientY - contRect.top) - 60;
+            if(ttX + ttW > contRect.width - 10) ttX = (e.clientX - contRect.left) - ttW - 12;
+            if(ttY < 0) ttY = 4;
+            tooltip.style.left = ttX + 'px';
+            tooltip.style.top = ttY + 'px';
+
+            // Draw crosshair on canvas (drawAshChart leaves ctx.scale(dpr,dpr) active, so use CSS px)
+            drawAshChart(_ashSamples);
+            let ctx2 = canvas.getContext('2d');
+            let crossX = m.pad.left + (idx / (_ashSamples.length - 1)) * m.cW;
+            ctx2.strokeStyle = 'rgba(255,255,255,0.4)';
+            ctx2.lineWidth = 1;
+            ctx2.setLineDash([3, 3]);
+            ctx2.beginPath();
+            ctx2.moveTo(crossX, m.pad.top);
+            ctx2.lineTo(crossX, m.pad.top + m.cH);
+            ctx2.stroke();
+            ctx2.setLineDash([]);
+            // Draw dot at total height
+            let totalY = m.pad.top + m.cH - (totalConns / m.maxVal) * m.cH;
+            ctx2.beginPath();
+            ctx2.arc(crossX, totalY, 4, 0, Math.PI*2);
+            ctx2.fillStyle = '#fff';
+            ctx2.fill();
+            ctx2.strokeStyle = '#00A972';
+            ctx2.lineWidth = 2;
+            ctx2.stroke();
+        });
+
+        // Drag selection: mouseup
+        canvas.addEventListener('mouseup', function(e) {
+            if(!_ashDrag.active) return;
+            let startIdx = _ashDrag.startIdx;
+            let endIdx = _ashDrag.endIdx;
+            _ashDrag.active = false;
+            if(startIdx >= 0 && endIdx >= 0 && startIdx !== endIdx) {
+                applyAshSelection(startIdx, endIdx);
+            } else {
+                drawAshChart(_ashSamples);
+            }
+        });
+
+        canvas.addEventListener('mouseleave', function() {
+            document.getElementById('ashTooltip').style.display='none';
+            if(_ashDrag.active) {
+                _ashDrag.active = false;
+                drawAshChart(_ashSamples);
+            } else if(_ashSamples.length >= 2) {
+                drawAshChart(_ashSamples);
+            }
+        });
+
+        // Escape key to clear selection
+        document.addEventListener('keydown', function(e) {
+            if(e.key === 'Escape' && _ashSelection) {
+                clearAshSelection();
+            }
+        });
+    }
+}
+
+function toggleLqdAutoRefresh() {
+    _lqdAutoRefresh = !_lqdAutoRefresh;
+    let dot = document.getElementById('lqdRefreshDot');
+    if(_lqdAutoRefresh) {
+        dot.className = 'admin-card-dot green';
+        dot.style.width = '6px'; dot.style.height = '6px';
+        startLqdAutoRefresh();
+    } else {
+        dot.className = 'admin-card-dot red';
+        dot.style.width = '6px'; dot.style.height = '6px';
+        if(_lqdTimer) { clearInterval(_lqdTimer); _lqdTimer = null; }
+    }
+}
+
+function startLqdAutoRefresh() {
+    if(_lqdTimer) clearInterval(_lqdTimer);
+    _lqdTimer = setInterval(function(){
+        if(!_lqdAutoRefresh) return;
+        loadLqdSummary();
+        loadLqdTab();
+        loadLqdHistory();
+    }, 5000);
+}
+
+function refreshMatviews() {
+    document.getElementById('matviewBody').innerHTML = '<div class="admin-loading">Refreshing materialized views...</div>';
+    fetch('/api/admin/refresh-matviews', {method: 'POST', headers: {'Content-Type': 'application/json'}}).then(r => r.json()).then(data => {
+        if (data.error) {
+            document.getElementById('matviewBody').innerHTML = `<div style="color:#FF4444;">${data.error}</div>`;
+        } else {
+            loadInstanceInfo(); // Reload to show updated matview info
+        }
+    });
+}
+
+
+// ── pg_dump Backup ──
+function runPgDump() {
+    let btn = document.getElementById('pgDumpBtn');
+    let body = document.getElementById('pgDumpBody');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    body.innerHTML = '<div class="admin-loading" style="display:flex;align-items:center;gap:8px;"><div class="rotation-pulse"></div> Running pg_dump — generating DDL + COPY data and saving to UC Volume...</div>';
+
+    fetch('/api/admin/pg-dump', { method: 'POST', headers: {'Content-Type': 'application/json'} }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t.substring(0, 200) || ('HTTP ' + r.status)); });
+        return r.json();
+    }).then(data => {
+        btn.disabled = false;
+        btn.textContent = 'Create Backup';
+        if (data.error) { body.innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+
+        let html = '<div style="display:flex;gap:16px;margin-bottom:12px;">';
+        html += `<div class="admin-kpi" style="flex:1;padding:10px;"><div class="admin-kpi-label">Size</div><div class="admin-kpi-value" style="font-size:1.1rem;">${data.size}</div></div>`;
+        html += `<div class="admin-kpi" style="flex:1;padding:10px;"><div class="admin-kpi-label">Duration</div><div class="admin-kpi-value" style="font-size:1.1rem;">${data.duration_seconds}s</div></div>`;
+        html += `<div class="admin-kpi" style="flex:1;padding:10px;"><div class="admin-kpi-label">Rows</div><div class="admin-kpi-value" style="font-size:1.1rem;">${(data.total_rows||0).toLocaleString()}</div></div>`;
+        html += `<div class="admin-kpi" style="flex:1;padding:10px;"><div class="admin-kpi-label">Tables</div><div class="admin-kpi-value" style="font-size:1.1rem;">${(data.tables||[]).length}</div></div>`;
+        html += '</div>';
+
+        // Volume path
+        if (data.volume_path) {
+            html += `<div style="margin-bottom:12px;padding:8px 12px;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:6px;display:flex;align-items:center;gap:8px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <span style="font-size:0.75rem;color:var(--text-secondary);">Saved to UC Volume: <code style="color:var(--accent-primary);">${data.volume_path}</code></span>
+            </div>`;
+        }
+
+        // Table breakdown
+        html += '<table class="admin-table"><thead><tr><th>Table</th><th style="text-align:right;">Rows</th><th style="text-align:right;">Columns</th></tr></thead><tbody>';
+        (data.tables || []).forEach(t => {
+            html += `<tr><td><code>${t.table}</code></td><td style="text-align:right;font-family:var(--font-mono);">${(t.rows||0).toLocaleString()}</td><td style="text-align:right;">${t.columns}</td></tr>`;
+        });
+        html += '</tbody></table>';
+
+        // SQL preview
+        html += '<div style="margin-top:12px;"><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:4px;">SQL Preview (first 2000 chars):</div>';
+        html += `<pre style="background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:6px;padding:10px;font-size:0.7rem;max-height:200px;overflow:auto;color:var(--text-primary);white-space:pre-wrap;">${(data.sql_preview||'').replace(/</g,'&lt;')}</pre>`;
+        html += '</div>';
+
+        html += `<div style="margin-top:8px;font-size:0.75rem;color:var(--text-secondary);">Restorable with: <code>psql -f backup.sql</code></div>`;
+        body.innerHTML = html;
+
+        // Refresh backup list
+        loadBackupList();
+    }).catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'Create Backup';
+        body.innerHTML = `<div style="color:#FF4444;">Error: ${err.message}</div>`;
+    });
+}
+
+function loadBackupList() {
+    let container = document.getElementById('pgDumpBackups');
+    if (!container) return;
+    fetch('/api/admin/pg-dump-list').then(r => r.json()).then(data => {
+        if (data.error || !data.backups || data.backups.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+        let html = '<div style="border-top:1px solid var(--border-primary);padding-top:12px;">';
+        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:6px;">';
+        html += '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+        html += `Previous Backups <span style="font-weight:400;color:var(--text-tertiary);">(${data.backups.length} in UC Volume)</span></div>`;
+        html += '<table class="admin-table"><thead><tr><th>Filename</th><th style="text-align:right;">Size</th><th style="text-align:right;">Date</th><th style="width:80px;"></th></tr></thead><tbody>';
+        data.backups.forEach(b => {
+            let dateStr = b.last_modified ? new Date(b.last_modified).toLocaleString() : '—';
+            html += `<tr>
+                <td><code style="font-size:0.7rem;">${b.name}</code></td>
+                <td style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;">${b.size}</td>
+                <td style="text-align:right;font-size:0.75rem;color:var(--text-secondary);">${dateStr}</td>
+                <td style="text-align:right;display:flex;gap:4px;justify-content:flex-end;">
+                    <button onclick="restoreBackup('${b.name}')" style="padding:2px 10px;border-radius:4px;background:transparent;border:1px solid #00A972;color:#00A972;cursor:pointer;font-size:0.7rem;font-weight:600;">Restore</button>
+                    <a href="/api/admin/pg-dump-download?file=${encodeURIComponent(b.name)}" style="padding:2px 10px;border-radius:4px;background:var(--accent-primary);color:white;text-decoration:none;font-size:0.7rem;font-weight:600;">Download</a>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        if (data.volume_path) {
+            html += `<div style="margin-top:6px;font-size:0.7rem;color:var(--text-tertiary);">Volume: <code>${data.volume_path}</code></div>`;
+        }
+        html += '</div>';
+        container.innerHTML = html;
+    }).catch(() => {});
+}
+
+// ── Restore Backup ──
+function restoreBackup(filename) {
+    let defaultSchema = '{{ schema }}_restored_' + new Date().toISOString().slice(0,10).replace(/-/g,'');
+    let targetSchema = prompt('Restore to schema name:', defaultSchema);
+    if (!targetSchema) return;
+    var inst = (document.getElementById('instBtnName') || {}).textContent || 'this instance';
+    lbConfirm({
+        title: 'Restore backup?',
+        message: 'Restore "' + filename + '" into schema "' + targetSchema + '" on instance "' + inst +
+                 '".\n\nThis writes tables and data into that schema, as you.',
+        confirmLabel: 'Restore'
+    }).then(function (ok) { if (ok) _doRestore(filename, targetSchema, false); });
+}
+
+function _doRestore(filename, targetSchema, destructiveConfirmed) {
+    let container = document.getElementById('pgDumpBackups');
+    let prevHtml = container.innerHTML;
+    container.innerHTML = `<div style="border-top:1px solid var(--border-primary);padding:12px;">
+        <div class="admin-loading" style="display:flex;align-items:center;gap:8px;">
+            <div class="rotation-pulse"></div>
+            Restoring <code>${filename}</code> → schema <code>${targetSchema}</code>...
+            <span style="font-size:0.7rem;color:var(--text-tertiary);">(this may take a minute for large backups)</span>
+        </div>
+    </div>`;
+
+    let payload = { file: filename, target_schema: targetSchema, confirm: true };
+    if (destructiveConfirmed) payload.confirm_destructive = true;
+
+    fetch('/api/admin/pg-dump-restore', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(r => r.json().then(d => { d.__status = r.status; return d; })).then(data => {
+        // Second confirmation when the backup contains DROP/DELETE/TRUNCATE.
+        if (data.__status === 428 && data.error === 'destructive_confirmation_required') {
+            container.innerHTML = prevHtml;
+            lbConfirm({
+                danger: true, doubleConfirm: true,
+                title: 'This backup may delete data',
+                message: data.message,
+                confirmLabel: 'Continue…',
+                doubleTitle: 'Destructive & irreversible',
+                doubleMessage: 'The restore can DROP/DELETE/TRUNCATE data in schema "' + targetSchema +
+                               '". This cannot be undone.',
+                doubleConfirmLabel: 'Yes — run the destructive restore'
+            }).then(function (ok) { if (ok) _doRestore(filename, targetSchema, true); });
+            return;
+        }
+        if (data.error) {
+            container.innerHTML = `<div style="border-top:1px solid var(--border-primary);padding:12px;color:#FF4444;">Restore failed: ${data.error}${data.message ? ' — ' + data.message : ''}</div>`;
+            setTimeout(() => loadBackupList(), 3000);
+            return;
+        }
+        let html = '<div style="border-top:1px solid var(--border-primary);padding:12px;">';
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span style="font-weight:600;color:#00A972;">Restore Complete</span>
+            <span style="font-size:0.75rem;color:var(--text-secondary);">${data.duration_seconds}s</span>
+        </div>`;
+        html += `<div style="display:flex;gap:16px;margin-bottom:10px;">
+            <div class="admin-kpi" style="flex:1;padding:8px;"><div class="admin-kpi-label">Schema</div><div class="admin-kpi-value" style="font-size:0.9rem;"><code>${data.target_schema}</code></div></div>
+            <div class="admin-kpi" style="flex:1;padding:8px;"><div class="admin-kpi-label">Tables</div><div class="admin-kpi-value" style="font-size:0.9rem;">${data.tables_restored}</div></div>
+            <div class="admin-kpi" style="flex:1;padding:8px;"><div class="admin-kpi-label">Rows</div><div class="admin-kpi-value" style="font-size:0.9rem;">${(data.total_rows||0).toLocaleString()}</div></div>
+        </div>`;
+        if (data.table_stats && data.table_stats.length) {
+            html += '<table class="admin-table"><thead><tr><th>Table</th><th style="text-align:right;">Rows Restored</th></tr></thead><tbody>';
+            data.table_stats.forEach(t => {
+                html += `<tr><td><code>${t.table}</code></td><td style="text-align:right;font-family:var(--font-mono);">${(t.rows||0).toLocaleString()}</td></tr>`;
+            });
+            html += '</tbody></table>';
+        }
+        html += `<div style="margin-top:8px;font-size:0.75rem;color:var(--text-secondary);">
+            Source: <code>${data.source_file}</code> &rarr; Verify: <code>SELECT * FROM ${data.target_schema}.work_orders LIMIT 10;</code>
+        </div>`;
+        html += '</div>';
+        container.innerHTML = html;
+    }).catch(err => {
+        container.innerHTML = `<div style="border-top:1px solid var(--border-primary);padding:12px;color:#FF4444;">Restore error: ${err.message}</div>`;
+        setTimeout(() => loadBackupList(), 3000);
+    });
+}
+
+// ── Table Bloat (pgstattuple) ──
+function loadTableBloat() {
+    let body = document.getElementById('bloatBody');
+    body.innerHTML = '<div class="admin-loading">Loading bloat stats via pgstattuple...</div>';
+    fetch('/api/admin/table-bloat').then(r => r.json()).then(data => {
+        if (data.error) { body.innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+        let html = '<table class="admin-table"><thead><tr><th>Table</th><th style="text-align:right;">Live Tuples</th><th style="text-align:right;">Dead %</th><th style="text-align:right;">Free %</th><th style="width:100px;">Health</th></tr></thead><tbody>';
+        (data.tables || []).forEach(t => {
+            if (t.error) {
+                html += `<tr><td><code>${t.table}</code></td><td colspan="4" style="color:#FF4444;">pgstattuple not available</td></tr>`;
+                return;
+            }
+            let deadColor = t.dead_tuple_percent > 10 ? '#FF4444' : t.dead_tuple_percent > 5 ? '#FFAB2E' : '#00A972';
+            let healthPct = Math.max(0, 100 - t.dead_tuple_percent - t.free_percent);
+            html += `<tr>
+                <td><code>${t.table}</code></td>
+                <td style="text-align:right;font-family:var(--font-mono);">${(t.tuple_count||0).toLocaleString()}</td>
+                <td style="text-align:right;font-family:var(--font-mono);color:${deadColor};font-weight:600;">${t.dead_tuple_percent}%</td>
+                <td style="text-align:right;font-family:var(--font-mono);">${t.free_percent}%</td>
+                <td><div class="admin-bar"><div class="admin-bar-fill" style="width:${healthPct}%;background:${deadColor};"></div></div></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+    }).catch(err => { body.innerHTML = `<div style="color:#FF4444;">${err.message}</div>`; });
+}
+
+function runVacuumAll() {
+    let btn = document.getElementById('vacuumAllBtn');
+    let body = document.getElementById('bloatBody');
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    body.innerHTML = '<div class="admin-loading" style="display:flex;align-items:center;gap:8px;"><div class="rotation-pulse" style="background:#FFAB2E;"></div> Running VACUUM ANALYZE on all tables...</div>';
+
+    fetch('/api/admin/vacuum-analyze', { method: 'POST', headers: {'Content-Type':'application/json'} }).then(r => r.json()).then(data => {
+        btn.disabled = false;
+        btn.textContent = 'VACUUM ANALYZE All';
+        if (data.error) { body.innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+
+        let html = '<div style="font-size:0.8rem;color:#00A972;margin-bottom:8px;font-weight:600;">VACUUM ANALYZE complete</div>';
+        html += '<table class="admin-table"><thead><tr><th>Table</th><th style="text-align:right;">Duration</th><th style="text-align:right;">Dead % Before</th><th style="text-align:right;">Dead % After</th><th style="text-align:right;">Free % Before</th><th style="text-align:right;">Free % After</th></tr></thead><tbody>';
+        (data.results || []).forEach(r => {
+            let improved = r.after_dead_pct < r.before_dead_pct;
+            html += `<tr>
+                <td><code>${r.table}</code></td>
+                <td style="text-align:right;font-family:var(--font-mono);">${r.duration_ms}ms</td>
+                <td style="text-align:right;font-family:var(--font-mono);">${r.before_dead_pct}%</td>
+                <td style="text-align:right;font-family:var(--font-mono);color:${improved?'#00A972':'var(--text-primary)'};font-weight:${improved?'600':'400'};">${r.after_dead_pct}%${improved?' ✓':''}</td>
+                <td style="text-align:right;font-family:var(--font-mono);">${r.before_free_pct}%</td>
+                <td style="text-align:right;font-family:var(--font-mono);">${r.after_free_pct}%</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        body.innerHTML = html;
+    }).catch(err => {
+        btn.disabled = false;
+        btn.textContent = 'VACUUM ANALYZE All';
+        body.innerHTML = `<div style="color:#FF4444;">${err.message}</div>`;
+    });
+}
+
+// ── Cluster Topology ──
+function loadClusterStatus() {
+    let body = document.getElementById('clusterBody');
+    body.innerHTML = '<div class="admin-loading">Loading cluster status...</div>';
+    fetch('/api/admin/cluster-status').then(r => r.json()).then(data => {
+        if (data.error) { body.innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+
+        let html = '';
+        // Compute topology visual
+        let endpoints = data.endpoints || [];
+        let conns = data.connections || {};
+        let activeConns = conns.active || 0;
+        let idleConns = conns.idle || 0;
+        let totalConns = Object.values(conns).reduce((s,v) => s + v, 0);
+
+        // Node diagram
+        html += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">';
+        if (endpoints.length > 0) {
+            endpoints.forEach(ep => {
+                let stateColor = ep.state === 'ACTIVE' ? '#00A972' : ep.state === 'IDLE' ? '#FFAB2E' : '#FF4444';
+                let typeLabel = ep.type.includes('READ_WRITE') ? 'PRIMARY' : 'READ REPLICA';
+                html += `<div style="flex:1;min-width:180px;background:var(--bg-tertiary);border:2px solid ${stateColor};border-radius:10px;padding:12px;text-align:center;">
+                    <div style="font-size:0.7rem;color:${stateColor};font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">${typeLabel}</div>
+                    <div style="font-size:1.2rem;font-weight:700;color:var(--text-primary);">${ep.min_cu}-${ep.max_cu} CU</div>
+                    <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;">
+                        <span class="admin-badge" style="background:rgba(${stateColor === '#00A972' ? '0,169,114' : stateColor === '#FFAB2E' ? '255,171,46' : '255,68,68'},0.15);color:${stateColor};">${ep.state}</span>
+                    </div>
+                    ${ep.group_max > 1 ? `<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:6px;">Replicas: ${ep.group_min}-${ep.group_max}</div>` : ''}
+                </div>`;
+            });
+        } else {
+            html += `<div style="flex:1;min-width:180px;background:var(--bg-tertiary);border:2px solid #00A972;border-radius:10px;padding:12px;text-align:center;">
+                <div style="font-size:0.7rem;color:#00A972;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">PRIMARY</div>
+                <div style="font-size:1.2rem;font-weight:700;color:var(--text-primary);">~${data.estimated_cu} CU</div>
+                <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:4px;"><span class="admin-badge green">ACTIVE</span></div>
+            </div>`;
+        }
+        html += '</div>';
+
+        // Metrics
+        html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">';
+        html += `<div class="admin-kpi" style="padding:8px;"><div class="admin-kpi-label" style="font-size:0.65rem;">Shared Buffers</div><div class="admin-kpi-value" style="font-size:0.95rem;">${data.shared_buffers_mb} MB</div></div>`;
+        html += `<div class="admin-kpi" style="padding:8px;"><div class="admin-kpi-label" style="font-size:0.65rem;">Effective Cache</div><div class="admin-kpi-value" style="font-size:0.95rem;">${data.effective_cache_mb} MB</div></div>`;
+        html += `<div class="admin-kpi" style="padding:8px;"><div class="admin-kpi-label" style="font-size:0.65rem;">Max Connections</div><div class="admin-kpi-value" style="font-size:0.95rem;">${data.max_connections}</div></div>`;
+        html += '</div>';
+
+        // Connection gauge
+        let connPct = Math.round((totalConns / data.max_connections) * 100);
+        let connColor = connPct > 80 ? '#FF4444' : connPct > 50 ? '#FFAB2E' : '#00A972';
+        html += `<div class="admin-row"><span class="admin-label">Connection Usage</span><span class="admin-value">${totalConns} / ${data.max_connections} (${connPct}%)</span></div>`;
+        html += `<div class="admin-bar" style="margin-top:4px;height:8px;"><div class="admin-bar-fill" style="width:${connPct}%;background:${connColor};"></div></div>`;
+        html += `<div style="display:flex;gap:12px;margin-top:6px;font-size:0.75rem;color:var(--text-secondary);">
+            <span>Active: <strong style="color:var(--text-primary);">${activeConns}</strong></span>
+            <span>Idle: <strong style="color:var(--text-primary);">${idleConns}</strong></span>
+            <span>Est. CU: <strong style="color:var(--accent-primary);">${data.estimated_cu}</strong></span>
+        </div>`;
+
+        if (data.project_id) {
+            html += `<div style="margin-top:8px;font-size:0.7rem;color:var(--text-secondary);">Project: <code>${data.project_id}</code> (${data.lakebase_type})</div>`;
+        }
+
+        body.innerHTML = html;
+    }).catch(err => { body.innerHTML = `<div style="color:#FF4444;">${err.message}</div>`; });
+}
+
+// ── Slow Queries (pg_stat_statements) ──
+function loadSlowQueries() {
+    let body = document.getElementById('slowQueriesBody');
+    body.innerHTML = '<div class="admin-loading">Loading pg_stat_statements...</div>';
+    fetch('/api/admin/slow-queries').then(r => r.json()).then(data => {
+        if (data.error) { body.innerHTML = `<div style="color:#FF4444;">${data.error}</div>`; return; }
+        let queries = data.queries || [];
+        if (queries.length === 0) {
+            body.innerHTML = '<div class="admin-loading">No query stats yet. Stats accumulate as queries run.</div>';
+            return;
+        }
+        let maxTime = Math.max(...queries.map(q => q.avg_time_ms), 0.01);
+        let html = '<table class="admin-table"><thead><tr><th>Query</th><th style="text-align:right;">Calls</th><th style="text-align:right;">Avg (ms)</th><th style="text-align:right;">Cache Hit</th><th style="width:80px;">Latency</th></tr></thead><tbody>';
+        queries.forEach(q => {
+            let pct = Math.round((q.avg_time_ms / maxTime) * 100);
+            let color = pct > 60 ? '#FF6F42' : pct > 30 ? '#FFAB2E' : '#00A972';
+            let cacheColor = q.cache_hit_ratio > 90 ? '#00A972' : q.cache_hit_ratio > 50 ? '#FFAB2E' : '#FF4444';
+            let shortQuery = q.query.length > 80 ? q.query.substring(0, 80) + '...' : q.query;
+            html += `<tr>
+                <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${q.query.replace(/"/g,'&quot;')}"><code style="font-size:0.7rem;">${shortQuery.replace(/</g,'&lt;')}</code></td>
+                <td style="text-align:right;font-family:var(--font-mono);">${(q.calls||0).toLocaleString()}</td>
+                <td style="text-align:right;font-family:var(--font-mono);font-weight:600;">${q.avg_time_ms < 1 ? q.avg_time_ms.toFixed(3) : q.avg_time_ms.toFixed(1)}</td>
+                <td style="text-align:right;font-family:var(--font-mono);color:${cacheColor};">${q.cache_hit_ratio}%</td>
+                <td><div class="admin-bar"><div class="admin-bar-fill" style="width:${pct}%;background:${color};"></div></div></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        html += '<div style="margin-top:6px;font-size:0.7rem;color:var(--text-secondary);">Note: Stats reset when compute scales to zero. Top 15 by avg latency.</div>';
+        body.innerHTML = html;
+    }).catch(err => { body.innerHTML = `<div style="color:#FF4444;">${err.message}</div>`; });
+}
+
+// Load everything on page load
+document.addEventListener('DOMContentLoaded', function() {
+    refreshAll();
+    startLqdAutoRefresh();
+});
+</script>
+{% endblock %}
