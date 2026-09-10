@@ -364,3 +364,9 @@ if _IN_DATABRICKS:
     _build_widgets()
     _results = main()
     print(f"Orchestrator finished: {len(_results)} component step(s).")
+    # Return the per-step results (status + any deferred error) so a job run can
+    # be inspected via get-run-output. These dicts carry only resource + secret
+    # KEY names and statuses -- never secret values -- so they are safe to emit.
+    import json as _json
+
+    dbutils.notebook.exit(_json.dumps(_results, default=str))  # type: ignore[name-defined]
