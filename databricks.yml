@@ -16,16 +16,19 @@
 #   * database_instance (provisioned tier) -- excluded; no scale-to-zero.
 #
 # NOTE: The deploy notebook (deploy.py) invokes `databricks bundle deploy` from
-# inside the workspace (commit -> push -> pull -> run). This file is kept
-# `bundle validate`-shaped; P0 does not run it.
+# inside the workspace (commit -> push -> pull -> run). This file is
+# `bundle validate`-clean (zero warnings); P0 does not run it.
 #
-# VERIFY LIVE AT P1b: the exact `postgres_project`/`postgres_endpoint` bundle
-# resource keys + spec shape (mirrored below from the `databricks postgres`
-# CLI create-project/create-endpoint payloads) against `databricks bundle
-# schema`. If the bundle cannot express the autoscaling project/endpoint
-# cleanly, provision via SDK `w.postgres.create_project` in core/lakebase/
-# deploy.py instead (the deploy step already resolves the endpoint it finds);
-# a commented SDK-fallback example is retained below.
+# POSTGRES RESOURCE SHAPE: the `postgres_projects`/`postgres_endpoints` resources
+# below use the FLAT schema the CLI expects (verified against `databricks bundle
+# schema`, resources.PostgresProject / resources.PostgresEndpoint):
+#   * project  -> `project_id` (required) + `display_name`
+#   * endpoint -> `endpoint_id` + `parent` + `endpoint_type` (all required),
+#                 plus `autoscaling_limit_{min,max}_cu` and
+#                 `suspend_timeout_duration` (scale-to-zero).
+# There is NO `name`/`spec` nesting -- those were the old (rejected) shape.
+# SDK-fallback (`w.postgres.create_project`) is retained commented below in case
+# a future CLI version drops these Beta bundle resources.
 
 bundle:
   name: lakebase-solutions
@@ -62,25 +65,27 @@ variables:
 resources:
   # Lakebase AUTOSCALING `postgres` project (+ its default `production` branch
   # and `primary` read-write endpoint). The project id is the bare prefix;
-  # creating the project auto-provisions the branch + endpoint. The endpoint
-  # carries the autoscaling CU range + scale-to-zero suspend timeout.
-  #
-  # VERIFY LIVE AT P1b: exact resource keys/spec shape via `databricks bundle
-  # schema` (mirrored from the `databricks postgres` CLI JSON payloads).
+  # creating the project auto-provisions the `production` branch + a `primary`
+  # read-write endpoint. The endpoint resource below brings that auto-created
+  # endpoint under bundle management (`replace_existing`) and carries the
+  # autoscaling CU range + scale-to-zero suspend timeout.
   postgres_projects:
     lakebase:
-      name: ${var.prefix}
-      spec:
-        display_name: ${var.prefix} Lakebase (workshop)
+      project_id: ${var.prefix}
+      display_name: ${var.prefix} Lakebase (workshop)
   postgres_endpoints:
     primary:
-      name: projects/${var.prefix}/branches/production/endpoints/primary
-      spec:
-        endpoint_type: ENDPOINT_TYPE_READ_WRITE
-        autoscaling_limit_min_cu: ${var.autoscaling_min_cu}
-        autoscaling_limit_max_cu: ${var.autoscaling_max_cu}
-        # Scale-to-zero: suspend the endpoint after this idle duration.
-        suspend_timeout_duration: 300s
+      endpoint_id: primary
+      # API resource hierarchy: the branch that contains this endpoint.
+      parent: projects/${var.prefix}/branches/production
+      endpoint_type: ENDPOINT_TYPE_READ_WRITE
+      autoscaling_limit_min_cu: ${var.autoscaling_min_cu}
+      autoscaling_limit_max_cu: ${var.autoscaling_max_cu}
+      # Scale-to-zero: suspend the endpoint after this idle duration (60s-604800s).
+      suspend_timeout_duration: 300s
+      # Take over the primary endpoint auto-created with the production branch
+      # instead of failing with ALREADY_EXISTS.
+      replace_existing: true
 
   # SDK-FALLBACK (if the bundle cannot express the above at P1b): drop the two
   # resources and provision from core/lakebase/deploy.py instead, e.g.

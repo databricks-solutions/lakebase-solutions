@@ -262,15 +262,30 @@ def _validate_required(params: Dict[str, Any]) -> None:
 
 
 def build_context(params: Dict[str, Any]) -> DeployContext:
-    """Construct a :class:`DeployContext` from raw parameter values."""
+    """Construct a :class:`DeployContext` from raw parameter values.
+
+    In-workspace (``_IN_DATABRICKS``) the real live-access factories from
+    ``bootstrap.adapters`` are injected so ``ctx.is_live()`` is True and every
+    step executes live SDK/SQL. Off-Databricks (the pytest suite) they are left
+    unset, so ``ctx.is_live()`` stays False and each step logs intent and stubs.
+    """
 
     deployment_id = params["deployment_id"]
+    factory_kwargs: Dict[str, Any] = {}
+    if _IN_DATABRICKS:  # pragma: no cover - only truthy inside Databricks
+        from bootstrap import adapters  # deferred: keeps import surface offline-safe
+
+        factory_kwargs = {
+            "workspace_client_factory": adapters.default_workspace_client_factory,
+            "pg_connection_factory": adapters.default_pg_connection_factory,
+        }
     ctx = DeployContext(
         deployment_id=deployment_id,
         mode=params.get("mode", "deploy"),
         cloud=params.get("cloud", "aws"),
         region=params.get("region", "us-west-2"),
         params=dict(params),
+        **factory_kwargs,
     )
     # Honor explicit group overrides; otherwise the prefix-derived defaults stand.
     if params.get("admin_group"):
@@ -280,11 +295,41 @@ def build_context(params: Dict[str, Any]) -> DeployContext:
     return ctx
 
 
+def run_bundle_stage(mode: str) -> None:
+    """Run ``databricks bundle deploy``/``destroy -t dev`` from the deploy notebook.
+
+    This creates (``deploy``) or removes (``teardown``) the bundle-managed
+    resources the SDK/SQL orchestrator does NOT own: the Lakebase ``postgres``
+    project + ``primary`` endpoint, the standalone secret scope, and the admin
+    app. It shells out to the Databricks CLI available in the workspace runtime.
+
+    Callers guard this behind ``_IN_DATABRICKS`` (see ``main``) so importing this
+    module off-Databricks -- as the pytest suite does -- never shells out. The
+    bundle-deploy-from-notebook mechanic itself is validated at the live run.
+    """
+
+    import subprocess  # deferred: import of deploy.py must not imply a shell-out
+
+    action = "deploy" if mode == "deploy" else "destroy"
+    cmd = ["databricks", "bundle", action, "-t", "dev"]
+    if action == "destroy":
+        cmd.append("--auto-approve")  # non-interactive teardown from the notebook
+    print(f"[bundle] running: {' '.join(cmd)}")
+    subprocess.run(cmd, cwd=str(_REPO_ROOT), check=True)
+    print(f"[bundle] {action} complete")
+
+
 def main(params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Entry point: build context from params and run the orchestrator.
 
     Advanced params (no widget) are overlaid from ``config.yaml``, then required
     params are validated before anything runs.
+
+    In-workspace (``_IN_DATABRICKS``) the DABs bundle stage brackets the
+    orchestrator: for ``deploy`` the bundle resources (project/endpoint/scope/
+    app) are created BEFORE the SDK/SQL steps so they exist; for ``teardown`` the
+    orchestrator tears down FIRST, then the bundle is destroyed. Off-Databricks
+    the bundle stage is skipped entirely (guarded).
     """
 
     params = params or _read_params()
@@ -302,7 +347,19 @@ def main(params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     _validate_required(params)
     ctx = build_context(params)
     modules = _parse_modules(params.get("modules", ""))
-    return run(mode=ctx.mode, selected_modules=modules, ctx=ctx, root=_REPO_ROOT)
+
+    # deploy: bundle-managed resources must exist before the orchestrator runs.
+    if _IN_DATABRICKS and ctx.mode == "deploy":  # pragma: no cover - in-workspace only
+        run_bundle_stage("deploy")
+
+    results = run(mode=ctx.mode, selected_modules=modules, ctx=ctx, root=_REPO_ROOT)
+
+    # teardown: destroy bundle-managed resources only after the orchestrator has
+    # torn down what depends on them.
+    if _IN_DATABRICKS and ctx.mode == "teardown":  # pragma: no cover - in-workspace only
+        run_bundle_stage("teardown")
+
+    return results
 
 
 # COMMAND ----------
