@@ -58,6 +58,10 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     # Provisioning summary surfaced on the result.
     assert result["provisioned"]["autoscaling_min_cu"] == 1.0
     assert result["provisioned"]["autoscaling_max_cu"] == 4.0
+    # CU was read back from the endpoint and verified (not a fire-and-forget PATCH):
+    # the endpoint must be provisioned BEFORE the PATCH, then confirmed to have
+    # adopted the requested range.
+    assert result["provisioned"]["autoscaling_cu_verified"] is True
 
     # Workshop DATABASE created first (autoscaling: default `postgres` db has a
     # restricted public schema), then the idempotent workshop schema DDL.

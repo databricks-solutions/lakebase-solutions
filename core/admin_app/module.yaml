@@ -14,6 +14,24 @@ parameters:
     advanced: false
     label: Admin group
     help: Databricks group gating the admin app. Blank = ${prefix}-admins.
+  - name: admin_app_source_path
+    type: string
+    default: ""
+    required: false
+    advanced: true
+    label: Admin app source path
+    help: >-
+      Workspace path of the admin app package to deploy. Blank = derived from the
+      connecting identity + repo_folder (/Workspace/Users/<email>/<repo_folder>/core/admin_app).
+  - name: repo_folder
+    type: string
+    default: lakebase-solutions
+    required: false
+    advanced: true
+    label: Repo folder name
+    help: >-
+      Name of the synced Git folder under /Workspace/Users/<email>/ (used only to
+      derive the admin app source path when admin_app_source_path is blank).
 provides:
   # The ONLY always-on app; each module ships its own separate Databricks App.
   app: ["${prefix}-admin-app"]

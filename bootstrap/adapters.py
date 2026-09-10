@@ -44,10 +44,13 @@ from typing import Any, Optional
 
 __all__ = [
     "POSTGRES_API_BASE",
+    "APPS_API_BASE",
     "default_workspace_client_factory",
     "default_pg_connection_factory",
     "endpoint_resource_name",
+    "resolve_primary_endpoint",
     "resolve_endpoint_host",
+    "endpoint_cu",
     "username_from_token",
 ]
 
@@ -57,6 +60,11 @@ DEFAULT_ENDPOINT = "primary"
 
 # Base path for the autoscaling Postgres REST API (called via w.api_client.do).
 POSTGRES_API_BASE = "/api/2.0/postgres"
+
+# Base path for the Databricks Apps REST API (called via w.api_client.do). The
+# typed ``w.apps`` service is not present on every notebook-runtime SDK, so the
+# admin_app step drives the REST surface directly -- same rationale as postgres.
+APPS_API_BASE = "/api/2.0/apps"
 
 
 def default_workspace_client_factory() -> Any:
@@ -126,19 +134,21 @@ def _host_from_endpoint(endpoint: Any) -> Optional[str]:
     return getattr(first, "host", None)
 
 
-def resolve_endpoint_host(
+def resolve_primary_endpoint(
     w: Any,
     project: str,
     branch: str = DEFAULT_BRANCH,
     endpoint: str = DEFAULT_ENDPOINT,
-) -> Optional[str]:
-    """Resolve the read-write endpoint host for a project/branch (autoscaling).
+) -> Optional[Any]:
+    """Return the endpoint object for a project/branch (autoscaling), or ``None``.
 
     Calls ``GET /api/2.0/postgres/projects/<id>/branches/<branch>/endpoints`` via
-    ``w.api_client.do`` and returns ``status.hosts.host`` for the endpoint whose
-    resource name ends in ``endpoints/<endpoint>`` (falling back to the first
-    endpoint). The parsed-dict response shape is handled defensively (a bare list,
-    or a dict exposing ``.endpoints``).
+    ``w.api_client.do`` and returns the endpoint whose resource name ends in
+    ``endpoints/<endpoint>`` (falling back to the first endpoint). The parsed-dict
+    response shape is handled defensively (a bare list, or a dict exposing
+    ``.endpoints``). The full object is returned so callers can read both
+    ``status.hosts.host`` (see :func:`resolve_endpoint_host`) and
+    ``status.autoscaling_limit_*`` (see :func:`endpoint_cu`).
     """
 
     resp = w.api_client.do(
@@ -151,17 +161,46 @@ def resolve_endpoint_host(
     if endpoints is None:
         endpoints = list(resp) if isinstance(resp, (list, tuple)) else []
 
-    chosen = None
     for ep in endpoints:
         name = (ep.get("name") if isinstance(ep, dict) else getattr(ep, "name", "")) or ""
         if name.rsplit("/", 1)[-1] == endpoint or name.endswith(f"endpoints/{endpoint}"):
-            chosen = ep
-            break
-    if chosen is None and endpoints:
-        chosen = endpoints[0]
+            return ep
+    return endpoints[0] if endpoints else None
+
+
+def resolve_endpoint_host(
+    w: Any,
+    project: str,
+    branch: str = DEFAULT_BRANCH,
+    endpoint: str = DEFAULT_ENDPOINT,
+) -> Optional[str]:
+    """Resolve the read-write endpoint host for a project/branch (autoscaling)."""
+
+    chosen = resolve_primary_endpoint(w, project, branch, endpoint)
     if chosen is None:
         return None
     return _host_from_endpoint(chosen)
+
+
+def endpoint_cu(endpoint: Any) -> "tuple[Optional[float], Optional[float]]":
+    """Extract ``(min_cu, max_cu)`` from an endpoint's ``status`` (REST dict or object).
+
+    The GET-endpoints response reports the live autoscaling range under
+    ``status.autoscaling_limit_min_cu`` / ``status.autoscaling_limit_max_cu`` --
+    NOT under ``spec`` (which the PATCH writes to but the GET does not echo). This
+    is what the lakebase step reads back to confirm the CU PATCH actually took.
+    """
+
+    if isinstance(endpoint, dict):
+        status = endpoint.get("status") or {}
+    else:  # defensive: legacy typed object
+        status = getattr(endpoint, "status", None) or {}
+    if isinstance(status, dict):
+        return status.get("autoscaling_limit_min_cu"), status.get("autoscaling_limit_max_cu")
+    return (
+        getattr(status, "autoscaling_limit_min_cu", None),
+        getattr(status, "autoscaling_limit_max_cu", None),
+    )
 
 
 def default_pg_connection_factory(

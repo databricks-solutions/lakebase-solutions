@@ -29,7 +29,7 @@ env:
   # Default `public`; set to the workshop schema (`workshop`) to point the
   # explorer, maintenance, and backup tools at the workshop objects.
   - name: TARGET_SCHEMA
-    value: "public"
+    value: "workshop"
 
   # ── Access control ───────────────────────────────────────────────────────
   # Members of ADMIN_GROUP (and the workspace `admins` group) are admins. Left

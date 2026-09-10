@@ -1,16 +1,23 @@
 """core/admin_app health check.
 
-Confirms the deployed admin app is reachable by GETting its ``/api/health``
-endpoint, which returns ``status: "ok"`` plus a best-effort database ping
-(``db: "connected"`` when the console can check out a pooled connection).
+Confirms the admin app is deployed and running. The reliable signal is the app's
+own control-plane state, read via the Apps **REST API**
+(``GET /api/2.0/apps/<name>``) through ``w.api_client.do``: the app is healthy
+when compute is ACTIVE and its active deployment SUCCEEDED. As a bonus, it makes
+a best-effort HTTP GET of ``<url>/api/health`` (the app's Flask liveness route,
+which also pings the database) -- but that call can be rejected by the app's
+OAuth front door with a bare workspace token, so it never decides health on its
+own; a failure there is logged and ignored.
 
-Needs a workspace client to resolve the app URL and mint a bearer token; when
-none is injected it logs intent and returns a ``stub`` result.
+Needs a workspace client; when none is injected it logs intent and returns a
+``stub`` result.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
+
+from bootstrap.adapters import APPS_API_BASE
 
 
 def health_check(ctx: Any) -> Dict[str, Any]:
@@ -19,46 +26,66 @@ def health_check(ctx: Any) -> Dict[str, Any]:
     if not ctx.has_workspace_client():
         ctx.logger.info(
             "[stub] core/admin_app.health: no workspace client injected; would GET "
-            "%r /api/health and assert HTTP 200 with status ok.",
+            "/api/2.0/apps/%s and assert compute ACTIVE + deployment SUCCEEDED.",
             app_name,
         )
         return {"app": app_name, "healthy": None, "status": "stub"}
 
-    import json
-    import urllib.request
-
     # Best-effort: the admin app is a deferred/optional step, so a health failure
-    # (incl. w.apps method variance on the runtime SDK) must NOT abort the run.
+    # must NOT abort the run.
     try:
         w = ctx.workspace_client()
-        app = w.apps.get(name=app_name)
-        base_url = (getattr(app, "url", "") or "").rstrip("/")
-        token = w.config.token or ""
+        app = w.api_client.do("GET", f"{APPS_API_BASE}/{app_name}")
+        compute_state = (app.get("compute_status") or {}).get("state")
+        active = app.get("active_deployment") or {}
+        deploy_state = (active.get("status") or {}).get("state")
+        url = app.get("url")
 
-        req = urllib.request.Request(
-            f"{base_url}/api/health",
-            headers={"Authorization": f"Bearer {token}"},
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            code = resp.getcode()
-            body = json.loads(resp.read().decode() or "{}")
+        healthy = compute_state == "ACTIVE" and deploy_state == "SUCCEEDED"
 
-        healthy = code == 200 and body.get("status") == "ok"
+        # Bonus liveness ping (never decides health -- OAuth may reject a bare token).
+        db_status = None
+        if url:
+            db_status = _best_effort_health_ping(w, url, ctx.logger)
+
         ctx.logger.info(
-            "core/admin_app.health: GET %s/api/health -> HTTP %s (status=%s, db=%s).",
-            base_url,
-            code,
-            body.get("status"),
-            body.get("db"),
+            "core/admin_app.health: app %r compute=%s deployment=%s url=%s (db_ping=%s).",
+            app_name,
+            compute_state,
+            deploy_state,
+            url,
+            db_status,
         )
         return {
             "app": app_name,
-            "http_status": code,
-            "db": body.get("db"),
+            "url": url,
+            "compute_state": compute_state,
+            "deployment_state": deploy_state,
+            "db": db_status,
             "healthy": healthy,
             "status": "ok" if healthy else "unhealthy",
         }
     except Exception as exc:
         ctx.logger.warning("[admin_app] health deferred: %s", exc)
         return {"app": app_name, "healthy": None, "error": str(exc), "status": "deferred"}
+
+
+def _best_effort_health_ping(w: Any, url: str, logger: Any) -> Any:
+    """GET ``<url>/api/health`` with a bearer token; return the ``db`` field or None."""
+
+    import json
+    import urllib.request
+
+    try:
+        token = w.config.token or ""
+        req = urllib.request.Request(
+            f"{url.rstrip('/')}/api/health",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode() or "{}")
+        return body.get("db")
+    except Exception as exc:  # pragma: no cover - live-only; OAuth/network variance
+        logger.info("core/admin_app.health: liveness ping skipped: %s", exc)
+        return None

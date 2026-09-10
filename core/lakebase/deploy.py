@@ -42,8 +42,10 @@ from typing import Any, Dict, List
 
 from bootstrap.adapters import (
     POSTGRES_API_BASE,
+    endpoint_cu,
     endpoint_resource_name,
     resolve_endpoint_host,
+    resolve_primary_endpoint,
 )
 
 # Connection-info secret keys this step writes (and teardown removes).
@@ -55,6 +57,12 @@ MAINTENANCE_DB = "postgres"
 # Endpoint-availability poll budget (verify timing at live run).
 _ENDPOINT_POLL_ATTEMPTS = 60
 _ENDPOINT_POLL_DELAY_SECONDS = 5.0
+
+# Autoscaling CU PATCH: apply, then read back and retry if the endpoint has not
+# adopted the requested range yet (a freshly provisioned endpoint reports its
+# default range until the update is reconciled).
+_CU_PATCH_ATTEMPTS = 5
+_CU_PATCH_DELAY_SECONDS = 4.0
 
 
 def _is_already_exists(exc: Exception) -> bool:
@@ -90,12 +98,14 @@ def _is_not_found(exc: Exception) -> bool:
 
 
 def _wait_for_primary_endpoint(w: Any, project: str, logger: Any) -> Any:
-    """Poll until the project's ``primary`` endpoint is available; return its host.
+    """Poll until the project's ``primary`` endpoint exists; return its object.
 
-    Calls ``get_project`` (for its state side-effect) and ``list_endpoints`` (via
-    ``resolve_endpoint_host``) until a host is resolvable, then returns it. The
-    availability signal (a resolvable ``status.hosts.host``) is a best-effort
-    stand-in for an endpoint state field -- verify at live run.
+    Creating a project auto-provisions the ``primary`` endpoint, but not
+    instantly -- so this must complete BEFORE the autoscaling-CU PATCH, or the
+    PATCH races a not-yet-present endpoint and silently no-ops. Availability is
+    signalled by a resolvable ``status.hosts.host`` on the endpoint. Returns the
+    full endpoint object (host + CU status live on it); ``None`` if it never
+    appears within the budget.
     """
 
     for _ in range(_ENDPOINT_POLL_ATTEMPTS):
@@ -103,11 +113,88 @@ def _wait_for_primary_endpoint(w: Any, project: str, logger: Any) -> Any:
             w.api_client.do("GET", f"{POSTGRES_API_BASE}/projects/{project}")
         except Exception as exc:  # pragma: no cover - live-only shape variance
             logger.info("core/lakebase.deploy: GET project %r not ready yet: %s", project, exc)
-        host = resolve_endpoint_host(w, project)
-        if host:
-            return host
+        endpoint = resolve_primary_endpoint(w, project)
+        if endpoint is not None and _host_from_endpoint_obj(endpoint):
+            return endpoint
         time.sleep(_ENDPOINT_POLL_DELAY_SECONDS)  # pragma: no cover - live-only wait
-    return resolve_endpoint_host(w, project)  # pragma: no cover - final best-effort
+    return resolve_primary_endpoint(w, project)  # pragma: no cover - final best-effort
+
+
+def _host_from_endpoint_obj(endpoint: Any) -> str:
+    """Best-effort ``status.hosts.host`` from an endpoint object (dict or typed)."""
+
+    if isinstance(endpoint, dict):
+        status = endpoint.get("status") or {}
+        hosts = status.get("hosts") if isinstance(status, dict) else None
+    else:  # pragma: no cover - defensive
+        status = getattr(endpoint, "status", None)
+        hosts = getattr(status, "hosts", None)
+    if isinstance(hosts, (list, tuple)):
+        hosts = hosts[0] if hosts else None
+    if isinstance(hosts, dict):
+        return hosts.get("host") or ""
+    return getattr(hosts, "host", "") or ""
+
+
+def _cu_matches(actual: Any, requested: float) -> bool:
+    """True if a read-back CU value equals the requested one (float-tolerant)."""
+
+    try:
+        return actual is not None and abs(float(actual) - float(requested)) < 1e-9
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return False
+
+
+def _apply_autoscaling_cu(
+    w: Any, endpoint_name: str, project: str, min_cu: float, max_cu: float, logger: Any
+) -> Dict[str, Any]:
+    """PATCH the primary endpoint's autoscaling CU range, then verify it took.
+
+    The CLI issues ``PATCH .../endpoints/primary?update_mask=spec.autoscaling_limit_min_cu,
+    spec.autoscaling_limit_max_cu`` with body ``{"spec": {min, max}}`` (confirmed
+    via ``--debug``). The write can lag on a freshly provisioned endpoint, so this
+    PATCHes then reads ``status.autoscaling_limit_*`` back, retrying until the
+    range matches (or the budget is exhausted). Returns the applied/observed CU
+    values plus whether verification succeeded.
+    """
+
+    last_min: Any = None
+    last_max: Any = None
+    for attempt in range(_CU_PATCH_ATTEMPTS):
+        w.api_client.do(
+            "PATCH",
+            f"{POSTGRES_API_BASE}/{endpoint_name}",
+            query={"update_mask": "spec.autoscaling_limit_min_cu,spec.autoscaling_limit_max_cu"},
+            body={"spec": {"autoscaling_limit_min_cu": min_cu, "autoscaling_limit_max_cu": max_cu}},
+        )
+        endpoint = resolve_primary_endpoint(w, project)
+        last_min, last_max = endpoint_cu(endpoint) if endpoint is not None else (None, None)
+        if _cu_matches(last_min, min_cu) and _cu_matches(last_max, max_cu):
+            logger.info(
+                "core/lakebase.deploy: autoscaling CU set to %s-%s on %r (verified).",
+                min_cu,
+                max_cu,
+                endpoint_name,
+            )
+            return {"min_cu": min_cu, "max_cu": max_cu, "verified": True}
+        time.sleep(_CU_PATCH_DELAY_SECONDS)  # pragma: no cover - live-only wait
+
+    logger.warning(
+        "core/lakebase.deploy: autoscaling CU PATCH not confirmed after %d attempt(s); "
+        "requested %s-%s, endpoint reports %s-%s.",
+        _CU_PATCH_ATTEMPTS,
+        min_cu,
+        max_cu,
+        last_min,
+        last_max,
+    )
+    return {
+        "min_cu": min_cu,
+        "max_cu": max_cu,
+        "verified": False,
+        "observed_min_cu": last_min,
+        "observed_max_cu": last_max,
+    }
 
 
 def create_database_sql(database: str) -> str:
@@ -204,25 +291,21 @@ def deploy(ctx: Any) -> Dict[str, Any]:
             else:
                 raise
 
-    # (2) Set the autoscaling CU range on the primary endpoint via PATCH, then poll
-    #     until it is available.
-    w.api_client.do(
-        "PATCH",
-        f"{POSTGRES_API_BASE}/{endpoint_name}",
-        query={"update_mask": "spec.autoscaling_limit_min_cu,spec.autoscaling_limit_max_cu"},
-        body={
-            "spec": {
-                "autoscaling_limit_min_cu": min_cu,
-                "autoscaling_limit_max_cu": max_cu,
-            }
-        },
-    )
-    provisioned["autoscaling_min_cu"] = min_cu
-    provisioned["autoscaling_max_cu"] = max_cu
+    # (2) Wait for the auto-provisioned primary endpoint to exist, THEN set its
+    #     autoscaling CU range and verify the write took. Ordering matters: a PATCH
+    #     issued before the endpoint is provisioned silently no-ops, which left the
+    #     endpoint on Lakebase defaults in earlier runs.
+    endpoint = _wait_for_primary_endpoint(w, project, ctx.logger)
+    host = _host_from_endpoint_obj(endpoint) if endpoint is not None else None
+    cu_result = _apply_autoscaling_cu(w, endpoint_name, project, min_cu, max_cu, ctx.logger)
+    provisioned["autoscaling_min_cu"] = cu_result["min_cu"]
+    provisioned["autoscaling_max_cu"] = cu_result["max_cu"]
+    provisioned["autoscaling_cu_verified"] = cu_result["verified"]
 
-    # (3) Resolve the primary endpoint host + an admin connection credential.
+    # (3) Resolve an admin connection credential for the primary endpoint.
     #     PG user is the workspace email; password is the OAuth token.
-    host = _wait_for_primary_endpoint(w, project, ctx.logger)
+    if not host:  # pragma: no cover - live-only: endpoint never surfaced a host
+        host = resolve_endpoint_host(w, project)
     cred = w.api_client.do(
         "POST",
         f"{POSTGRES_API_BASE}/credentials",

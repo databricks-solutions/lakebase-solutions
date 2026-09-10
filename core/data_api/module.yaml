@@ -14,11 +14,25 @@ parameters:
     advanced: false
     label: Enable Data API
     help: >-
-      Runs the re-runnable configure step (SP + databricks_auth role + RLS).
-      The Data API UI enable is a SEPARATE, MANUAL step (see two_phase note).
+      Runs the re-runnable configure step (dedicated SP + databricks_auth role +
+      grants + schema-cache refresh). The Data API UI enable is a SEPARATE,
+      MANUAL step (see two_phase note); configure detects it and stops short with
+      loud instructions until it is done.
+  - name: data_api_sp_secret_lifetime
+    type: string
+    default: 86400s
+    required: false
+    advanced: true
+    label: Data API SP OAuth secret lifetime
+    help: >-
+      Lifetime of the OAuth (M2M) secret minted for the dedicated Data API
+      service principal (e.g. 3600s, 86400s). Sized to the workshop window.
 provides:
   service_principals: ["${prefix}-data-api-sp"]
-  pg_roles: ["databricks_auth"]
+  # The `databricks_auth` EXTENSION is created; the non-owner Data API role is the
+  # dedicated SP's app-id (dynamic, not known at manifest time), granted to
+  # `authenticator`. So no statically-named pg_role is provided.
+  pg_roles: []
 # Data API is two-phase (SPEC section 4 / section 6):
 #   Phase 1 (MANUAL): a human enables the Data API in the Lakebase UI and exposes
 #     the target schema. The deploy step prints a loud, explicit instruction.
