@@ -105,10 +105,12 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         create = create_role_sql(role)
         cur.execute(create)
         executed.append(create)
-        # Parameterized password (identifier is trusted/quoted; value is bound).
-        pw_stmt = f'ALTER ROLE "{role}" WITH LOGIN PASSWORD %s'
-        cur.execute(pw_stmt, (passwords[role],))
-        executed.append(pw_stmt)
+        # ALTER ROLE ... PASSWORD is DDL and does NOT accept bind parameters, so
+        # inline the password as a single-quoted SQL literal (the generated
+        # alphabet excludes quotes/backslashes; any quote is doubled defensively).
+        pw_literal = "'" + passwords[role].replace("'", "''") + "'"
+        cur.execute(f'ALTER ROLE "{role}" WITH LOGIN PASSWORD {pw_literal}')
+        executed.append(f'ALTER ROLE "{role}" WITH LOGIN PASSWORD <redacted>')
         for stmt in grant_sql(role, database, schema, readonly=readonly):
             cur.execute(stmt)
             executed.append(stmt)

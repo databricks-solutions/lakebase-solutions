@@ -32,10 +32,11 @@ def test_deploy_creates_roles_idempotently_and_writes_secrets():
     # Idempotent DO-block role creation for both roles.
     assert any("DO $$" in s and f"rolname = '{APP_ROLE}'" in s for s in sql)
     assert any("DO $$" in s and f"rolname = '{RO_ROLE}'" in s for s in sql)
-    # Password is set with a bound parameter (not interpolated).
+    # Password is inlined as a literal (ALTER ROLE ... PASSWORD is DDL and cannot
+    # bind params); the returned SQL redacts it so it never lands in logs.
     pw_stmts = [(s, p) for s, p in conn.executed if s.startswith("ALTER ROLE")]
     assert len(pw_stmts) == 2
-    assert all(p is not None for _s, p in pw_stmts)
+    assert all(p is None and "PASSWORD '" in s for s, p in pw_stmts)
     # Grants are present; read-only role never gets write DML.
     assert any(f'GRANT CONNECT ON DATABASE "databricks_postgres" TO "{APP_ROLE}"' == s for s in sql)
     assert any(f'GRANT SELECT ON ALL TABLES IN SCHEMA "workshop" TO "{RO_ROLE}"' == s for s in sql)
