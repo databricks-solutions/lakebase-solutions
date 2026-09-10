@@ -334,8 +334,9 @@ def run_bundle_stage(mode: str) -> None:
         print("[bundle stderr]\n" + proc.stderr[-4000:])
     if proc.returncode != 0:
         raise RuntimeError(
-            f"`databricks bundle {action} -t dev` failed (exit {proc.returncode}). "
-            f"stderr tail:\n{proc.stderr[-2000:]}"
+            f"`databricks bundle {action} -t dev` failed (exit {proc.returncode}).\n"
+            f"host={env.get('DATABRICKS_HOST')!r} token_set={bool(env.get('DATABRICKS_TOKEN'))}\n"
+            f"STDOUT:\n{proc.stdout[-1800:]}\n\nSTDERR:\n{proc.stderr[-1800:]}"
         )
     print(f"[bundle] {action} complete")
 
