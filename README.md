@@ -84,6 +84,5 @@ forth below.
 
 | library | description | license | source |
 |---------|-------------|---------|--------|
-| pydantic | Data validation | MIT | https://github.com/pydantic/pydantic |
 | PyYAML | YAML parser | MIT | https://github.com/yaml/pyyaml |
 | pytest | Test framework (dev) | MIT | https://github.com/pytest-dev/pytest |

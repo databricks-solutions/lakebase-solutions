@@ -1,6 +1,7 @@
 # Dev/CI dependencies for lakebase-solutions.
 # Pure-python: the pytest suite (manifest schema + DAG + orchestrator control
-# flow) runs with NO Databricks workspace.
+# flow) runs with NO Databricks workspace. The manifest schema uses only the
+# stdlib (dataclasses), so no third-party validation library is required on
+# any DBR runtime.
 pyyaml>=6.0
-pydantic>=2.5
 pytest>=7.4

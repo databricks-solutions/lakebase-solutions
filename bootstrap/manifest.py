@@ -7,20 +7,21 @@ dependency ordering, parameter collection, and teardown -- which is why
 **adding a module is a matter of dropping a folder + manifest, with no edits
 to the deploy notebook**.
 
-Schema is a pydantic v2 model so validation is declarative and errors are
-precise. ``load_manifest`` raises :class:`ManifestError` on any malformed
-manifest; ``validate_manifest`` layers a few semantic checks on top of the
-schema.
+Schema is built on stdlib :mod:`dataclasses` with hand-written validation so
+the tool runs on **any** Databricks runtime with no pip installs and no
+third-party validation library. ``load_manifest`` raises
+:class:`ManifestError` on any malformed manifest; ``validate_manifest`` layers
+a few semantic checks on top of the schema.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 __all__ = [
     "ManifestError",
@@ -39,17 +40,34 @@ _NAME_RE = re.compile(r"^[a-z_][a-z0-9_-]*$")
 # Supported parameter widget/coercion types (mirrors the deploy notebook's
 # dbutils widget kinds).
 ParameterType = Literal["string", "int", "float", "bool", "multiselect"]
+_PARAMETER_TYPES = ("string", "int", "float", "bool", "multiselect")
 
 # A component is either always-on infrastructure (``core``) or an optional,
 # per-engagement workshop unit (``module``).
 ComponentKind = Literal["core", "module"]
+_COMPONENT_KINDS = ("core", "module")
 
 
 class ManifestError(Exception):
     """Raised when a ``module.yaml`` is missing, unreadable, or invalid."""
 
 
-class Parameter(BaseModel):
+def _reject_unknown_keys(data: Dict[str, Any], allowed: set, context: str) -> None:
+    """Enforce ``extra="forbid"`` semantics for a mapping.
+
+    Raises :class:`ManifestError` if ``data`` carries any key not in ``allowed``.
+    """
+
+    extra = set(data) - allowed
+    if extra:
+        raise ManifestError(
+            f"unknown {context} field(s): {sorted(extra)!r} "
+            f"(allowed: {sorted(allowed)!r})"
+        )
+
+
+@dataclass
+class Parameter:
     """A single deploy-time parameter contributed by a component/module.
 
     Parameters render in the deploy notebook in three tiers (see ``deploy.py``):
@@ -58,8 +76,6 @@ class Parameter(BaseModel):
     * default (neither flag) -- a widget carrying ``default``, labelled optional.
     * ``advanced=True``  -- no widget; read only from ``config.yaml``.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     name: str
     type: ParameterType = "string"
@@ -71,10 +87,26 @@ class Parameter(BaseModel):
     # Longer explanation of the parameter (shown in the param summary table).
     help: str = ""
     # Only meaningful for ``multiselect`` (and optionally ``string``) params.
-    choices: List[str] = Field(default_factory=list)
+    choices: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "Parameter":
+        """Build a :class:`Parameter` from a YAML mapping (``extra="forbid"``)."""
+
+        if not isinstance(data, dict):
+            raise ManifestError(
+                f"parameter must be a mapping, got {type(data).__name__}"
+            )
+        allowed = {f.name for f in fields(cls)}
+        _reject_unknown_keys(data, allowed, "parameter")
+        try:
+            return cls(**data)
+        except TypeError as exc:  # missing required 'name', etc.
+            raise ManifestError(f"invalid parameter {data!r}: {exc}") from exc
 
 
-class DependsOn(BaseModel):
+@dataclass
+class DependsOn:
     """Declared dependencies, split by the kind of thing depended upon.
 
     ``core`` names must resolve to ``core/<name>`` components; ``modules`` names
@@ -83,29 +115,41 @@ class DependsOn(BaseModel):
     deploys before any module.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    core: List[str] = field(default_factory=list)
+    modules: List[str] = field(default_factory=list)
 
-    core: List[str] = Field(default_factory=list)
-    modules: List[str] = Field(default_factory=list)
+    @classmethod
+    def from_dict(cls, data: Any) -> "DependsOn":
+        """Build a :class:`DependsOn` from a YAML mapping (``extra="forbid"``)."""
+
+        if not isinstance(data, dict):
+            raise ManifestError(
+                f"depends_on must be a mapping, got {type(data).__name__}"
+            )
+        allowed = {f.name for f in fields(cls)}
+        _reject_unknown_keys(data, allowed, "depends_on")
+        return cls(**data)
 
 
-class Manifest(BaseModel):
+@dataclass
+class Manifest:
     """Parsed ``module.yaml`` for one core component or module."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
+    # ``name`` and ``kind`` are required; the sentinel defaults keep the
+    # dataclass importable on any Python (a required field cannot follow a
+    # defaulted one) and are rejected as invalid in ``__post_init__``.
+    name: str = ""
     version: str = "0.1.0"
-    kind: ComponentKind
-    personas: List[str] = Field(default_factory=list)
+    kind: ComponentKind = ""  # type: ignore[assignment]
+    personas: List[str] = field(default_factory=list)
     # ``core`` components are always deployed regardless of this flag; for
     # ``module`` units this controls whether the deploy notebook pre-selects it.
     enabled_by_default: bool = False
-    depends_on: DependsOn = Field(default_factory=DependsOn)
-    parameters: List[Parameter] = Field(default_factory=list)
+    depends_on: DependsOn = field(default_factory=DependsOn)
+    parameters: List[Parameter] = field(default_factory=list)
     # Free-form declaration of resources this unit provides (for teardown and
     # as-built reporting), e.g. ``{"database_instance": ["${prefix}-lakebase"]}``.
-    provides: Dict[str, Any] = Field(default_factory=dict)
+    provides: Dict[str, Any] = field(default_factory=dict)
     entrypoint: str = "deploy.py"
     teardown: str = "teardown.py"
     health_check: str = "health.py"
@@ -116,16 +160,35 @@ class Manifest(BaseModel):
     # Populated by ``load_manifest`` with the directory the manifest was read
     # from (so the orchestrator can locate entrypoint/teardown/health files).
     # Excluded from serialization; never present in the YAML itself.
-    source_dir: Optional[Path] = Field(default=None, exclude=True)
+    source_dir: Optional[Path] = None
 
-    @field_validator("name")
-    @classmethod
-    def _validate_name(cls, value: str) -> str:
-        if not _NAME_RE.match(value):
-            raise ValueError(
-                f"invalid component name {value!r}: must match {_NAME_RE.pattern}"
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not _NAME_RE.match(self.name):
+            raise ManifestError(
+                f"invalid component name {self.name!r}: must match {_NAME_RE.pattern}"
             )
-        return value
+        if self.kind not in _COMPONENT_KINDS:
+            raise ManifestError(
+                f"invalid kind {self.kind!r}: must be one of {list(_COMPONENT_KINDS)!r}"
+            )
+
+
+# Top-level keys accepted from a ``module.yaml``. ``source_dir`` is intentionally
+# excluded -- it is set by ``load_manifest`` and never present in the YAML.
+_MANIFEST_INPUT_KEYS = {
+    "name",
+    "version",
+    "kind",
+    "personas",
+    "enabled_by_default",
+    "depends_on",
+    "parameters",
+    "provides",
+    "entrypoint",
+    "teardown",
+    "health_check",
+    "two_phase",
+}
 
 
 def load_manifest(path: str | Path) -> Manifest:
@@ -152,21 +215,37 @@ def load_manifest(path: str | Path) -> Manifest:
             f"manifest {manifest_path} must be a mapping, got {type(raw).__name__}"
         )
 
+    # ``extra="forbid"`` at the top level.
+    _reject_unknown_keys(raw, _MANIFEST_INPUT_KEYS, "manifest")
+
+    # Build nested typed fields explicitly from the raw mapping.
+    data = dict(raw)
+    if "depends_on" in data:
+        data["depends_on"] = DependsOn.from_dict(data["depends_on"])
+    if "parameters" in data:
+        params = data["parameters"]
+        if not isinstance(params, list):
+            raise ManifestError(
+                f"parameters must be a list, got {type(params).__name__}"
+            )
+        data["parameters"] = [Parameter.from_dict(p) for p in params]
+
     try:
-        manifest = Manifest(**raw)
-    except ValidationError as exc:
-        raise ManifestError(f"invalid manifest {manifest_path}:\n{exc}") from exc
+        manifest = Manifest(**data)
+    except TypeError as exc:
+        raise ManifestError(f"invalid manifest {manifest_path}: {exc}") from exc
 
     manifest.source_dir = manifest_path.parent
     return manifest
 
 
 def validate_manifest(manifest: Manifest) -> None:
-    """Semantic validation layered on top of the pydantic schema.
+    """Semantic validation layered on top of the dataclass schema.
 
-    Schema-level constraints (types, required fields, allowed ``kind`` values)
-    are already enforced at construction time; this adds cross-field checks that
-    the schema cannot express. Raises :class:`ManifestError` on failure.
+    Schema-level constraints (required fields, allowed ``kind`` values, the
+    name pattern) are already enforced at construction time; this adds
+    cross-field checks that the schema cannot express. Raises
+    :class:`ManifestError` on failure.
     """
 
     if not manifest.entrypoint.strip():

@@ -37,7 +37,7 @@ bootstrap.orchestrator.run(mode, selected_modules, ctx)
 
 | Module | Responsibility |
 |---|---|
-| `manifest.py` | `module.yaml` schema (pydantic v2): `name, version, kind, personas, enabled_by_default, depends_on{core,modules}, parameters, provides, entrypoint, teardown, health_check`, plus the `data_api` `two_phase` note. Each `parameter` carries `type, default, required, advanced, label, help` — the three tiers (required / optional / advanced) the notebook renders. `load_manifest` + `validate_manifest` raise on bad input. |
+| `manifest.py` | `module.yaml` schema (stdlib `dataclasses` + manual validation, no third-party deps): `name, version, kind, personas, enabled_by_default, depends_on{core,modules}, parameters, provides, entrypoint, teardown, health_check`, plus the `data_api` `two_phase` note. Each `parameter` carries `type, default, required, advanced, label, help` — the three tiers (required / optional / advanced) the notebook renders. `load_manifest` + `validate_manifest` raise on bad input. |
 | `discovery.py` | `discover(root)` scans `core/` (always) + `modules/`. No hard-coded lists. |
 | `dag.py` | Topological sort (Kahn's, deterministic). Enforces dependency order, core-before-modules, cycle + missing-dependency detection, and "a core may not depend on a module". |
 | `context.py` | `DeployContext`: `deployment_id`/prefix, mode, cloud/region, params, resolved names, logger, and a **lazy** `get_workspace_client()` (no live calls until asked). |
