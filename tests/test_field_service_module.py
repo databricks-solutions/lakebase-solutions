@@ -13,6 +13,8 @@ from pathlib import Path
 
 from bootstrap.context import DeployContext
 
+from _fakes import live_context
+
 MOD = Path(__file__).resolve().parents[1] / "modules" / "field_service"
 
 
@@ -68,3 +70,42 @@ def test_health_aggregates_stub():
     assert result["module"] == "field_service"
     assert result["status"] == "stub"
     assert result["healthy"] is None
+
+
+# --- data step (first real step) -------------------------------------------- #
+def _data_step():
+    import fs_steps  # cached in sys.modules by the entrypoint loads above
+
+    return next(s for s in fs_steps.ORDERED_STEPS if s.name == "data")
+
+
+def test_data_step_stub_when_not_live():
+    assert _data_step().deploy(_ctx())["status"] == "stub"
+
+
+def test_data_step_deploy_applies_real_sql_assets():
+    ctx, conn, _ws = live_context(deployment_id="acme-ws")
+    res = _data_step().deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["schemas"] == ["field_service", "ai_memory", "monitoring"]
+    assert res["statements_failing"] == 0
+    assert res["statements_applied"] > 20  # many statements across the seed files
+    sql = conn.executed_sql()
+    assert any("CREATE SCHEMA IF NOT EXISTS field_service" in s for s in sql)
+    assert any("work_orders" in s for s in sql)
+
+
+def test_data_step_teardown_drops_schemas():
+    ctx, conn, _ws = live_context()
+    res = _data_step().teardown(ctx)
+    assert res["status"] == "torn_down"
+    sql = conn.executed_sql()
+    assert any('DROP SCHEMA IF EXISTS "field_service" CASCADE' == s for s in sql)
+    assert any('DROP SCHEMA IF EXISTS "monitoring" CASCADE' == s for s in sql)
+
+
+def test_data_step_health_ok_when_table_present():
+    ctx, _conn, _ws = live_context()
+    res = _data_step().health(ctx)
+    assert res["healthy"] is True
+    assert res["status"] == "ok"

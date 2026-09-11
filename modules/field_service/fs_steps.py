@@ -59,12 +59,99 @@ def _mk(step: str, deploy_detail: str, teardown_detail: str, health_detail: str)
     return d, t, h
 
 
-_data = _mk(
-    "data",
-    "create field_service/ai_memory/monitoring schemas + ~30 tables + seed",
-    "drop the field_service/ai_memory/monitoring schemas (CASCADE)",
-    "assert core tables exist and are populated",
-)
+def _data_deploy(ctx: Any) -> Dict[str, Any]:
+    """Create the field-service schemas + tables + seed from assets/sql/*.sql."""
+
+    import fs_sql
+
+    database = ctx.params.get("database") or "databricks_postgres"
+    if not ctx.is_live():
+        return _stub(
+            "data",
+            "deploy",
+            ctx,
+            f"apply {len(fs_sql.DATA_SQL_FILES)} SQL file(s) creating schemas "
+            f"{fs_sql.DATA_SCHEMAS} + seed into {database!r}",
+        )
+
+    scale_name = ctx.params.get("seed_volume", "demo")
+    scale = fs_sql.scale_profile(scale_name)
+    conn = ctx.pg_connection(role="admin", database=database)
+    try:  # seed DDL/DML runs statement-at-a-time on autocommit (failures isolated).
+        conn.autocommit = True
+    except Exception:  # pragma: no cover - fake/driver without the attribute
+        pass
+    cur = conn.cursor()
+    applied, failing = fs_sql.apply_sql_files(cur, fs_sql.DATA_SQL_FILES, scale, ctx.logger)
+    ctx.logger.info(
+        "field_service.data.deploy: applied %d statement(s) across %d file(s) "
+        "(seed_volume=%s); %d still failing.",
+        applied,
+        len(fs_sql.DATA_SQL_FILES),
+        scale_name,
+        failing,
+    )
+    return {
+        "step": "data",
+        "schemas": fs_sql.DATA_SCHEMAS,
+        "seed_volume": scale_name,
+        "statements_applied": applied,
+        "statements_failing": failing,
+        "status": "deployed" if failing == 0 else "partial",
+    }
+
+
+def _data_teardown(ctx: Any) -> Dict[str, Any]:
+    """Drop the field-service schemas (CASCADE) + the public Data API demo table."""
+
+    import fs_sql
+
+    database = ctx.params.get("database") or "databricks_postgres"
+    if not ctx.has_pg_connection() or not ctx.has_workspace_client():
+        return _stub("data", "teardown", ctx, f"DROP SCHEMA {fs_sql.DATA_SCHEMAS} CASCADE")
+
+    conn = ctx.pg_connection(role="admin", database=database)
+    try:
+        conn.autocommit = True
+    except Exception:  # pragma: no cover
+        pass
+    cur = conn.cursor()
+    dropped: List[str] = []
+    for schema in fs_sql.DATA_SCHEMAS:
+        stmt = f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'
+        try:
+            cur.execute(stmt)
+            dropped.append(schema)
+        except Exception as exc:
+            ctx.logger.info("field_service.data.teardown: %s -> %s", stmt, exc)
+    try:  # the Data API demo sandbox table lives in public.
+        cur.execute("DROP TABLE IF EXISTS public.data_api_demo CASCADE")
+    except Exception as exc:  # pragma: no cover
+        ctx.logger.info("field_service.data.teardown: drop public.data_api_demo -> %s", exc)
+    return {"step": "data", "schemas_dropped": dropped, "status": "torn_down"}
+
+
+def _data_health(ctx: Any) -> Dict[str, Any]:
+    """Healthy when the central field_service.work_orders table exists."""
+
+    database = ctx.params.get("database") or "databricks_postgres"
+    if not ctx.is_live():
+        return _stub("data", "health", ctx, "assert field_service.work_orders exists")
+
+    conn = ctx.pg_connection(role="admin", database=database)
+    cur = conn.cursor()
+    cur.execute("SELECT to_regclass('field_service.work_orders')")
+    row = cur.fetchone()
+    exists = bool(row and row[0])
+    return {
+        "step": "data",
+        "work_orders_present": exists,
+        "healthy": exists,
+        "status": "ok" if exists else "unhealthy",
+    }
+
+
+_data = (_data_deploy, _data_teardown, _data_health)
 _uc_catalog = _mk(
     "uc_catalog",
     "create MANAGED_ONLINE_CATALOG linked to the Lakebase project",
