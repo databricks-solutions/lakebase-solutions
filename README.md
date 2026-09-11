@@ -27,34 +27,37 @@ provisions **in-workspace via the Databricks SDK / REST + SQL** (the CLI can't r
 in job compute). Each component declares its Databricks `features` + maturity,
 which the engine aggregates into a customer-facing **feature matrix**.
 
+A layered view — top to bottom, each band is one tier of the stack:
+
 ```mermaid
-flowchart TD
-    NB["deploy.py<br/>(single parameterized notebook)"] --> CTX["DeployContext<br/>deployment_id · params · live adapters"]
-    CTX --> RUN["bootstrap.orchestrator.run(mode)"]
-    RUN --> DISC["discovery<br/>scan core/* + modules/* for module.yaml"]
-    DISC --> DAG["dependency DAG<br/>topological order · core before modules"]
-    DAG --> EXEC["executor — per component:<br/>deploy (forward) · health · teardown (reverse)"]
+flowchart TB
+    NB["📓 &nbsp;CONTROL PLANE<br/><b>deploy.py</b> · one parameterized notebook<br/>(commit → push → repos update → run)"]:::cp
+    NB --> ENG["⚙️ &nbsp;ENGINE · <b>bootstrap.orchestrator.run(mode)</b><br/>discover module.yaml → dependency DAG → executor<br/>(deploy ▸ health ▸ teardown; core before modules)"]:::eng
 
-    subgraph CORE["core/ — always deployed"]
-        direction LR
-        LB[lakebase] --> SEC[security] --> DA[data_api]
-        SEC --> UM[user_management] --> AA[admin_app]
+    ENG --> CORE
+    subgraph CORE["🧩 CORE — always-on"]
+        direction TB
+        c1[lakebase] --> c2[security] --> c3[data_api] --> c4[user_management] --> c5[admin_app]
     end
-    subgraph MODS["modules/ — selected per engagement"]
-        direction LR
-        FS[field_service] 
-        CAN[_canary]
+
+    CORE --> MODS
+    subgraph MODS["➕ MODULES — opt-in"]
+        direction TB
+        m1["<b>field_service</b> — full FSM solution (13 steps)"]
+        m2["<b>_canary</b> — reference / authoring template"]
     end
-    EXEC --> CORE
-    EXEC --> MODS
-    CORE -. core before modules .-> MODS
 
-    CORE --> PROV["SDK / REST + SQL (in-workspace)"]
-    MODS --> PROV
-    PROV --> TARGETS["Lakebase (autoscaling PG) · Databricks Apps ·<br/>Unity Catalog · Genie · SQL Warehouse ·<br/>Model Serving · Jobs · Secrets"]
+    MODS --> PROV["🔌 &nbsp;PROVISIONING · in-workspace <b>SDK / REST + SQL</b><br/>(the CLI can't run in job compute — DABs = validate only)"]:::prov
+    PROV --> TGT["🎯 &nbsp;TARGETS<br/>Lakebase (autoscaling PG) · Databricks Apps · Unity Catalog<br/>Genie · SQL Warehouse · Model Serving · Jobs · Secrets"]:::tgt
 
-    MANI["module.yaml features[] (maturity)"] --> MATRIX["feature matrix<br/>(bootstrap/features.py)"]
-    MATRIX --> SURF["admin-app page + notebook print"]
+    CORE -.declare.-> MAT
+    MODS -.declare.-> MAT["🏷️ &nbsp;FEATURE MATRIX · every module.yaml declares<br/><b>features + maturity</b> → GA · Public Preview · Beta<br/>(so customers always see what isn't GA)"]:::mat
+
+    classDef cp fill:#0b3d91,color:#fff,stroke:#08306b,stroke-width:1px;
+    classDef eng fill:#1168bd,color:#fff,stroke:#0b3d91,stroke-width:1px;
+    classDef prov fill:#2e7d32,color:#fff,stroke:#1b5e20,stroke-width:1px;
+    classDef tgt fill:#455a64,color:#fff,stroke:#263238,stroke-width:1px;
+    classDef mat fill:#b8860b,color:#fff,stroke:#8a6508,stroke-width:1px;
 ```
 
 ## Quickstart
