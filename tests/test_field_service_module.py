@@ -43,7 +43,7 @@ def test_deploy_runs_full_pipeline_as_stubs():
     # All steps run when every gate defaults on (datagen runs before pipeline).
     assert names == [
         "data", "uc_catalog", "warehouse", "features", "synced", "datagen", "pipeline",
-        "genie", "dashboards", "governance", "ml", "agent", "ops", "app",
+        "governance", "genie", "dashboards", "ml", "agent", "ops", "app",
     ]
 
 
@@ -53,8 +53,8 @@ def test_gates_skip_optional_steps():
     )
     names = [s["step"] for s in result["steps"]]
     assert names == ["data", "uc_catalog", "warehouse", "features", "synced",
-                     "genie", "dashboards", "governance", "app"]
-    for gated in ("pipeline", "ml", "agent", "ops"):
+                     "governance", "genie", "dashboards", "app"]
+    for gated in ("datagen", "pipeline", "ml", "agent", "ops"):
         assert gated not in names
 
 
@@ -203,14 +203,54 @@ def test_dashboards_step_creates_and_publishes():
     assert _step("dashboards").health(ctx)["status"] == "ok"
 
 
-def test_governance_step_applies_rls_and_masking():
-    ctx, conn, _ws = _live_ctx_with_project()
+def test_governance_step_applies_rls_masking_and_uc_views():
+    ctx, conn, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)  # UC views run on the warehouse
     res = _step("governance").deploy(ctx)
     assert res["status"] == "deployed"
+    # PG side: RLS + masked view.
     sql = conn.executed_sql()
     assert any("ENABLE ROW LEVEL SECURITY" in s for s in sql)
     assert any("v_customers_masked" in s for s in sql)
+    # UC side: the 4 sla_workforce governance views in the network catalog.
+    assert res["uc_views_applied"] == res["uc_views_total"]
+    stmts = [b["statement"] for m, p, b in ws.api_client.calls
+             if m == "POST" and p.endswith("/sql/statements")]
+    for v in ("v_regional_work_orders", "v_customers_masked", "v_technician_performance", "v_sla_compliance"):
+        assert any(f"acme-ws_network`.`governance`.`{v}`" in s for s in stmts)
     assert _step("governance").health(ctx)["healthy"] is True
+
+
+def test_governance_runs_before_genie():
+    import fs_steps
+    names = [s.name for s in fs_steps.ORDERED_STEPS]
+    assert names.index("governance") < names.index("genie")
+
+
+def test_data_step_creates_work_order_indexes():
+    ctx, conn, _ws = live_context(deployment_id="acme-ws")
+    res = _data_step().deploy(ctx)
+    assert res["indexes_applied"] == 3
+    sql = conn.executed_sql()
+    assert any("idx_wo_tech_active" in s for s in sql)
+    assert any(s.strip().startswith("ANALYZE field_service.work_orders") for s in sql)
+
+
+def test_genie_network_spaces_use_network_catalog():
+    import json
+    ctx, _conn, ws = _live_ctx_with_project()
+    _step("genie").deploy(ctx)
+    posts = [c[2] for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/genie/spaces")]
+    by_title = {p["title"]: json.loads(p["serialized_space"]) for p in posts}
+    # network_health + sla_workforce tables must be namespaced to acme-ws_network.
+    for title_suffix in ("Network Health & Telemetry", "SLA & Workforce Analytics"):
+        cfg = next(v for k, v in by_title.items() if k.endswith(title_suffix))
+        idents = [t["identifier"] for t in cfg["data_sources"]["tables"]]
+        assert all(i.startswith("acme-ws_network.") for i in idents), idents
+    # field_ops stays on the managed online catalog.
+    fo = next(v for k, v in by_title.items() if k.endswith("Field Service Operations"))
+    assert all(t["identifier"].startswith("acme-ws_field_service.")
+               for t in fo["data_sources"]["tables"])
 
 
 # --- compute / AI / app step group ------------------------------------------ #

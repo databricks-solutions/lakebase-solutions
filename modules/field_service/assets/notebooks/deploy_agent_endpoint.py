@@ -85,9 +85,13 @@ with mlflow.start_run(run_name="multi_genie_supervisor"):
         python_model=AGENT_SCRIPT,
         resources=resources,
         input_example=input_example,
-        pip_requirements=[
-            "mlflow", "databricks-langchain", "langgraph",
-            "langgraph-supervisor", "databricks-sdk",
+        # Pin the langgraph family into the model env (MLflow's inferred reqs are
+        # not specific enough — the serving container otherwise rebuilds with an
+        # older langgraph core and every request fails). extra_pip_requirements
+        # augments the inferred set rather than replacing it.
+        extra_pip_requirements=[
+            "langgraph>=1.0.13",
+            "langgraph-prebuilt>=1.0.13",
         ],
     )
 registered = mlflow.register_model(logged.model_uri, MODEL_NAME)

@@ -243,6 +243,16 @@ def _mk(step: str, deploy_detail: str, teardown_detail: str, health_detail: str)
     return d, t, h
 
 
+# Performance indexes on work_orders (ported from FSM create_indexes.py).
+_WORK_ORDER_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_wo_tech_active ON field_service.work_orders(assigned_technician_id) "
+    "WHERE status NOT IN ('completed', 'cancelled')",
+    "CREATE INDEX IF NOT EXISTS idx_wo_completed_sla ON field_service.work_orders(region_id, priority, category, sla_met) "
+    "WHERE status = 'completed'",
+    "ANALYZE field_service.work_orders",
+]
+
+
 def _data_deploy(ctx: Any) -> Dict[str, Any]:
     """Create the field-service schemas + tables + seed from assets/sql/*.sql."""
 
@@ -267,13 +277,22 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
         pass
     cur = conn.cursor()
     applied, failing = fs_sql.apply_sql_files(cur, fs_sql.DATA_SQL_FILES, scale, ctx.logger)
+    # Performance indexes on the hot work_orders paths (ported from create_indexes.py).
+    idx = 0
+    for stmt in _WORK_ORDER_INDEXES:
+        try:
+            cur.execute(stmt)
+            idx += 1
+        except Exception as exc:
+            ctx.logger.info("field_service.data.deploy: index/analyze deferred: %s", str(exc)[:120])
     ctx.logger.info(
         "field_service.data.deploy: applied %d statement(s) across %d file(s) "
-        "(seed_volume=%s); %d still failing.",
+        "(seed_volume=%s); %d still failing; %d index/analyze stmts.",
         applied,
         len(fs_sql.DATA_SQL_FILES),
         scale_name,
         failing,
+        idx,
     )
     return {
         "step": "data",
@@ -281,6 +300,7 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
         "seed_volume": scale_name,
         "statements_applied": applied,
         "statements_failing": failing,
+        "indexes_applied": idx,
         "status": "deployed" if failing == 0 else "partial",
     }
 
@@ -547,7 +567,7 @@ _SYNC_DELAY = 15.0
 
 # Schemas the managed online catalog surfaces from Lakebase. network_data is
 # the pipeline's Iceberg output (a separate concern), so it is NOT triggered here.
-_SYNC_SKIP_SCHEMAS = {"network_data"}
+_SYNC_SKIP_SCHEMAS = {"network_data", "governance"}
 
 
 def _expected_genie_tables(ctx: Any) -> List[tuple]:
@@ -746,6 +766,9 @@ _GENIE_SPACES = [
     {"key": "sla_workforce", "title": "SLA & Workforce Analytics", "json": "genie_space_sla_workforce.json",
      "description": "SLA compliance, technician performance, and regional workforce analytics"},
 ]
+# Genie spaces whose tables live in the STANDARD network catalog (Iceberg
+# network_data + the governance views), not the managed online catalog.
+_GENIE_NETWORK_KEYS = {"network_health", "sla_workforce"}
 
 
 def _genie_assets_dir():
@@ -792,7 +815,8 @@ def _genie_deploy(ctx: Any) -> Dict[str, Any]:
         return _stub("genie", "deploy", ctx, f"create {len(_GENIE_SPACES)} Genie spaces")
     w = ctx.workspace_client()
     warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
-    catalog = _catalog_name(ctx)
+    managed_catalog = _catalog_name(ctx)
+    network_catalog = _network_catalog_name(ctx)
     existing = {s.get("title"): s.get("space_id") for s in _genie_list(w)}
     created: Dict[str, str] = {}
     assets = _genie_assets_dir()
@@ -806,6 +830,10 @@ def _genie_deploy(ctx: Any) -> Dict[str, Any]:
         except Exception as exc:
             ctx.logger.info("field_service.genie: read %s failed: %s", spec["json"], exc)
             continue
+        # network_health (Iceberg network_data) + sla_workforce (governance views)
+        # live in the STANDARD network catalog; postgres + field_ops use the
+        # managed online catalog (Lakebase foreign tables).
+        catalog = network_catalog if spec["key"] in _GENIE_NETWORK_KEYS else managed_catalog
         space_config = _rewrite_genie_catalog(space_config, catalog)
         try:
             resp = w.api_client.do(
@@ -986,12 +1014,74 @@ _GOVERNANCE_SQL = [
 ]
 
 
+def _governance_uc_view_statements(ctx: Any) -> List[str]:
+    """UC governance views (in ``<network>.governance``) the sla_workforce Genie
+    space reads. They reference the field_service foreign tables in the managed
+    online catalog (cross-catalog), so ``synced`` must have registered them and
+    this step must run BEFORE ``genie`` (which validates tables at creation).
+    """
+
+    net = _network_catalog_name(ctx)
+    src = f"`{_catalog_name(ctx)}`.`field_service`"  # managed online catalog foreign tables
+    gov = f"`{net}`.`governance`"
+    return [
+        f"CREATE CATALOG IF NOT EXISTS `{net}`",
+        f"CREATE SCHEMA IF NOT EXISTS `{net}`.`governance`",
+        f"""CREATE OR REPLACE VIEW {gov}.`v_regional_work_orders` AS
+            SELECT wo.work_order_id, wo.status, wo.priority, wo.category, wo.subcategory,
+                   wo.reported_issue, c.service_type, wo.sla_due_at, wo.created_at, wo.resolved_at,
+                   c.first_name || ' ' || c.last_name AS customer_name, c.city,
+                   c.state_province AS state, sr.region_name, sr.region_code,
+                   t.first_name || ' ' || t.last_name AS technician_name
+            FROM {src}.`work_orders` wo
+            JOIN {src}.`customers` c ON wo.customer_id = c.customer_id
+            JOIN {src}.`service_regions` sr ON wo.region_id = sr.region_id
+            LEFT JOIN {src}.`technicians` t ON wo.assigned_technician_id = t.technician_id""",
+        f"""CREATE OR REPLACE VIEW {gov}.`v_customers_masked` AS
+            SELECT c.customer_id, LEFT(c.first_name, 1) || '***' AS first_name,
+                   LEFT(c.last_name, 1) || '***' AS last_name,
+                   REGEXP_REPLACE(c.email, '(.).*@', '\\1***@') AS email,
+                   'XXX-XXX-' || RIGHT(c.phone, 4) AS phone,
+                   c.city, c.state_province, c.account_status, c.service_type,
+                   c.customer_tier, sr.region_name, c.created_at
+            FROM {src}.`customers` c
+            JOIN {src}.`service_regions` sr ON c.region_id = sr.region_id""",
+        f"""CREATE OR REPLACE VIEW {gov}.`v_technician_performance` AS
+            SELECT t.employee_id, t.certification_level, sr.region_name, t.status,
+                   COUNT(CASE WHEN wo.status = 'completed' THEN 1 END) AS total_completed,
+                   COUNT(CASE WHEN wo.status IN ('assigned','en_route','in_progress') THEN 1 END) AS active_orders,
+                   AVG(CASE WHEN wo.resolved_at IS NOT NULL
+                       THEN TIMESTAMPDIFF(HOUR, wo.created_at, wo.resolved_at) END) AS avg_completion_hours,
+                   COUNT(CASE WHEN wo.resolved_at > wo.sla_due_at THEN 1 END) AS sla_breaches
+            FROM {src}.`technicians` t
+            JOIN {src}.`service_regions` sr ON t.region_id = sr.region_id
+            LEFT JOIN {src}.`work_orders` wo ON t.technician_id = wo.assigned_technician_id
+            WHERE t.is_active = TRUE
+            GROUP BY t.employee_id, t.certification_level, sr.region_name, t.status""",
+        f"""CREATE OR REPLACE VIEW {gov}.`v_sla_compliance` AS
+            SELECT sr.region_name, wo.category, wo.priority,
+                   sp.response_hours AS sla_response_hours, sp.resolution_hours AS sla_resolution_hours,
+                   COUNT(*) AS total_orders,
+                   COUNT(CASE WHEN wo.status = 'completed' THEN 1 END) AS completed,
+                   COUNT(CASE WHEN wo.resolved_at IS NOT NULL AND wo.resolved_at <= wo.sla_due_at THEN 1 END) AS within_sla,
+                   COUNT(CASE WHEN wo.resolved_at IS NOT NULL AND wo.resolved_at > wo.sla_due_at THEN 1 END) AS sla_breached,
+                   ROUND(COUNT(CASE WHEN wo.resolved_at IS NOT NULL AND wo.resolved_at <= wo.sla_due_at THEN 1 END) * 100.0 /
+                         NULLIF(COUNT(CASE WHEN wo.resolved_at IS NOT NULL THEN 1 END), 0), 1) AS sla_compliance_pct
+            FROM {src}.`work_orders` wo
+            JOIN {src}.`customers` c ON wo.customer_id = c.customer_id
+            JOIN {src}.`service_regions` sr ON wo.region_id = sr.region_id
+            LEFT JOIN {src}.`sla_policies` sp ON wo.sla_id = sp.sla_id
+            GROUP BY sr.region_name, wo.category, wo.priority, sp.response_hours, sp.resolution_hours""",
+    ]
+
+
 def _governance_deploy(ctx: Any) -> Dict[str, Any]:
-    """Apply row-level security + a PII-masked customer view (best-effort)."""
+    """Apply PG RLS + PII masking, AND create the UC governance views the
+    sla_workforce Genie space reads (best-effort)."""
 
     database = ctx.params.get("database") or "databricks_postgres"
     if not ctx.is_live():
-        return _stub("governance", "deploy", ctx, "enable RLS + masking view on field_service")
+        return _stub("governance", "deploy", ctx, "enable RLS + masking (PG) + UC governance views")
     conn = ctx.pg_connection(role="admin", database=database)
     try:
         conn.autocommit = True
@@ -1004,15 +1094,30 @@ def _governance_deploy(ctx: Any) -> Dict[str, Any]:
             cur.execute(stmt)
             applied += 1
         except Exception as exc:
-            ctx.logger.info("field_service.governance: deferred statement: %s", str(exc)[:120])
+            ctx.logger.info("field_service.governance: deferred PG statement: %s", str(exc)[:120])
+
+    # UC governance views (for the sla_workforce Genie space) via the warehouse.
+    uc_stmts = _governance_uc_view_statements(ctx)
+    uc_applied = 0
+    for stmt in uc_stmts:
+        try:
+            if _run_statement(ctx, stmt):
+                uc_applied += 1
+        except Exception as exc:
+            ctx.logger.info("field_service.governance: deferred UC view: %s", str(exc)[:120])
+
+    ok = applied == len(_GOVERNANCE_SQL) and uc_applied == len(uc_stmts)
     return {"step": "governance", "statements_applied": applied,
-            "status": "deployed" if applied == len(_GOVERNANCE_SQL) else "partial"}
+            "uc_views_applied": uc_applied, "uc_views_total": len(uc_stmts),
+            "status": "deployed" if ok else "partial"}
 
 
 def _governance_teardown(ctx: Any) -> Dict[str, Any]:
-    # Policies + the masked view live in the field_service schema, dropped with it.
+    # PG policies + masked view live in field_service (dropped by the data step);
+    # the UC governance views live in the network catalog (dropped CASCADE by the
+    # pipeline teardown). Nothing extra to remove here.
     return {"step": "governance", "status": "torn_down",
-            "note": "removed with the field_service schema (data step)"}
+            "note": "PG objects removed with field_service; UC views with the network catalog"}
 
 
 def _governance_health(ctx: Any) -> Dict[str, Any]:
@@ -1089,8 +1194,12 @@ def _agent_deploy(ctx: Any) -> Dict[str, Any]:
             "agent_schema": _AGENT_SCHEMA,
             "genie_space_ids": _json.dumps(genie_ids),
         },
-        dependencies=["databricks-agents", "mlflow", "databricks-langchain",
-                      "langgraph", "langgraph-supervisor"],
+        # Pin the langgraph family — unpinned deps make pip's serverless resolver
+        # give up (ResolutionTooDeep). Mirrors FSM's working set.
+        dependencies=["databricks-langchain", "databricks-agents",
+                      "langgraph>=1.0.13", "langgraph-prebuilt>=1.0.13",
+                      "langgraph-checkpoint", "langgraph-supervisor",
+                      "mlflow[databricks]", "databricks-sdk>=0.87.0"],
     )
     _put_id(ctx, "fs-agent-endpoint", name)
     if not run_id:
@@ -1379,9 +1488,9 @@ ORDERED_STEPS: List[Step] = [
     Step("synced", *_synced),
     Step("datagen", *_datagen, gate_param="include_pipeline"),
     Step("pipeline", *_pipeline, gate_param="include_pipeline"),
+    Step("governance", *_governance),
     Step("genie", *_genie),
     Step("dashboards", *_dashboards),
-    Step("governance", *_governance),
     Step("ml", *_ml, gate_param="include_ml"),
     Step("agent", *_agent, gate_param="include_agent"),
     Step("ops", *_ops, gate_param="include_ops_jobs"),
