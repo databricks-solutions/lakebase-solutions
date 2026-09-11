@@ -163,9 +163,15 @@ def test_features_step_applies_sql():
     assert _step("features").health(ctx)["healthy"] is True
 
 
-def test_synced_step_confirms_registration():
-    ctx, _conn, _ws = _live_ctx_with_project()
-    assert _step("synced").deploy(ctx)["status"] == "deployed"
+def test_synced_step_registers_tables_via_warehouse():
+    ctx, _conn, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)  # sets fs_warehouse_id (synced needs it)
+    res = _step("synced").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["expected_count"] > 0
+    # each expected table was queried through the warehouse to trigger registration.
+    stmts = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/sql/statements")]
+    assert len(stmts) >= res["expected_count"]
     assert _step("synced").health(ctx)["status"] == "ok"
 
 

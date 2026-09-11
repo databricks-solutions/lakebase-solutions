@@ -307,6 +307,8 @@ class FakeApiClient:
             return {"run_id": 1000 + self._seq}
         if p.endswith("/jobs/runs/get") and m == "GET":
             return {"state": {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS"}}
+        if p.endswith("/jobs/list") and m == "GET":
+            return {"jobs": []}
         if p.endswith("/jobs/create") and m == "POST":
             self._seq += 1
             return {"job_id": 2000 + self._seq}

@@ -455,20 +455,79 @@ def _features_health(ctx: Any) -> Dict[str, Any]:
 _features = (_features_deploy, _features_teardown, _features_health)
 
 
-def _synced_deploy(ctx: Any) -> Dict[str, Any]:
-    """Confirm the managed catalog auto-registers the Lakebase tables as foreign tables.
+_SYNC_ROUNDS = 12
+_SYNC_DELAY = 15.0
 
-    A MANAGED_ONLINE_CATALOG surfaces the Lakebase database's tables in Unity
-    Catalog automatically; there is no separate resource to create, so this step
-    just records the linkage (a live poll for a specific foreign table can be
-    added when the catalog + data are both present).
+
+def _expected_field_service_tables(ctx: Any) -> List[str]:
+    """The field_service tables the Genie spaces reference (what must be registered)."""
+
+    import json
+    from pathlib import Path
+
+    tables = set()
+    gdir = Path(__file__).resolve().parent / "assets" / "genie"
+    for spec in _GENIE_SPACES:
+        try:
+            cfg = json.loads((gdir / spec["json"]).read_text(encoding="utf-8"))
+        except Exception:  # pragma: no cover
+            continue
+        for t in (cfg.get("data_sources") or {}).get("tables", []):
+            parts = t.get("identifier", "").split(".")
+            if len(parts) == 3 and parts[1] == "field_service":
+                tables.add(parts[2])
+    return sorted(tables)
+
+
+def _synced_deploy(ctx: Any) -> Dict[str, Any]:
+    """Trigger + wait for the managed catalog to register the Lakebase foreign tables.
+
+    A MANAGED_ONLINE_CATALOG registers a Lakebase table as a foreign table
+    LAZILY -- on first query. So (as FSM's sync step does) we query each expected
+    table through the SQL warehouse to trigger registration, and poll until they
+    are all visible. Genie + dashboards, which run after this, validate their
+    tables against Unity Catalog and fail if the tables aren't registered yet.
     """
+
+    import time
 
     catalog = _catalog_name(ctx)
     if not ctx.has_workspace_client():
-        return _stub("synced", "deploy", ctx, f"await foreign-table registration in {catalog!r}")
-    return {"step": "synced", "catalog": catalog, "status": "deployed",
-            "note": "managed online catalog auto-registers Lakebase tables as foreign tables"}
+        return _stub("synced", "deploy", ctx, f"trigger + await foreign-table registration in {catalog!r}")
+    w = ctx.workspace_client()
+    warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
+    expected = _expected_field_service_tables(ctx)
+    if not warehouse_id or not expected:
+        return {"step": "synced", "catalog": catalog, "status": "partial",
+                "note": "no warehouse id or no expected tables resolved"}
+
+    registered: set = set()
+    for _round in range(_SYNC_ROUNDS):
+        for tbl in expected:
+            if tbl in registered:
+                continue
+            fqn = f"`{catalog}`.`field_service`.`{tbl}`"
+            try:
+                resp = w.api_client.do(
+                    "POST", "/api/2.0/sql/statements",
+                    body={"warehouse_id": warehouse_id,
+                          "statement": f"SELECT 1 FROM {fqn} LIMIT 1", "wait_timeout": "30s"},
+                )
+                if (resp.get("status", {}) or {}).get("state") == "SUCCEEDED":
+                    registered.add(tbl)
+            except Exception:  # not registered yet -- keep polling
+                pass
+        if len(registered) == len(expected):
+            break
+        time.sleep(_SYNC_DELAY)  # pragma: no cover - live-only wait
+
+    ctx.logger.info(
+        "field_service.synced.deploy: %d/%d field_service tables registered in %r.",
+        len(registered), len(expected), catalog,
+    )
+    status = "deployed" if len(registered) == len(expected) else "partial"
+    return {"step": "synced", "catalog": catalog, "registered": sorted(registered),
+            "expected_count": len(expected), "status": status}
 
 
 def _synced_teardown(ctx: Any) -> Dict[str, Any]:
@@ -760,12 +819,12 @@ _GOVERNANCE_SQL = [
                         WHERE schemaname='field_service' AND tablename='work_orders'
                           AND policyname='rls_region') THEN
            CREATE POLICY rls_region ON field_service.work_orders
-             USING (current_setting('app.region', true) IS NULL
-                    OR region = current_setting('app.region', true));
+             USING (COALESCE(current_setting('app.region_id', true), '') = ''
+                    OR region_id = current_setting('app.region_id', true)::int);
          END IF;
        END $$;""",
     """CREATE OR REPLACE VIEW field_service.v_customers_masked AS
-         SELECT customer_id, region,
+         SELECT customer_id, region_id,
                 regexp_replace(COALESCE(email,''), '(^.).*(@.*$)', '\\1***\\2') AS email,
                 left(COALESCE(phone,''), 3) || '-***-****' AS phone
          FROM field_service.customers""",
@@ -902,6 +961,18 @@ def _ops_deploy(ctx: Any) -> Dict[str, Any]:
     created: List[str] = []
     for suffix, nb, cron in _OPS_JOBS:
         job_name = f"{ctx.deployment_id}-fs-{suffix}"
+        # Idempotent: reuse an existing job with this exact name (no duplicates).
+        try:
+            found = w.api_client.do("GET", "/api/2.1/jobs/list", query={"name": job_name})
+            existing = found.get("jobs", []) if isinstance(found, dict) else []
+        except Exception:  # pragma: no cover
+            existing = []
+        if existing:
+            jid = existing[0].get("job_id")
+            if jid is not None:
+                _put_id(ctx, f"ops-job-{suffix}", str(jid))
+            created.append(job_name)
+            continue
         body = {
             "name": job_name,
             "tasks": [{"task_key": "run",
