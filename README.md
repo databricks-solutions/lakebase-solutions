@@ -17,6 +17,46 @@ requires editing that notebook**.
   calls the `bootstrap/` engine, which discovers components/modules from
   `module.yaml` manifests, orders them by dependency, and deploys or tears down.
 
+## Architecture
+
+The single `deploy.py` notebook builds a `DeployContext` and hands it to the
+`bootstrap/` engine, which **discovers** every `core/` component and the
+**selected** `modules/`, orders them by dependency (core always before modules),
+and runs each component's `deploy` / `health_check` / `teardown`. Every component
+provisions **in-workspace via the Databricks SDK / REST + SQL** (the CLI can't run
+in job compute). Each component declares its Databricks `features` + maturity,
+which the engine aggregates into a customer-facing **feature matrix**.
+
+```mermaid
+flowchart TD
+    NB["deploy.py<br/>(single parameterized notebook)"] --> CTX["DeployContext<br/>deployment_id · params · live adapters"]
+    CTX --> RUN["bootstrap.orchestrator.run(mode)"]
+    RUN --> DISC["discovery<br/>scan core/* + modules/* for module.yaml"]
+    DISC --> DAG["dependency DAG<br/>topological order · core before modules"]
+    DAG --> EXEC["executor — per component:<br/>deploy (forward) · health · teardown (reverse)"]
+
+    subgraph CORE["core/ — always deployed"]
+        direction LR
+        LB[lakebase] --> SEC[security] --> DA[data_api]
+        SEC --> UM[user_management] --> AA[admin_app]
+    end
+    subgraph MODS["modules/ — selected per engagement"]
+        direction LR
+        FS[field_service] 
+        CAN[_canary]
+    end
+    EXEC --> CORE
+    EXEC --> MODS
+    CORE -. core before modules .-> MODS
+
+    CORE --> PROV["SDK / REST + SQL (in-workspace)"]
+    MODS --> PROV
+    PROV --> TARGETS["Lakebase (autoscaling PG) · Databricks Apps ·<br/>Unity Catalog · Genie · SQL Warehouse ·<br/>Model Serving · Jobs · Secrets"]
+
+    MANI["module.yaml features[] (maturity)"] --> MATRIX["feature matrix<br/>(bootstrap/features.py)"]
+    MATRIX --> SURF["admin-app page + notebook print"]
+```
+
 ## Quickstart
 
 Deployment runs **inside Databricks** (commit → push → pull → run); there is no
@@ -40,9 +80,10 @@ bootstrap/            orchestrator engine (discovery, manifest schema, DAG, cont
 core/                 always-on components, one dir each (module.yaml + deploy/teardown/health)
   lakebase/  security/  user_management/  data_api/  admin_app/
 modules/              optional workshop modules
-  _canary/            reference module proving the authoring contract
+  _canary/            reference module + authoring template (real, minimal)
+  field_service/      full field-service solution (data, Genie, dashboards, ML, agent, app)
 deploy.py             single control-plane notebook (dbutils-guarded; importable off-Databricks)
-databricks.yml        DABs bundle (autoscaling postgres_project/endpoint, secret_scope, app)
+databricks.yml        DABs bundle — local/CI `bundle validate` only (runtime provisioning is SDK/REST)
 config.template.yaml  copy to config.yaml for advanced params
 tests/                pytest suite (manifests, DAG, orchestrator, notebook import) — no workspace
 docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
@@ -51,14 +92,22 @@ docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
 
 ## Key design decisions
 
-- **DABs-first.** Lakebase via the **autoscaling** `postgres_project` /
-  `postgres_endpoint` bundle resources (min/max CU + scale-to-zero), NOT the
-  provisioned `database_instance` tier. **No `postgres_role` resource** — PG
-  roles/grants are created via `CREATE ROLE` SQL. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+- **Autoscaling Lakebase.** The **autoscaling `postgres` projects/branches/
+  endpoints** surface (min/max CU + scale-to-zero), NOT the provisioned
+  `database_instance` tier. PG roles/grants via `CREATE ROLE` SQL. See
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+- **In-workspace SDK/REST provisioning.** The `databricks` CLI (incl. `bundle
+  deploy`) cannot run in notebook/job compute, so every resource is provisioned
+  via the Databricks Python SDK / REST (`w.api_client.do` for the `postgres`,
+  `apps`, and other surfaces not typed on the runtime SDK). `databricks.yml` is
+  retained for local/CI `bundle validate` only.
 - **Manifest-driven discovery.** The notebook never changes when a module is
   added; modules are found by scanning for `module.yaml`.
 - **Standalone assets.** Every module gets its own app, PG roles, and secret
   keys — nothing reused across apps.
+- **Maturity transparency.** Preview-or-better features are allowed, and each
+  component declares its features' maturity (GA / Public Preview / Beta),
+  surfaced as a feature matrix so customers always see what isn't GA.
 
 ## Develop
 
