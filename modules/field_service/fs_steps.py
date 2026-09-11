@@ -171,6 +171,33 @@ def _ensure_network_catalog(ctx: Any) -> str:
     return cat
 
 
+def _pg_host(ctx: Any) -> str:
+    """Resolve the Lakebase primary-endpoint host for this deployment."""
+
+    from bootstrap.adapters import resolve_endpoint_host
+
+    project = ctx.resolved_names.get("lakebase_project", ctx.deployment_id)
+    try:
+        return resolve_endpoint_host(ctx.workspace_client(), project) or ""
+    except Exception:  # pragma: no cover - live-only
+        return ""
+
+
+def _pg_base_params(ctx: Any) -> Dict[str, str]:
+    """Common base_params for notebooks that connect to Lakebase.
+
+    The notebook reads pguser/pgpassword from ``secret_scope`` via
+    ``dbutils.secrets.get`` (the ash_sampler pattern) — creds never travel as
+    plaintext job parameters.
+    """
+
+    return {
+        "secret_scope": _scope(ctx),
+        "pg_host": _pg_host(ctx),
+        "pg_database": ctx.params.get("database") or "databricks_postgres",
+    }
+
+
 def _genie_ids_map(ctx: Any) -> Dict[str, str]:
     """Collect the created Genie space ids by config key (for the agent)."""
 
@@ -1152,10 +1179,35 @@ def _ml_deploy(ctx: Any) -> Dict[str, Any]:
                 "note": "runs/submit returned no run_id"}
     _put_id(ctx, "fs-ml-run-id", str(run_id))
     life, result = _wait_for_run(ctx, run_id)
-    ctx.logger.info("field_service.ml.deploy: run_id=%s -> %s/%s.", run_id, life, result)
+    ctx.logger.info("field_service.ml.deploy: train run_id=%s -> %s/%s.", run_id, life, result)
+
+    # After training succeeds, batch-score assets + write predictive work orders
+    # back to Lakebase (score_and_create_work_orders).
+    score_result = None
+    if result == "SUCCESS":
+        score_run = _submit_notebook_job(
+            ctx,
+            f"{ctx.deployment_id}-fs-ml-score",
+            "assets/notebooks/score_and_create_work_orders",
+            base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, **_pg_base_params(ctx)},
+            dependencies=["mlflow[databricks]", "lightgbm", "scikit-learn",
+                          "psycopg2-binary", "databricks-sdk>=0.87.0"],
+        )
+        if score_run:
+            _put_id(ctx, "fs-ml-score-run-id", str(score_run))
+            _s_life, score_result = _wait_for_run(ctx, score_run)
+            ctx.logger.info("field_service.ml.deploy: score run_id=%s -> %s.", score_run, score_result)
+
+    if result != "SUCCESS":
+        status = "failed"
+    elif score_result in (None, "SUCCESS"):
+        status = "deployed"
+    else:
+        status = "partial"
     return {"step": "ml", "run_id": run_id, "catalog": catalog,
             "life_cycle_state": life, "result_state": result,
-            "status": "deployed" if result == "SUCCESS" else "failed"}
+            "scoring_result_state": score_result,
+            "status": status}
 
 
 def _ml_teardown(ctx: Any) -> Dict[str, Any]:

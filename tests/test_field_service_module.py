@@ -262,9 +262,22 @@ def test_compute_ai_app_steps_stub_offline():
 def test_pipeline_and_ml_submit_jobs():
     ctx, _c, ws = _live_ctx_with_project()
     assert _step("pipeline").deploy(ctx)["status"] == "deployed"
-    assert _step("ml").deploy(ctx)["status"] == "deployed"
+    res = _step("ml").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["scoring_result_state"] == "SUCCESS"  # train then score
+    # pipeline(1) + ml train(1) + ml score(1)
     submits = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/jobs/runs/submit")]
-    assert len(submits) == 2
+    assert len(submits) == 3
+    assert _submit_body(ws, "score_and_create_work_orders")["catalog"] == "acme-ws_network"
+
+
+def test_ml_skips_scoring_when_training_fails():
+    api = FakeApiClient(project_exists=True, run_result="FAILED")
+    ws = FakeWorkspaceClient(api_client=api)
+    ctx, _c, ws = live_context(ws=ws, deployment_id="acme-ws")
+    res = _step("ml").deploy(ctx)
+    assert res["status"] == "failed"
+    assert _submit_body(ws, "score_and_create_work_orders") is None  # never submitted
 
 
 def test_agent_step_names_endpoint_and_teardown_deletes():
