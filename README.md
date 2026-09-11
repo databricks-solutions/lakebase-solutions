@@ -7,6 +7,42 @@ engagement (by problem area or persona). Deployment is immutable/repeatable and
 driven by a **single parameterized notebook** — and **adding a module never
 requires editing that notebook**.
 
+## Business case
+
+Customers increasingly want their **operational (OLTP) apps, analytics, and AI on
+one governed platform**. This repo lets a Solutions Architect stand up exactly
+that story with a customer in minutes: **Lakebase** (Postgres) as the operational
+database, with Unity Catalog governance, Genie, dashboards, ML/agents, and
+Databricks Apps layered on top — reproducibly, and torn down just as easily after
+the workshop.
+
+The flagship module, **`field_service`**, is a Telco **field-service management**
+solution (work orders, dispatch, technicians, fleet telemetry, SLA tracking). It
+shows Lakebase powering a live app while the rest of the platform delivers
+natural-language analytics, predictive maintenance, and governance over the *same*
+data — the "one platform, no data movement" pitch, made concrete.
+
+## Databricks services this covers
+
+| Service | Where it's used |
+|---|---|
+| **Lakebase** (autoscaling Postgres OLTP) | Core operational DB — schema, roles, real-time app data |
+| **Databricks Apps** | Admin DBA console (core) + the field-service app (module) |
+| **Unity Catalog** | Managed online catalog over Lakebase; governance (RLS, PII masking, tags) |
+| **Lakebase Data API** (PostgREST) | Governed REST access to the OLTP data (two-phase enable) |
+| **AI/BI Genie** | 4 conversational-analytics spaces (field ops, DBA, network, SLA) |
+| **Databricks SQL** (serverless warehouse) | Powers Genie + dashboards + catalog queries |
+| **Lakeview dashboards** | Field-service + network-ops dashboards |
+| **Lakeflow Declarative Pipelines + Managed Iceberg** | Streaming network/IoT medallion pipeline |
+| **Mosaic AI Model Serving** | Predictive-maintenance model endpoint |
+| **Mosaic AI Agent Framework** (LangGraph) | Multi-Genie supervisor agent |
+| **MLflow + UC model registry** | Model tracking + registration |
+| **Databricks Jobs** | Scheduled ops (ASH sampler, cleanup, credential rotation) |
+| **Secrets + service principals** | Standalone per-deployment credentials |
+
+Each component declares its features' **maturity** (GA / Public Preview / Beta),
+surfaced as a matrix so customers always see what isn't GA.
+
 ## What it is
 
 - **Core (always deployed):** `lakebase`, `security`, `user_management`,
