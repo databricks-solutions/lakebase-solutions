@@ -227,12 +227,14 @@ def _build_widgets() -> None:
                       "label": _optional_label(param)})
 
     # modules multiselect (control) -- populated from discovery, never hard-coded.
-    order += 1
+    # STABLE widget name ("modules", no numeric prefix) so a job run can select
+    # modules deterministically via a `modules` base parameter (the numeric
+    # prefix on other widgets shifts with the param count and can't be targeted).
     choices = _module_choices()
     if choices:
-        dbutils.widgets.multiselect(f"{order}_modules", choices[0], choices, "Modules to deploy")  # type: ignore[name-defined]
+        dbutils.widgets.multiselect("modules", choices[0], choices, "Modules to deploy")  # type: ignore[name-defined]
     else:
-        dbutils.widgets.text(f"{order}_modules", "", "Modules (comma-separated)")  # type: ignore[name-defined]
+        dbutils.widgets.text("modules", "", "Modules (comma-separated)")  # type: ignore[name-defined]
 
     # Advanced params are intentionally NOT rendered; they live in config.yaml.
 
