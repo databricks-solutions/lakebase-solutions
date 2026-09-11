@@ -13,7 +13,7 @@ from pathlib import Path
 
 from bootstrap.context import DeployContext
 
-from _fakes import live_context
+from _fakes import FakeApiClient, FakeWorkspaceClient, live_context
 
 MOD = Path(__file__).resolve().parents[1] / "modules" / "field_service"
 
@@ -109,3 +109,61 @@ def test_data_step_health_ok_when_table_present():
     res = _data_step().health(ctx)
     assert res["healthy"] is True
     assert res["status"] == "ok"
+
+
+# --- platform step group (uc_catalog / warehouse / features / synced) ------- #
+def _step(name):
+    import fs_steps
+
+    return next(s for s in fs_steps.ORDERED_STEPS if s.name == name)
+
+
+def _live_ctx_with_project(**params):
+    # project_exists=True so the catalog step can read the project/branch uids.
+    api = FakeApiClient(project_exists=True)
+    ws = FakeWorkspaceClient(api_client=api)
+    ctx, conn, ws = live_context(ws=ws, deployment_id="acme-ws", params=params)
+    return ctx, conn, ws
+
+
+def test_platform_steps_stub_offline():
+    for name in ("warehouse", "uc_catalog", "features", "synced"):
+        assert _step(name).deploy(_ctx())["status"] == "stub"
+
+
+def test_warehouse_step_creates_and_persists_id():
+    ctx, _conn, ws = _live_ctx_with_project()
+    res = _step("warehouse").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["warehouse"] == "acme-ws-fs-warehouse"
+    assert res["warehouse_id"] == "wh-fake-1"
+    assert ws.secrets.value_for("fs-warehouse-id") == "wh-fake-1"  # persisted for later steps
+    assert _step("warehouse").health(ctx)["status"] == "ok"
+
+
+def test_uc_catalog_step_creates_linked_catalog():
+    ctx, _conn, ws = _live_ctx_with_project()
+    res = _step("uc_catalog").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["catalog"] == "acme-ws_field_service"
+    posts = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/database/catalogs")]
+    assert len(posts) == 1
+    body = posts[0][2]
+    assert body["database_project_id"] == "project-uid-1"
+    assert body["database_branch_id"] == "branch-uid-1"
+    assert body["name"] == "acme-ws_field_service"
+    assert _step("uc_catalog").health(ctx)["status"] == "ok"
+
+
+def test_features_step_applies_sql():
+    ctx, _conn, _ws = _live_ctx_with_project()
+    res = _step("features").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["statements_applied"] > 0
+    assert _step("features").health(ctx)["healthy"] is True
+
+
+def test_synced_step_confirms_registration():
+    ctx, _conn, _ws = _live_ctx_with_project()
+    assert _step("synced").deploy(ctx)["status"] == "deployed"
+    assert _step("synced").health(ctx)["status"] == "ok"

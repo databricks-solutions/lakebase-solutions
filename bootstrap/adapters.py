@@ -66,6 +66,39 @@ POSTGRES_API_BASE = "/api/2.0/postgres"
 # admin_app step drives the REST surface directly -- same rationale as postgres.
 APPS_API_BASE = "/api/2.0/apps"
 
+# REST base paths for the surfaces the field_service module provisions. Driven
+# via w.api_client.do for the same version-proofing reason as postgres/apps.
+DATABASE_CATALOGS_API = "/api/2.0/database/catalogs"   # Lakebase managed online catalogs
+SQL_WAREHOUSES_API = "/api/2.0/sql/warehouses"
+SQL_STATEMENTS_API = "/api/2.0/sql/statements"
+GENIE_SPACES_API = "/api/2.0/genie/spaces"
+LAKEVIEW_API = "/api/2.0/lakeview/dashboards"
+SERVING_ENDPOINTS_API = "/api/2.0/serving-endpoints"
+JOBS_RUNS_SUBMIT_API = "/api/2.1/jobs/runs/submit"
+JOBS_RUNS_GET_API = "/api/2.1/jobs/runs/get"
+
+
+def is_not_found(exc: Exception) -> bool:
+    """Offline-safe 404 / NOT_FOUND detection for ``w.api_client.do`` errors."""
+
+    code = str(getattr(exc, "error_code", "") or "").upper()
+    if "NOT_FOUND" in code or "DOES_NOT_EXIST" in code:
+        return True
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    text = str(exc).lower()
+    return "not found" in text or "does not exist" in text or "404" in text
+
+
+def is_already_exists(exc: Exception) -> bool:
+    """Offline-safe ALREADY_EXISTS / RESOURCE_ALREADY_EXISTS detection."""
+
+    code = str(getattr(exc, "error_code", "") or "").upper()
+    if "ALREADY_EXISTS" in code:
+        return True
+    text = str(exc).lower()
+    return "already exists" in text or "already_exists" in text
+
 
 def default_workspace_client_factory() -> Any:
     """Construct a real Databricks ``WorkspaceClient`` (lazy import).

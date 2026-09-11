@@ -273,9 +273,35 @@ class FakeApiClient:
                 ]
             }
 
+        # --- Unity Catalog managed online catalogs ---
+        if p.endswith("/database/catalogs") and m == "POST":
+            return {"name": (body or {}).get("name")}
+        if "/database/catalogs/" in p and m == "DELETE":
+            return {}
+        if "/database/catalogs/" in p and m == "GET":
+            return {"name": p.rsplit("/", 1)[-1], "catalog_type": "MANAGED_ONLINE_CATALOG"}
+        if p.endswith("/database/catalogs") and m == "GET":
+            return {"catalogs": []}
+
+        # --- SQL warehouses ---
+        if p.endswith("/sql/warehouses") and m == "POST":
+            return {"id": "wh-fake-1", "name": (body or {}).get("name"), "state": "STARTING"}
+        if "/sql/warehouses/" in p and m == "DELETE":
+            return {}
+        if "/sql/warehouses/" in p and m == "GET":
+            return {"id": p.rsplit("/", 1)[-1], "name": "fs-wh", "state": "RUNNING"}
+        if p.endswith("/sql/warehouses") and m == "GET":
+            return {"warehouses": []}
+
+        # --- SQL statements ---
+        if p.endswith("/sql/statements") and m == "POST":
+            return {"status": {"state": "SUCCEEDED"}}
+
         # --- Autoscaling Postgres REST ---
         if m == "POST" and p.endswith("/postgres/credentials"):
             return {"token": self._token}
+        if m == "GET" and p.endswith("/branches/production"):
+            return {"uid": "branch-uid-1", "status": {"current_state": "READY"}}
         if m == "POST" and p.endswith("/postgres/projects"):
             return {}
         if m == "GET" and p.endswith("/endpoints"):
@@ -293,7 +319,7 @@ class FakeApiClient:
             return {}
         if m == "GET" and "/postgres/projects/" in p:
             if self._project_exists:
-                return {"project_id": p.rsplit("/", 1)[-1], "spec": {}}
+                return {"project_id": p.rsplit("/", 1)[-1], "uid": "project-uid-1", "spec": {}}
             raise FakeNotFound()
         return {}
 
