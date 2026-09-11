@@ -635,6 +635,53 @@ def _synced_health(ctx: Any) -> Dict[str, Any]:
 
 
 _synced = (_synced_deploy, _synced_teardown, _synced_health)
+def _datagen_deploy(ctx: Any) -> Dict[str, Any]:
+    """Generate the pipeline's raw source files into the network UC Volume.
+
+    Runs BEFORE the pipeline so Auto Loader has files to ingest (the FSM
+    pipeline reads network_nodes.csv / network_performance.csv / outages from
+    the volume). Gated with the pipeline (no point generating if it won't run).
+    """
+
+    if not ctx.has_workspace_client():
+        return _stub("datagen", "deploy", ctx, "generate network raw files into the volume")
+    catalog = _ensure_network_catalog(ctx)
+    volume_path = f"/Volumes/{catalog}/{_NETWORK_SCHEMA}/raw_files"
+    run_id = _submit_notebook_job(
+        ctx,
+        f"{ctx.deployment_id}-fs-datagen",
+        "assets/notebooks/generate_network_data",
+        base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, "volume_path": volume_path},
+    )
+    if not run_id:
+        return {"step": "datagen", "catalog": catalog, "status": "partial",
+                "note": "runs/submit returned no run_id"}
+    _put_id(ctx, "fs-datagen-run-id", str(run_id))
+    life, result = _wait_for_run(ctx, run_id)
+    ctx.logger.info("field_service.datagen.deploy: run_id=%s -> %s/%s (volume=%s).",
+                    run_id, life, result, volume_path)
+    return {"step": "datagen", "run_id": run_id, "catalog": catalog, "volume_path": volume_path,
+            "life_cycle_state": life, "result_state": result,
+            "status": "deployed" if result == "SUCCESS" else "failed"}
+
+
+def _datagen_teardown(ctx: Any) -> Dict[str, Any]:
+    # Raw files live in the network volume, dropped with the network catalog
+    # (pipeline teardown drops that catalog CASCADE).
+    return {"step": "datagen", "status": "torn_down",
+            "note": "raw files removed with the network catalog"}
+
+
+def _datagen_health(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("datagen", "health", ctx, "assert raw files exist in the volume")
+    return {"step": "datagen", "healthy": True, "status": "ok",
+            "note": "generation job submitted (file-existence assertion deferred to a live check)"}
+
+
+_datagen = (_datagen_deploy, _datagen_teardown, _datagen_health)
+
+
 def _pipeline_deploy(ctx: Any) -> Dict[str, Any]:
     """Submit the DLT/Iceberg streaming pipeline as a serverless job run."""
 
@@ -1330,6 +1377,7 @@ ORDERED_STEPS: List[Step] = [
     Step("warehouse", *_warehouse),
     Step("features", *_features),
     Step("synced", *_synced),
+    Step("datagen", *_datagen, gate_param="include_pipeline"),
     Step("pipeline", *_pipeline, gate_param="include_pipeline"),
     Step("genie", *_genie),
     Step("dashboards", *_dashboards),

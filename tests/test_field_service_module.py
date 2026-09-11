@@ -40,9 +40,9 @@ def test_deploy_runs_full_pipeline_as_stubs():
     assert result["module"] == "field_service"
     assert result["status"] == "stub"
     names = [s["step"] for s in result["steps"]]
-    # All 13 steps run when every gate defaults on.
+    # All steps run when every gate defaults on (datagen runs before pipeline).
     assert names == [
-        "data", "uc_catalog", "warehouse", "features", "synced", "pipeline",
+        "data", "uc_catalog", "warehouse", "features", "synced", "datagen", "pipeline",
         "genie", "dashboards", "governance", "ml", "agent", "ops", "app",
     ]
 
@@ -271,6 +271,22 @@ def test_pipeline_ml_agent_target_the_standard_network_catalog():
     stmts = [b["statement"] for m, pth, b in ws.api_client.calls
              if m == "POST" and pth.endswith("/sql/statements")]
     assert any("CREATE CATALOG IF NOT EXISTS `acme-ws_network`" in s for s in stmts)
+
+
+def test_datagen_generates_into_network_volume_before_pipeline():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)
+    res = _step("datagen").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["catalog"] == "acme-ws_network"
+    assert res["volume_path"] == "/Volumes/acme-ws_network/network_data/raw_files"
+    body = _submit_body(ws, "generate_network_data")
+    assert body["catalog"] == "acme-ws_network"
+    assert body["volume_path"] == "/Volumes/acme-ws_network/network_data/raw_files"
+    # datagen is ordered immediately before pipeline.
+    import fs_steps
+    names = [s.name for s in fs_steps.ORDERED_STEPS]
+    assert names.index("datagen") == names.index("pipeline") - 1
 
 
 def test_agent_passes_created_genie_space_ids():
