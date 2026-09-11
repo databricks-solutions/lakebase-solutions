@@ -1306,6 +1306,55 @@ def _ml_fleet_health(ctx: Any) -> Dict[str, Any]:
 _ml_fleet = (_ml_fleet_deploy, _ml_fleet_teardown, _ml_fleet_health)
 
 
+def _make_job_step(name: str, notebook: str, deps: List[str], needs_catalog: bool = True):
+    """Build a simple (deploy, teardown, health) tuple for a single-notebook step.
+
+    Used for the dispatch / DTC / fuel steps: each submits one notebook (with the
+    common PG base params), polls the run, and reports the real result.
+    """
+
+    def d(ctx: Any) -> Dict[str, Any]:
+        if not ctx.has_workspace_client():
+            return _stub(name, "deploy", ctx, f"submit {notebook}")
+        params = dict(_pg_base_params(ctx))
+        if needs_catalog:
+            params["catalog"] = _ensure_network_catalog(ctx)
+            params["schema"] = _NETWORK_SCHEMA
+        run_id = _submit_notebook_job(
+            ctx, f"{ctx.deployment_id}-fs-{name}", notebook,
+            base_parameters=params, dependencies=deps,
+        )
+        if not run_id:
+            return {"step": name, "status": "partial", "note": "runs/submit returned no run_id"}
+        _put_id(ctx, f"fs-{name}-run-id", str(run_id))
+        life, result = _wait_for_run(ctx, run_id)
+        ctx.logger.info("field_service.%s.deploy: run_id=%s -> %s/%s.", name, run_id, life, result)
+        return {"step": name, "run_id": run_id, "result_state": result,
+                "status": "deployed" if result == "SUCCESS" else "failed"}
+
+    def t(ctx: Any) -> Dict[str, Any]:
+        return {"step": name, "status": "torn_down",
+                "note": "outputs removed with their catalog/schema"}
+
+    def h(ctx: Any) -> Dict[str, Any]:
+        if not ctx.has_workspace_client():
+            return _stub(name, "health", ctx, f"assert {name} ran")
+        return {"step": name, "healthy": True, "status": "ok",
+                "note": "job submitted (deep assertion deferred to a live check)"}
+
+    return (d, t, h)
+
+
+_ML_DEPS = ["mlflow[databricks]", "lightgbm", "scikit-learn", "psycopg2-binary", "databricks-sdk>=0.87.0"]
+_PG_DEPS = ["psycopg2-binary", "databricks-sdk>=0.87.0"]
+
+# Dispatch scoring model (LightGBM), DTC interpretation (ai_query), fuel/external
+# ingest (Auto Loader -> Iceberg). Ported 1:1 from the FSM notebooks.
+_dispatch = _make_job_step("dispatch", "assets/notebooks/train_dispatch_model", _ML_DEPS)
+_dtc = _make_job_step("dtc", "assets/notebooks/interpret_dtc_codes", _PG_DEPS, needs_catalog=False)
+_fuel = _make_job_step("fuel", "assets/notebooks/ingest_fuel_external", _PG_DEPS)
+
+
 def _agent_deploy(ctx: Any) -> Dict[str, Any]:
     """Submit the agent build/serve job (registers + creates a serving endpoint)."""
 
@@ -1625,6 +1674,9 @@ ORDERED_STEPS: List[Step] = [
     Step("dashboards", *_dashboards),
     Step("ml", *_ml, gate_param="include_ml"),
     Step("ml_fleet", *_ml_fleet, gate_param="include_ml"),
+    Step("dispatch", *_dispatch, gate_param="include_ml"),
+    Step("dtc", *_dtc, gate_param="include_ml"),
+    Step("fuel", *_fuel, gate_param="include_pipeline"),
     Step("agent", *_agent, gate_param="include_agent"),
     Step("ops", *_ops, gate_param="include_ops_jobs"),
     Step("app", *_app),

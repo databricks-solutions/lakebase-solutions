@@ -43,7 +43,8 @@ def test_deploy_runs_full_pipeline_as_stubs():
     # All steps run when every gate defaults on (datagen runs before pipeline).
     assert names == [
         "data", "uc_catalog", "warehouse", "features", "synced", "datagen", "pipeline",
-        "governance", "genie", "dashboards", "ml", "ml_fleet", "agent", "ops", "app",
+        "governance", "genie", "dashboards", "ml", "ml_fleet", "dispatch", "dtc", "fuel",
+        "agent", "ops", "app",
     ]
 
 
@@ -54,7 +55,7 @@ def test_gates_skip_optional_steps():
     names = [s["step"] for s in result["steps"]]
     assert names == ["data", "uc_catalog", "warehouse", "features", "synced",
                      "governance", "genie", "dashboards", "app"]
-    for gated in ("datagen", "pipeline", "ml", "ml_fleet", "agent", "ops"):
+    for gated in ("datagen", "pipeline", "ml", "ml_fleet", "dispatch", "dtc", "fuel", "agent", "ops"):
         assert gated not in names
 
 
@@ -340,6 +341,19 @@ def test_datagen_generates_into_network_volume_before_pipeline():
     import fs_steps
     names = [s.name for s in fs_steps.ORDERED_STEPS]
     assert names.index("datagen") == names.index("pipeline") - 1
+
+
+def test_dispatch_dtc_fuel_steps_submit_notebooks():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)
+    assert _step("dispatch").deploy(ctx)["status"] == "deployed"
+    assert _step("dtc").deploy(ctx)["status"] == "deployed"
+    assert _step("fuel").deploy(ctx)["status"] == "deployed"
+    assert _submit_body(ws, "train_dispatch_model")["catalog"] == "acme-ws_network"
+    # DTC connects to Lakebase (secret scope) but needs no catalog.
+    dtc = _submit_body(ws, "interpret_dtc_codes")
+    assert dtc["secret_scope"] == "acme-ws-secrets" and "catalog" not in dtc
+    assert _submit_body(ws, "ingest_fuel_external")["catalog"] == "acme-ws_network"
 
 
 def test_datagen_also_backfills_fleet_telemetry():
