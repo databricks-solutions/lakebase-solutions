@@ -55,46 +55,62 @@ surfaced as a matrix so customers always see what isn't GA.
 
 ## Architecture
 
-The single `deploy.py` notebook builds a `DeployContext` and hands it to the
-`bootstrap/` engine, which **discovers** every `core/` component and the
-**selected** `modules/`, orders them by dependency (core always before modules),
-and runs each component's `deploy` / `health_check` / `teardown`. Every component
-provisions **in-workspace via the Databricks SDK / REST + SQL** (the CLI can't run
-in job compute). Each component declares its Databricks `features` + maturity,
-which the engine aggregates into a customer-facing **feature matrix**.
-
-A layered view — top to bottom, each band is one tier of the stack:
+One `deploy.py` notebook hands a `DeployContext` to the `bootstrap/` engine,
+which **discovers** `core/` + the **selected** `modules/`, orders them by
+dependency (core before modules), and runs each one's
+`deploy` / `health_check` / `teardown` — provisioning **in-workspace via the
+Databricks SDK / REST + SQL**. Read the stack as bands, top to bottom; each
+band is one tier, and the boxes in it are its components.
 
 ```mermaid
 flowchart TB
-    NB["📓 &nbsp;CONTROL PLANE<br/><b>deploy.py</b> · one parameterized notebook<br/>(commit → push → repos update → run)"]:::cp
-    NB --> ENG["⚙️ &nbsp;ENGINE · <b>bootstrap.orchestrator.run(mode)</b><br/>discover module.yaml → dependency DAG → executor<br/>(deploy ▸ health ▸ teardown; core before modules)"]:::eng
-
-    ENG --> CORE
-    subgraph CORE["🧩 CORE — always-on"]
-        direction TB
-        c1[lakebase] --> c2[security] --> c3[data_api] --> c4[user_management] --> c5[admin_app]
+    subgraph CP["① &nbsp;CONTROL PLANE"]
+        direction LR
+        a1["📓 deploy.py<br/><i>parameterized notebook</i>"] ~~~ a2["⚙️ bootstrap engine<br/><i>discover → DAG → run</i>"]
+    end
+    subgraph CORE["② &nbsp;CORE &nbsp;·&nbsp; always-on"]
+        direction LR
+        c1[lakebase] ~~~ c2[security] ~~~ c3[data_api] ~~~ c4[user_management] ~~~ c5[admin_app]
+    end
+    subgraph MODS["③ &nbsp;MODULES &nbsp;·&nbsp; opt-in"]
+        direction LR
+        m1["field_service<br/><i>full FSM · 13 steps</i>"] ~~~ m2["_canary<br/><i>reference template</i>"]
+    end
+    subgraph PROV["④ &nbsp;PROVISIONING"]
+        direction LR
+        p1["SDK / REST<br/><i>w.api_client.do( )</i>"] ~~~ p2["SQL<br/><i>psycopg</i>"] ~~~ p3["DABs<br/><i>validate only</i>"]
+    end
+    subgraph TGT["⑤ &nbsp;DATABRICKS TARGETS"]
+        direction LR
+        t1[Lakebase] ~~~ t2["Unity<br/>Catalog"] ~~~ t3[Apps] ~~~ t4[Genie] ~~~ t5["SQL<br/>Warehouse"] ~~~ t6["Model<br/>Serving"] ~~~ t7[Jobs] ~~~ t8[Secrets]
+    end
+    subgraph MAT["⑥ &nbsp;FEATURE MATRIX"]
+        direction LR
+        f1["🟢 GA"] ~~~ f2["🟡 Public Preview"] ~~~ f3["⚪ Beta"]
     end
 
-    CORE --> MODS
-    subgraph MODS["➕ MODULES — opt-in"]
-        direction TB
-        m1["<b>field_service</b> — full FSM solution (13 steps)"]
-        m2["<b>_canary</b> — reference / authoring template"]
-    end
+    CP --> CORE --> MODS --> PROV --> TGT
+    TGT -.-> MAT
 
-    MODS --> PROV["🔌 &nbsp;PROVISIONING · in-workspace <b>SDK / REST + SQL</b><br/>(the CLI can't run in job compute — DABs = validate only)"]:::prov
-    PROV --> TGT["🎯 &nbsp;TARGETS<br/>Lakebase (autoscaling PG) · Databricks Apps · Unity Catalog<br/>Genie · SQL Warehouse · Model Serving · Jobs · Secrets"]:::tgt
-
-    CORE -.declare.-> MAT
-    MODS -.declare.-> MAT["🏷️ &nbsp;FEATURE MATRIX · every module.yaml declares<br/><b>features + maturity</b> → GA · Public Preview · Beta<br/>(so customers always see what isn't GA)"]:::mat
-
-    classDef cp fill:#0b3d91,color:#fff,stroke:#08306b,stroke-width:1px;
-    classDef eng fill:#1168bd,color:#fff,stroke:#0b3d91,stroke-width:1px;
-    classDef prov fill:#2e7d32,color:#fff,stroke:#1b5e20,stroke-width:1px;
-    classDef tgt fill:#455a64,color:#fff,stroke:#263238,stroke-width:1px;
-    classDef mat fill:#b8860b,color:#fff,stroke:#8a6508,stroke-width:1px;
+    classDef band fill:none,stroke:#94a3b8,stroke-width:1px,color:#334155;
+    class CP,CORE,MODS,PROV,TGT,MAT band;
+    classDef cp fill:#0b3d91,color:#fff,stroke:#08306b;
+    classDef core fill:#1168bd,color:#fff,stroke:#0b3d91;
+    classDef mods fill:#6a1b9a,color:#fff,stroke:#4a148c;
+    classDef prov fill:#2e7d32,color:#fff,stroke:#1b5e20;
+    classDef tgt fill:#455a64,color:#fff,stroke:#263238;
+    classDef mat fill:#b8860b,color:#fff,stroke:#8a6508;
+    class a1,a2 cp;
+    class c1,c2,c3,c4,c5 core;
+    class m1,m2 mods;
+    class p1,p2,p3 prov;
+    class t1,t2,t3,t4,t5,t6,t7,t8 tgt;
+    class f1,f2,f3 mat;
 ```
+
+Each band is a horizontal row of short boxes, so the whole stack is six
+tiers tall instead of a long scroll — GA / Preview colors on the bottom band
+make the maturity story readable at a glance.
 
 ## Quickstart
 

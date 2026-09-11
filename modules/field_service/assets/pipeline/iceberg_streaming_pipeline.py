@@ -61,6 +61,15 @@ FQN = f"`{CATALOG_ORIG}`.{SCHEMA}"
 CHECKPOINT_BASE = f"{VOLUME_PATH}/_checkpoints"
 SCHEMA_BASE = f"{VOLUME_PATH}/_autoloader_schema"
 
+# Self-provision the standard catalog/schema/volume (the module passes a
+# namespaced catalog that may not exist yet). Idempotent; safe to re-run.
+spark.sql(f"CREATE CATALOG IF NOT EXISTS `{CATALOG_ORIG}`")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG_ORIG}`.{SCHEMA}")
+try:
+    spark.sql(f"CREATE VOLUME IF NOT EXISTS `{CATALOG_ORIG}`.{SCHEMA}.raw_files")
+except Exception as _vol_exc:
+    print(f"Volume create skipped: {_vol_exc}")
+
 spark.sql(f"USE CATALOG `{CATALOG_ORIG}`")
 spark.sql(f"USE SCHEMA {SCHEMA}")
 

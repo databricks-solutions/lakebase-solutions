@@ -198,6 +198,7 @@ class FakeApiClient:
         data_api_enabled: bool = False,
         db_mgmt_id: str = "db-mgmt-1",
         pg_database: str = "databricks_postgres",
+        run_result: str = "SUCCESS",
     ) -> None:
         self._host = host
         self._token = token
@@ -207,6 +208,9 @@ class FakeApiClient:
         self._data_api_enabled = data_api_enabled
         self._db_mgmt_id = db_mgmt_id
         self._pg_database = pg_database
+        # result_state returned by jobs/runs/get (SUCCESS by default; set to
+        # FAILED to exercise the honest failure-reporting path).
+        self._run_result = run_result
         # Autoscaling CU adopted by the last PATCH (echoed on subsequent GETs so
         # the deploy step's read-back verification passes offline).
         self._cu_min: Any = None
@@ -216,6 +220,10 @@ class FakeApiClient:
         # Stateful stores so create -> list/health is consistent (genie/lakeview).
         self._genie: Dict[str, str] = {}
         self._dash: Dict[str, str] = {}
+        # SCIM stores (user_management): display_name -> {id, members:[ids]};
+        # userName -> stable id (auto-vivified on first lookup).
+        self._scim_groups: Dict[str, Dict[str, Any]] = {}
+        self._scim_users: Dict[str, str] = {}
         self._seq = 0
         self.calls: List[Tuple[str, str, Any]] = []
 
@@ -238,6 +246,56 @@ class FakeApiClient:
             return {"id": "sec-1", "secret": "sp-oauth-secret-xyz", "status": "ACTIVE"}
         if p.endswith("/credentials/secrets") and m == "GET":
             return {"secrets": []}
+
+        # --- SCIM Users / Groups (user_management) ---
+        def _scim_filter_value(q: Any) -> Optional[str]:
+            f = (q or {}).get("filter", "") if isinstance(q, dict) else ""
+            if 'eq "' in f:
+                return f.split('eq "', 1)[1].rstrip('"').replace('\\"', '"')
+            return None
+
+        if "/scim/v2/Users" in p and m == "GET":
+            email = _scim_filter_value(query)
+            if not email:
+                return {"Resources": []}
+            uid = self._scim_users.get(email)
+            if uid is None:
+                self._seq += 1
+                uid = f"user-{self._seq}"
+                self._scim_users[email] = uid
+            return {"Resources": [{"id": uid, "userName": email}]}
+        if p.endswith("/scim/v2/Groups") and m == "GET":
+            name = _scim_filter_value(query)
+            grp = self._scim_groups.get(name) if name else None
+            return {"Resources": [grp] if grp else []}
+        if p.endswith("/scim/v2/Groups") and m == "POST":
+            name = (body or {}).get("displayName")
+            self._seq += 1
+            grp = {"id": f"group-{self._seq}", "displayName": name, "members": []}
+            self._scim_groups[name] = grp
+            return grp
+        if "/scim/v2/Groups/" in p and m == "PATCH":
+            gid = p.rsplit("/", 1)[-1]
+            grp = next((g for g in self._scim_groups.values() if g["id"] == gid), None)
+            if grp is not None:
+                for op in (body or {}).get("Operations", []):
+                    if op.get("op") == "add" and op.get("path") == "members":
+                        for v in op.get("value", []):
+                            if v.get("value") and v["value"] not in [mm["value"] for mm in grp["members"]]:
+                                grp["members"].append({"value": v["value"]})
+            return {}
+        if "/scim/v2/Groups/" in p and m == "GET":
+            gid = p.rsplit("/", 1)[-1]
+            grp = next((g for g in self._scim_groups.values() if g["id"] == gid), None)
+            if grp is None:
+                raise FakeNotFound()
+            return grp
+        if "/scim/v2/Groups/" in p and m == "DELETE":
+            gid = p.rsplit("/", 1)[-1]
+            for name, g in list(self._scim_groups.items()):
+                if g["id"] == gid:
+                    self._scim_groups.pop(name, None)
+            return {}
 
         # --- Databricks Apps REST (/api/2.0/apps) ---
         if p.endswith("/deployments") and m == "POST":
@@ -306,7 +364,7 @@ class FakeApiClient:
             self._seq += 1
             return {"run_id": 1000 + self._seq}
         if p.endswith("/jobs/runs/get") and m == "GET":
-            return {"state": {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS"}}
+            return {"state": {"life_cycle_state": "TERMINATED", "result_state": self._run_result}}
         if p.endswith("/jobs/list") and m == "GET":
             return {"jobs": []}
         if p.endswith("/jobs/create") and m == "POST":

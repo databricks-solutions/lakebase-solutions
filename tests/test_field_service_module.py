@@ -235,6 +235,76 @@ def test_agent_step_names_endpoint_and_teardown_deletes():
     assert _step("agent").teardown(ctx)["status"] == "torn_down"
 
 
+def _submit_body(ws, notebook_substr):
+    """Return the base_parameters of the runs/submit whose notebook matches."""
+    for method, path, body in ws.api_client.calls:
+        if method == "POST" and path.endswith("/jobs/runs/submit"):
+            nb = body["tasks"][0]["notebook_task"]
+            if notebook_substr in nb["notebook_path"]:
+                return nb["base_parameters"]
+    return None
+
+
+def test_pipeline_ml_agent_target_the_standard_network_catalog():
+    # Pipeline/ml/agent must NOT point at the managed online catalog
+    # (acme-ws_field_service); they use the standard, self-provisioned
+    # acme-ws_network catalog for Iceberg + the registered agent model.
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)   # stores fs-warehouse-id used by the SQL runner
+    _step("pipeline").deploy(ctx)
+    _step("ml").deploy(ctx)
+    _step("agent").deploy(ctx)
+
+    pipe = _submit_body(ws, "iceberg_streaming_pipeline")
+    assert pipe["catalog"] == "acme-ws_network"
+    assert pipe["schema"] == "network_data"
+    assert pipe["volume_path"] == "/Volumes/acme-ws_network/network_data/raw_files"
+
+    ml = _submit_body(ws, "predictive_maintenance")
+    assert ml["catalog"] == "acme-ws_network"
+
+    agent = _submit_body(ws, "deploy_agent_endpoint")
+    assert agent["catalog"] == "acme-ws_network"
+    assert agent["agent_schema"] == "agents"
+    assert agent["endpoint_name"] == "acme-ws-fs-agent"
+    # The standard catalog is created via CREATE CATALOG IF NOT EXISTS.
+    stmts = [b["statement"] for m, pth, b in ws.api_client.calls
+             if m == "POST" and pth.endswith("/sql/statements")]
+    assert any("CREATE CATALOG IF NOT EXISTS `acme-ws_network`" in s for s in stmts)
+
+
+def test_agent_passes_created_genie_space_ids():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("genie").deploy(ctx)          # creates the four Genie spaces + stores ids
+    _step("agent").deploy(ctx)
+    import json
+    ids = json.loads(_submit_body(ws, "deploy_agent_endpoint")["genie_space_ids"])
+    # All four configured spaces were created and forwarded to the agent.
+    assert set(ids) == {"postgres", "field_ops", "network_health", "sla_workforce"}
+    assert all(v for v in ids.values())
+
+
+def test_run_failure_reports_failed_not_deployed():
+    # The steps must POLL the run and report its REAL result, not "deployed" on submit.
+    api = FakeApiClient(project_exists=True, run_result="FAILED")
+    ws = FakeWorkspaceClient(api_client=api)
+    ctx, _c, ws = live_context(ws=ws, deployment_id="acme-ws")
+    assert _step("pipeline").deploy(ctx)["status"] == "failed"
+    assert _step("ml").deploy(ctx)["status"] == "failed"
+    assert _step("agent").deploy(ctx)["status"] == "failed"
+
+
+def test_pipeline_teardown_drops_the_network_catalog():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)   # stores fs-warehouse-id used by the SQL runner
+    res = _step("pipeline").teardown(ctx)
+    assert res["status"] == "torn_down"
+    assert res["network_catalog"] == "acme-ws_network"
+    stmts = [b["statement"] for m, pth, b in ws.api_client.calls
+             if m == "POST" and pth.endswith("/sql/statements")]
+    assert any("DROP CATALOG IF EXISTS `acme-ws_network` CASCADE" in s for s in stmts)
+
+
 def test_ops_step_schedules_three_jobs():
     ctx, _c, ws = _live_ctx_with_project()
     res = _step("ops").deploy(ctx)

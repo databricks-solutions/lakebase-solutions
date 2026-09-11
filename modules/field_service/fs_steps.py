@@ -120,6 +120,92 @@ def _delete_serving(ctx: Any, name: str) -> bool:
         return False
 
 
+# --------------------------------------------------------------------------- #
+# Network catalog (pipeline Iceberg + agent model registry).
+#
+# The pipeline's Iceberg tables and the agent's registered model CANNOT live in
+# the MANAGED_ONLINE_CATALOG (`_catalog_name`, which only surfaces Lakebase
+# foreign tables). They need a STANDARD UC catalog, self-provisioned here and
+# namespaced per deployment. This is deliberately separate from `fs_catalog`.
+# --------------------------------------------------------------------------- #
+_NETWORK_SCHEMA = "network_data"
+_AGENT_SCHEMA = "agents"
+
+
+def _network_catalog_name(ctx: Any) -> str:
+    return ctx.resolved_names.setdefault("fs_network_catalog", f"{ctx.deployment_id}_network")
+
+
+def _run_statement(ctx: Any, statement: str) -> bool:
+    """Run one SQL statement on the module warehouse; True on SUCCEEDED."""
+
+    warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
+    if not warehouse_id:
+        return False
+    resp = ctx.workspace_client().api_client.do(
+        "POST", "/api/2.0/sql/statements",
+        body={"warehouse_id": warehouse_id, "statement": statement, "wait_timeout": "30s"},
+    )
+    return (resp.get("status", {}) or {}).get("state") == "SUCCEEDED" if isinstance(resp, dict) else False
+
+
+def _ensure_network_catalog(ctx: Any) -> str:
+    """Idempotently create the standard network catalog + schemas + raw volume.
+
+    Returns the catalog name. Best-effort per statement (a missing CREATE
+    privilege defers rather than aborting the whole run).
+    """
+
+    cat = _network_catalog_name(ctx)
+    stmts = [
+        f"CREATE CATALOG IF NOT EXISTS `{cat}`",
+        f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{_NETWORK_SCHEMA}`",
+        f"CREATE SCHEMA IF NOT EXISTS `{cat}`.`{_AGENT_SCHEMA}`",
+        f"CREATE VOLUME IF NOT EXISTS `{cat}`.`{_NETWORK_SCHEMA}`.raw_files",
+    ]
+    for s in stmts:
+        try:
+            _run_statement(ctx, s)
+        except Exception as exc:  # pragma: no cover - live-only
+            ctx.logger.info("field_service: ensure-network-catalog stmt failed (%s): %s", s, exc)
+    return cat
+
+
+def _genie_ids_map(ctx: Any) -> Dict[str, str]:
+    """Collect the created Genie space ids by config key (for the agent)."""
+
+    out: Dict[str, str] = {}
+    for spec in _GENIE_SPACES:
+        sid = _get_id(ctx, f"genie-space-{spec['key']}")
+        if sid:
+            out[spec["key"]] = sid
+    return out
+
+
+def _wait_for_run(ctx: Any, run_id: Any, timeout_s: int = 2400, poll_s: int = 20) -> tuple:
+    """Poll jobs/runs/get until terminal; return (life_cycle_state, result_state).
+
+    A step should report success ONLY on result_state == "SUCCESS". Off-Databricks
+    the fake returns TERMINATED/SUCCESS immediately (no wait).
+    """
+
+    import time
+
+    life, result = "", ""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        resp = ctx.workspace_client().api_client.do(
+            "GET", "/api/2.1/jobs/runs/get", query={"run_id": run_id}
+        )
+        state = (resp.get("state") or {}) if isinstance(resp, dict) else {}
+        life = state.get("life_cycle_state", "") or ""
+        result = state.get("result_state", "") or ""
+        if life in ("TERMINATED", "SKIPPED", "INTERNAL_ERROR"):
+            break
+        time.sleep(poll_s)  # pragma: no cover - live-only wait
+    return life, result
+
+
 @dataclass
 class Step:
     """One internal component step of the field_service module."""
@@ -554,26 +640,41 @@ def _pipeline_deploy(ctx: Any) -> Dict[str, Any]:
 
     if not ctx.has_workspace_client():
         return _stub("pipeline", "deploy", ctx, "submit the iceberg streaming pipeline job")
-    catalog = _catalog_name(ctx)
+    # Self-provision the STANDARD network catalog (not the managed online catalog).
+    catalog = _ensure_network_catalog(ctx)
     run_id = _submit_notebook_job(
         ctx,
         f"{ctx.deployment_id}-fs-pipeline",
         "assets/pipeline/iceberg_streaming_pipeline",
-        base_parameters={"catalog": catalog,
-                         "volume_path": f"/Volumes/{catalog}/network_data/raw_files"},
+        base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA,
+                         "volume_path": f"/Volumes/{catalog}/{_NETWORK_SCHEMA}/raw_files"},
         dependencies=["pyiceberg", "pyarrow"],
     )
-    if run_id:
-        _put_id(ctx, "fs-pipeline-run-id", str(run_id))
-    ctx.logger.info("field_service.pipeline.deploy: submitted run_id=%s.", run_id)
-    return {"step": "pipeline", "run_id": run_id, "status": "deployed" if run_id else "partial"}
+    if not run_id:
+        return {"step": "pipeline", "catalog": catalog, "status": "partial",
+                "note": "runs/submit returned no run_id"}
+    _put_id(ctx, "fs-pipeline-run-id", str(run_id))
+    life, result = _wait_for_run(ctx, run_id)
+    ctx.logger.info("field_service.pipeline.deploy: run_id=%s -> %s/%s.", run_id, life, result)
+    return {"step": "pipeline", "run_id": run_id, "catalog": catalog,
+            "life_cycle_state": life, "result_state": result,
+            "status": "deployed" if result == "SUCCESS" else "failed"}
 
 
 def _pipeline_teardown(ctx: Any) -> Dict[str, Any]:
-    # The pipeline's Iceberg output tables live in the managed catalog and are
-    # removed when the catalog is deleted (uc_catalog step).
-    return {"step": "pipeline", "status": "torn_down",
-            "note": "iceberg output tables removed with the managed catalog"}
+    # The standard network catalog is NOT the managed online catalog, so it is
+    # not removed by the uc_catalog step -- drop it here (pipeline teardown runs
+    # last among the network-catalog consumers, in reverse order).
+    if not ctx.has_workspace_client():
+        return _stub("pipeline", "teardown", ctx, "drop the standard network catalog")
+    cat = _network_catalog_name(ctx)
+    dropped = False
+    try:
+        dropped = _run_statement(ctx, f"DROP CATALOG IF EXISTS `{cat}` CASCADE")
+    except Exception as exc:  # pragma: no cover - live-only
+        ctx.logger.info("field_service.pipeline.teardown: drop catalog %r -> %s", cat, exc)
+    return {"step": "pipeline", "network_catalog": cat, "catalog_dropped": dropped,
+            "status": "torn_down"}
 
 
 def _pipeline_health(ctx: Any) -> Dict[str, Any]:
@@ -886,16 +987,23 @@ def _ml_deploy(ctx: Any) -> Dict[str, Any]:
 
     if not ctx.has_workspace_client():
         return _stub("ml", "deploy", ctx, "train + register the predictive-maintenance model")
+    catalog = _ensure_network_catalog(ctx)
     run_id = _submit_notebook_job(
         ctx,
         f"{ctx.deployment_id}-fs-ml",
         "assets/notebooks/predictive_maintenance",
-        base_parameters={"catalog": _catalog_name(ctx)},
+        base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA},
         dependencies=["lightgbm", "scikit-learn", "mlflow"],
     )
-    if run_id:
-        _put_id(ctx, "fs-ml-run-id", str(run_id))
-    return {"step": "ml", "run_id": run_id, "status": "deployed" if run_id else "partial"}
+    if not run_id:
+        return {"step": "ml", "catalog": catalog, "status": "partial",
+                "note": "runs/submit returned no run_id"}
+    _put_id(ctx, "fs-ml-run-id", str(run_id))
+    life, result = _wait_for_run(ctx, run_id)
+    ctx.logger.info("field_service.ml.deploy: run_id=%s -> %s/%s.", run_id, life, result)
+    return {"step": "ml", "run_id": run_id, "catalog": catalog,
+            "life_cycle_state": life, "result_state": result,
+            "status": "deployed" if result == "SUCCESS" else "failed"}
 
 
 def _ml_teardown(ctx: Any) -> Dict[str, Any]:
@@ -919,18 +1027,38 @@ def _agent_deploy(ctx: Any) -> Dict[str, Any]:
 
     if not ctx.has_workspace_client():
         return _stub("agent", "deploy", ctx, "build + serve the multi-Genie supervisor agent")
+    import json as _json
+
     name = _serving_endpoint_name(ctx, "agent")
+    catalog = _ensure_network_catalog(ctx)
+    genie_ids = _genie_ids_map(ctx)
     run_id = _submit_notebook_job(
         ctx,
         f"{ctx.deployment_id}-fs-agent",
         "assets/notebooks/deploy_agent_endpoint",
-        base_parameters={"endpoint_name": name, "catalog": _catalog_name(ctx)},
+        base_parameters={
+            "endpoint_name": name,
+            "catalog": catalog,
+            "agent_schema": _AGENT_SCHEMA,
+            "genie_space_ids": _json.dumps(genie_ids),
+        },
         dependencies=["databricks-agents", "mlflow", "databricks-langchain",
                       "langgraph", "langgraph-supervisor"],
     )
     _put_id(ctx, "fs-agent-endpoint", name)
-    return {"step": "agent", "endpoint": name, "run_id": run_id,
-            "status": "deployed" if run_id else "partial"}
+    if not run_id:
+        return {"step": "agent", "endpoint": name, "status": "partial",
+                "note": "runs/submit returned no run_id"}
+    _put_id(ctx, "fs-agent-run-id", str(run_id))
+    life, result = _wait_for_run(ctx, run_id)
+    # The endpoint provisions asynchronously; a SUCCESS run means it was created.
+    endpoint_ok = result == "SUCCESS"
+    ctx.logger.info("field_service.agent.deploy: run_id=%s -> %s/%s (genie spaces=%d).",
+                    run_id, life, result, len(genie_ids))
+    return {"step": "agent", "endpoint": name, "run_id": run_id, "catalog": catalog,
+            "genie_spaces": len(genie_ids),
+            "life_cycle_state": life, "result_state": result,
+            "status": "deployed" if endpoint_ok else "failed"}
 
 
 def _agent_teardown(ctx: Any) -> Dict[str, Any]:

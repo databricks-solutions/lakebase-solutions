@@ -112,6 +112,7 @@ class DeployContext:
             "workshop_schema": "workshop",
             "pg_app_role": f"{self.deployment_id}_app",
             "pg_readonly_role": f"{self.deployment_id}_readonly",
+            "pg_participant_role": f"{self.deployment_id}_participant",
         }
         for key, value in derived.items():
             self.resolved_names.setdefault(key, value)

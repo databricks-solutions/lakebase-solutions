@@ -53,22 +53,34 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
 # Configuration — resolve catalog from deployment config
+# Catalog/schema come from the job base_params (widgets) FIRST; a deployment
+# config.yaml is an optional fallback; the hardcoded default is a last resort.
+dbutils.widgets.text("catalog", "", "UC Catalog")
+dbutils.widgets.text("schema", "network_data", "UC Schema")
+_w_cat = dbutils.widgets.get("catalog")
+_w_schema = dbutils.widgets.get("schema")
+
 import os, yaml
 from pathlib import Path as _Path
-_repo_root = _Path(os.path.dirname(
-    dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-).replace("/notebooks", ""))
-_config_path = _Path("/Workspace") / str(_repo_root).lstrip("/") / "deployment" / "config.yaml"
-if _config_path.exists():
-    with open(_config_path) as _f:
-        _cfg = yaml.safe_load(_f)
-    CATALOG = _cfg.get("pipeline_catalog", "dba-lakebase-network")
-else:
-    CATALOG = "dba-lakebase-network"
-SCHEMA = "network_data"
+_cfg = {}
+try:
+    _repo_root = _Path(os.path.dirname(
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    ).replace("/notebooks", ""))
+    _config_path = _Path("/Workspace") / str(_repo_root).lstrip("/") / "deployment" / "config.yaml"
+    if _config_path.exists():
+        with open(_config_path) as _f:
+            _cfg = yaml.safe_load(_f) or {}
+except Exception:
+    _cfg = {}
+
+CATALOG = _w_cat or _cfg.get("pipeline_catalog", "dba-lakebase-network")
+SCHEMA = _w_schema or "network_data"
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.predictive_maintenance_model"
 EXPERIMENT_NAME = f"/Users/{spark.sql('SELECT current_user()').first()[0]}/predictive_maintenance"
 
+spark.sql(f"CREATE CATALOG IF NOT EXISTS `{CATALOG}`")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
 spark.sql(f"USE CATALOG `{CATALOG}`")
 spark.sql(f"USE SCHEMA `{SCHEMA}`")
 
