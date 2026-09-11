@@ -205,3 +205,51 @@ def test_governance_step_applies_rls_and_masking():
     assert any("ENABLE ROW LEVEL SECURITY" in s for s in sql)
     assert any("v_customers_masked" in s for s in sql)
     assert _step("governance").health(ctx)["healthy"] is True
+
+
+# --- compute / AI / app step group ------------------------------------------ #
+def test_compute_ai_app_steps_stub_offline():
+    for name in ("pipeline", "ml", "agent", "ops", "app"):
+        assert _step(name).deploy(_ctx())["status"] == "stub"
+
+
+def test_pipeline_and_ml_submit_jobs():
+    ctx, _c, ws = _live_ctx_with_project()
+    assert _step("pipeline").deploy(ctx)["status"] == "deployed"
+    assert _step("ml").deploy(ctx)["status"] == "deployed"
+    submits = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/jobs/runs/submit")]
+    assert len(submits) == 2
+
+
+def test_agent_step_names_endpoint_and_teardown_deletes():
+    ctx, _c, _ws = _live_ctx_with_project()
+    res = _step("agent").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["endpoint"] == "acme-ws-fs-agent"
+    assert _step("agent").teardown(ctx)["status"] == "torn_down"
+
+
+def test_ops_step_schedules_three_jobs():
+    ctx, _c, ws = _live_ctx_with_project()
+    res = _step("ops").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert len(res["jobs"]) == 3
+    creates = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/jobs/create")]
+    assert len(creates) == 3
+    assert "schedule" in creates[0][2]
+    assert _step("ops").health(ctx)["status"] == "ok"
+    assert _step("ops").teardown(ctx)["status"] == "torn_down"
+
+
+def test_app_step_renders_yaml_creates_and_deploys():
+    ctx, _c, ws = _live_ctx_with_project()
+    res = _step("app").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["app"] == "acme-ws-field-service"
+    imports = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/workspace/import")]
+    assert len(imports) == 1
+    creates = [c for c in ws.api_client.calls if c[0] == "POST" and c[1] == "/api/2.0/apps"]
+    assert len(creates) == 1
+    assert {r["name"] for r in creates[0][2]["resources"]} == {"pguser", "pgpassword"}
+    assert any(c[0] == "POST" and c[1].endswith("/deployments") for c in ws.api_client.calls)
+    assert _step("app").health(ctx)["status"] == "ok"

@@ -301,6 +301,28 @@ class FakeApiClient:
         if p.endswith("/sql/statements") and m == "POST":
             return {"status": {"state": "SUCCEEDED"}}
 
+        # --- Jobs (runs/submit, runs/get, create, delete) ---
+        if p.endswith("/jobs/runs/submit") and m == "POST":
+            self._seq += 1
+            return {"run_id": 1000 + self._seq}
+        if p.endswith("/jobs/runs/get") and m == "GET":
+            return {"state": {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS"}}
+        if p.endswith("/jobs/create") and m == "POST":
+            self._seq += 1
+            return {"job_id": 2000 + self._seq}
+        if p.endswith("/jobs/delete") and m == "POST":
+            return {}
+
+        # --- Serving endpoints (not created directly by a step; jobs create them) ---
+        if "/serving-endpoints/" in p and m == "DELETE":
+            return {}
+        if "/serving-endpoints/" in p and m == "GET":
+            raise FakeNotFound()  # endpoint is created asynchronously by the agent job
+
+        # --- Workspace import (rendered app.yaml upload) ---
+        if p.endswith("/workspace/import") and m == "POST":
+            return {}
+
         # --- Genie spaces (stateful) ---
         if p.endswith("/genie/spaces") and m == "POST":
             self._seq += 1
