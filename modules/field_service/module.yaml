@@ -1,0 +1,86 @@
+name: field_service
+version: 0.1.0
+kind: module
+# The first REAL module: a full field-service solution reworked from lakebase_fsm.
+# It exercises the module contract end-to-end with real assets and covers every
+# persona the spec names.
+personas: [dba, etl_developer, app_developer, ai_engineer, technical_leadership]
+enabled_by_default: false
+depends_on:
+  core: [lakebase, security, data_api]
+  modules: []
+parameters:
+  - name: warehouse_size
+    type: string
+    default: SMALL
+    required: false
+    advanced: false
+    label: SQL warehouse size
+    help: Serverless SQL warehouse size for Genie + dashboards (e.g. SMALL, MEDIUM).
+  - name: seed_volume
+    type: string
+    default: demo
+    required: false
+    advanced: false
+    label: Seed data volume
+    help: "demo (fast, ~small) or scale (large seed). Controls generated row counts."
+  - name: include_pipeline
+    type: bool
+    default: true
+    required: false
+    advanced: false
+    label: Deploy the streaming pipeline
+    help: Deploy the DLT/Iceberg streaming pipeline (network/IoT gold tables).
+  - name: include_ml
+    type: bool
+    default: true
+    required: false
+    advanced: false
+    label: Deploy predictive-maintenance ML
+    help: Train + register + serve the predictive-maintenance model.
+  - name: include_agent
+    type: bool
+    default: true
+    required: false
+    advanced: false
+    label: Deploy the multi-Genie agent
+    help: Build + serve the LangGraph multi-Genie supervisor agent.
+  - name: include_ops_jobs
+    type: bool
+    default: true
+    required: false
+    advanced: true
+    label: Schedule ops jobs
+    help: Schedule ops jobs (credential rotation, ASH sampler, Genie-conversation cleanup).
+provides:
+  # Every resource is namespaced by ${prefix} (deployment_id) and removed on teardown.
+  uc_catalog: ["${prefix}_field_service"]
+  sql_warehouse: ["${prefix}-fs-warehouse"]
+  pg_schemas: ["field_service", "ai_memory", "monitoring"]
+  pipeline: ["${prefix}-fs-pipeline"]
+  genie_spaces: ["${prefix}-fs-field-ops", "${prefix}-fs-network-health", "${prefix}-fs-postgres-admin", "${prefix}-fs-sla-workforce"]
+  dashboards: ["${prefix}-fs-field-ops", "${prefix}-fs-network-ops"]
+  serving_endpoints: ["${prefix}-fs-predictive-maintenance", "${prefix}-fs-agent"]
+  app: ["${prefix}-field-service"]
+features:
+  - name: Genie spaces (create/manage API)
+    maturity: GA
+    note: Space-management + Conversation APIs GA (2026).
+  - name: Lakeview dashboards
+    maturity: GA
+  - name: Lakeflow Declarative Pipelines (DLT)
+    maturity: GA
+  - name: Managed Iceberg tables
+    maturity: GA
+  - name: Lakebase-to-Unity-Catalog synced online tables
+    maturity: PUBLIC_PREVIEW
+    note: Managed online catalog / synced tables surface — verify per workspace before customer use.
+  - name: Mosaic AI Model Serving (predictive maintenance)
+    maturity: GA
+  - name: Mosaic AI Agent Framework (multi-Genie supervisor)
+    maturity: GA
+  - name: Databricks Apps (field-service app)
+    maturity: GA
+entrypoint: deploy.py
+teardown: teardown.py
+health_check: health.py

@@ -36,17 +36,26 @@ def test_feature_unknown_field_rejected():
         Feature.from_dict({"name": "X", "stage": "GA"})
 
 
-def test_matrix_aggregates_core_features_all_ga():
-    rows = aggregate_matrix(ROOT)
-    # Core declares several GA features (lakebase, security, user_mgmt, data_api, admin_app).
-    assert len(rows) >= 7
-    names = {r["feature"] for r in rows}
+def test_matrix_core_only_is_all_ga():
+    core_rows = aggregate_matrix(ROOT, selected_modules=[])
+    assert len(core_rows) >= 7
+    assert all(r["kind"] == "core" for r in core_rows)
+    names = {r["feature"] for r in core_rows}
     assert any("Lakebase" in n for n in names)
     assert any("Data API" in n for n in names)
+    counts = summary_counts(core_rows)
+    # Every core feature today is GA.
+    assert counts["GA"] == counts["total"] == len(core_rows)
+
+
+def test_matrix_surfaces_non_ga_from_module():
+    # The field_service module intentionally introduces a non-GA feature so the
+    # matrix has something to flag; sorting puts not-GA rows first.
+    rows = aggregate_matrix(ROOT)  # all modules included
     counts = summary_counts(rows)
-    assert counts["total"] == len(rows)
-    # Before the field_service module is added, every declared feature is GA.
-    assert counts["GA"] == counts["total"]
+    assert counts["PUBLIC_PREVIEW"] >= 1
+    assert rows[0]["maturity"] != "GA"  # not-GA-first ordering
+    assert any(r["component"] == "field_service" and r["maturity"] == "PUBLIC_PREVIEW" for r in rows)
 
 
 def test_render_markdown_and_json():
