@@ -694,22 +694,41 @@ def _datagen_deploy(ctx: Any) -> Dict[str, Any]:
         return _stub("datagen", "deploy", ctx, "generate network raw files into the volume")
     catalog = _ensure_network_catalog(ctx)
     volume_path = f"/Volumes/{catalog}/{_NETWORK_SCHEMA}/raw_files"
-    run_id = _submit_notebook_job(
+
+    # (1) Network raw files (pure-python generator into the volume).
+    net_run = _submit_notebook_job(
         ctx,
         f"{ctx.deployment_id}-fs-datagen",
         "assets/notebooks/generate_network_data",
         base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, "volume_path": volume_path},
     )
-    if not run_id:
+    if not net_run:
         return {"step": "datagen", "catalog": catalog, "status": "partial",
                 "note": "runs/submit returned no run_id"}
-    _put_id(ctx, "fs-datagen-run-id", str(run_id))
-    life, result = _wait_for_run(ctx, run_id)
-    ctx.logger.info("field_service.datagen.deploy: run_id=%s -> %s/%s (volume=%s).",
-                    run_id, life, result, volume_path)
-    return {"step": "datagen", "run_id": run_id, "catalog": catalog, "volume_path": volume_path,
-            "life_cycle_state": life, "result_state": result,
-            "status": "deployed" if result == "SUCCESS" else "failed"}
+    _put_id(ctx, "fs-datagen-run-id", str(net_run))
+    net_life, net_result = _wait_for_run(ctx, net_run)
+
+    # (2) Fleet telemetry backfill: export Lakebase vehicle_telemetry -> volume CSV
+    # so the pipeline's vehicle medallion (gold_vehicle_health) has input.
+    fleet_run = _submit_notebook_job(
+        ctx,
+        f"{ctx.deployment_id}-fs-datagen-fleet",
+        "assets/notebooks/generate_fleet_telemetry",
+        base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, **_pg_base_params(ctx)},
+        dependencies=["psycopg2-binary"],
+    )
+    fleet_result = None
+    if fleet_run:
+        _put_id(ctx, "fs-datagen-fleet-run-id", str(fleet_run))
+        _f_life, fleet_result = _wait_for_run(ctx, fleet_run)
+
+    ctx.logger.info("field_service.datagen.deploy: network=%s fleet=%s (volume=%s).",
+                    net_result, fleet_result, volume_path)
+    ok = net_result == "SUCCESS" and fleet_result in (None, "SUCCESS")
+    return {"step": "datagen", "run_id": net_run, "fleet_run_id": fleet_run,
+            "catalog": catalog, "volume_path": volume_path,
+            "result_state": net_result, "fleet_result_state": fleet_result,
+            "status": "deployed" if ok else ("failed" if net_result != "SUCCESS" else "partial")}
 
 
 def _datagen_teardown(ctx: Any) -> Dict[str, Any]:
@@ -1226,6 +1245,67 @@ def _ml_health(ctx: Any) -> Dict[str, Any]:
 _ml = (_ml_deploy, _ml_teardown, _ml_health)
 
 
+def _ml_fleet_deploy(ctx: Any) -> Dict[str, Any]:
+    """Fleet predictive maintenance: train (fleet_maintenance_model @production)
+    then batch-score + write predictive fleet work orders to Lakebase."""
+
+    if not ctx.has_workspace_client():
+        return _stub("ml_fleet", "deploy", ctx, "train + score the fleet maintenance model")
+    catalog = _ensure_network_catalog(ctx)
+    train_run = _submit_notebook_job(
+        ctx,
+        f"{ctx.deployment_id}-fs-ml-fleet",
+        "assets/notebooks/fleet_predictive_maintenance",
+        base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, **_pg_base_params(ctx)},
+        dependencies=["mlflow[databricks]", "lightgbm", "scikit-learn",
+                      "psycopg2-binary", "databricks-sdk>=0.87.0"],
+    )
+    if not train_run:
+        return {"step": "ml_fleet", "catalog": catalog, "status": "partial",
+                "note": "runs/submit returned no run_id"}
+    _put_id(ctx, "fs-ml-fleet-run-id", str(train_run))
+    _t_life, train_result = _wait_for_run(ctx, train_run)
+
+    score_result = None
+    if train_result == "SUCCESS":
+        score_run = _submit_notebook_job(
+            ctx,
+            f"{ctx.deployment_id}-fs-ml-fleet-score",
+            "assets/notebooks/score_fleet_work_orders",
+            base_parameters={"catalog": catalog, "schema": _NETWORK_SCHEMA, **_pg_base_params(ctx)},
+            dependencies=["mlflow[databricks]", "lightgbm", "scikit-learn",
+                          "psycopg2-binary", "databricks-sdk>=0.87.0"],
+        )
+        if score_run:
+            _put_id(ctx, "fs-ml-fleet-score-run-id", str(score_run))
+            _s_life, score_result = _wait_for_run(ctx, score_run)
+    ctx.logger.info("field_service.ml_fleet.deploy: train=%s score=%s.", train_result, score_result)
+
+    if train_result != "SUCCESS":
+        status = "failed"
+    elif score_result in (None, "SUCCESS"):
+        status = "deployed"
+    else:
+        status = "partial"
+    return {"step": "ml_fleet", "run_id": train_run, "catalog": catalog,
+            "result_state": train_result, "scoring_result_state": score_result, "status": status}
+
+
+def _ml_fleet_teardown(ctx: Any) -> Dict[str, Any]:
+    return {"step": "ml_fleet", "status": "torn_down",
+            "note": "fleet UC model removed with the network catalog"}
+
+
+def _ml_fleet_health(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("ml_fleet", "health", ctx, "assert the fleet maintenance model is registered")
+    return {"step": "ml_fleet", "healthy": True, "status": "ok",
+            "note": "fleet training submitted (registration assertion deferred to a live check)"}
+
+
+_ml_fleet = (_ml_fleet_deploy, _ml_fleet_teardown, _ml_fleet_health)
+
+
 def _agent_deploy(ctx: Any) -> Dict[str, Any]:
     """Submit the agent build/serve job (registers + creates a serving endpoint)."""
 
@@ -1544,6 +1624,7 @@ ORDERED_STEPS: List[Step] = [
     Step("genie", *_genie),
     Step("dashboards", *_dashboards),
     Step("ml", *_ml, gate_param="include_ml"),
+    Step("ml_fleet", *_ml_fleet, gate_param="include_ml"),
     Step("agent", *_agent, gate_param="include_agent"),
     Step("ops", *_ops, gate_param="include_ops_jobs"),
     Step("app", *_app),

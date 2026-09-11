@@ -43,7 +43,7 @@ def test_deploy_runs_full_pipeline_as_stubs():
     # All steps run when every gate defaults on (datagen runs before pipeline).
     assert names == [
         "data", "uc_catalog", "warehouse", "features", "synced", "datagen", "pipeline",
-        "governance", "genie", "dashboards", "ml", "agent", "ops", "app",
+        "governance", "genie", "dashboards", "ml", "ml_fleet", "agent", "ops", "app",
     ]
 
 
@@ -54,7 +54,7 @@ def test_gates_skip_optional_steps():
     names = [s["step"] for s in result["steps"]]
     assert names == ["data", "uc_catalog", "warehouse", "features", "synced",
                      "governance", "genie", "dashboards", "app"]
-    for gated in ("datagen", "pipeline", "ml", "agent", "ops"):
+    for gated in ("datagen", "pipeline", "ml", "ml_fleet", "agent", "ops"):
         assert gated not in names
 
 
@@ -340,6 +340,31 @@ def test_datagen_generates_into_network_volume_before_pipeline():
     import fs_steps
     names = [s.name for s in fs_steps.ORDERED_STEPS]
     assert names.index("datagen") == names.index("pipeline") - 1
+
+
+def test_datagen_also_backfills_fleet_telemetry():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)
+    res = _step("datagen").deploy(ctx)
+    assert res["status"] == "deployed"
+    # both generators submitted: network raw + fleet telemetry.
+    net = _submit_body(ws, "generate_network_data")
+    fleet = _submit_body(ws, "generate_fleet_telemetry")
+    assert net["catalog"] == "acme-ws_network"
+    assert fleet["catalog"] == "acme-ws_network"
+    assert fleet["secret_scope"] == "acme-ws-secrets"
+
+
+def test_ml_fleet_trains_and_scores():
+    ctx, _c, ws = _live_ctx_with_project()
+    res = _step("ml_fleet").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert res["scoring_result_state"] == "SUCCESS"
+    assert _submit_body(ws, "fleet_predictive_maintenance")["catalog"] == "acme-ws_network"
+    assert _submit_body(ws, "score_fleet_work_orders")["secret_scope"] == "acme-ws-secrets"
+    import fs_steps
+    names = [s.name for s in fs_steps.ORDERED_STEPS]
+    assert names.index("ml_fleet") == names.index("ml") + 1
 
 
 def test_agent_passes_created_genie_space_ids():
