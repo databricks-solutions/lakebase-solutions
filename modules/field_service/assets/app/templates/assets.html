@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}Asset Management{% endblock %}
+{% block page_title %}Asset Management{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Asset Management</h1>
+                <p class="subtitle page-description dbx-only">Equipment inventory tracking, deployment status, and lifecycle management.</p>
+            </div>
+            <div class="powered-by" style="margin-top:8px;">
+                <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                <span>Powered by <strong>Databricks Lakebase</strong></span>
+            </div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="analytics-kpis" id="assetKpis">
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Total Equipment</div>
+                <div class="analytics-kpi-value" id="akTotal">--</div>
+                <div class="analytics-kpi-sub">All tracked items</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">In Stock</div>
+                <div class="analytics-kpi-value" id="akInStock">--</div>
+                <div class="analytics-kpi-sub">Warehouse inventory</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Deployed</div>
+                <div class="analytics-kpi-value" id="akDeployed">--</div>
+                <div class="analytics-kpi-sub">Installed at customer sites</div>
+            </div>
+            <div class="analytics-kpi analytics-kpi-danger">
+                <div class="analytics-kpi-label">Defective</div>
+                <div class="analytics-kpi-value" id="akDefective">--</div>
+                <div class="analytics-kpi-sub">Requires RMA</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Portfolio Value</div>
+                <div class="analytics-kpi-value" id="akValue">--</div>
+                <div class="analytics-kpi-sub">Active equipment cost</div>
+            </div>
+        </div>
+
+        <!-- Breakdown row -->
+        <div class="analytics-charts-row">
+            <div class="analytics-chart-card">
+                <div class="analytics-chart-title">By Category</div>
+                <div id="catBreakdown" class="asset-breakdown"></div>
+            </div>
+            <div class="analytics-chart-card">
+                <div class="analytics-chart-title">By Region</div>
+                <div id="regionBreakdown" class="asset-breakdown"></div>
+            </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;align-items:center;">
+            <input type="text" id="assetSearch" placeholder="Search equipment..." oninput="filterAssets()" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-input, var(--bg-card));color:var(--text-primary);font-size:13px;">
+            <select id="assetCatFilter" onchange="filterAssets()" style="padding:8px 12px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-input, var(--bg-card));color:var(--text-primary);font-size:13px;">
+                <option value="">All Categories</option>
+            </select>
+            <select id="assetStatusFilter" onchange="filterAssets()" style="padding:8px 12px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-input, var(--bg-card));color:var(--text-primary);font-size:13px;">
+                <option value="">All Statuses</option>
+                <option value="in_stock">In Stock</option>
+                <option value="assigned">Assigned</option>
+                <option value="installed">Installed</option>
+                <option value="defective">Defective</option>
+                <option value="returned">Returned</option>
+                <option value="retired">Retired</option>
+            </select>
+            <select id="assetRegionFilter" onchange="filterAssets()" style="padding:8px 12px;border:1px solid var(--border-primary);border-radius:6px;background:var(--bg-input, var(--bg-card));color:var(--text-primary);font-size:13px;">
+                <option value="">All Regions</option>
+            </select>
+        </div>
+
+        <!-- Equipment table -->
+        <div class="dash-section" style="margin-top:12px;">
+            <div class="dash-section-header">Equipment Inventory</div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="assetTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Equipment</th>
+                            <th>Manufacturer</th>
+                            <th>Serial</th>
+                            <th>Category</th>
+                            <th>Status</th>
+                            <th>Region</th>
+                            <th>Location</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetBody">
+                        <tr><td colspan="9" style="text-align:center;color:var(--text-muted);"><span class="loading-spinner sm" style="margin-right:8px;"></span>Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div id="assetToast" style="display:none;position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--accent-success, #00875A);color:#fff;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.2);"></div>
+    </div>
+
+    <script>
+        var _allItems = [];
+
+        function assetStatusBadge(status) {
+            var colors = { in_stock:'var(--status-completed)', assigned:'var(--status-assigned)', installed:'var(--status-progress)', defective:'var(--status-breached)', returned:'var(--status-open)', retired:'var(--text-muted)' };
+            var c = colors[status] || 'var(--text-muted)';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid '+c+';color:'+c+';">' + (status||'').replace('_',' ') + '</span>';
+        }
+
+        function renderBreakdown(containerId, items, maxVal) {
+            var el = document.getElementById(containerId);
+            if (!items || !items.length) { el.innerHTML = '<div style="color:var(--text-muted);">No data</div>'; return; }
+            var max = maxVal || items[0].count;
+            el.innerHTML = items.map(function(item) {
+                var pct = Math.round((item.count / max) * 100);
+                return '<div class="dispatch-bar-row"><span class="dispatch-bar-label">'+(item.category||item.region)+'</span><div class="dispatch-bar-track"><div class="dispatch-bar-fill" style="width:'+pct+'%"></div></div><span class="dispatch-bar-value">'+item.count.toLocaleString()+'</span></div>';
+            }).join('');
+        }
+
+        function assetActions(item) {
+            var btns = [];
+            if (item.status !== 'defective' && item.status !== 'retired') {
+                btns.push('<button onclick="reportDefective('+item.id+')" style="padding:2px 8px;border:1px solid var(--error, #CC2211);border-radius:4px;background:none;color:var(--error, #CC2211);font-size:10px;font-weight:600;cursor:pointer;" title="Report Defective">Defective</button>');
+            }
+            if (item.status === 'in_stock' || item.status === 'installed') {
+                btns.push('<button onclick="transferAsset('+item.id+')" style="padding:2px 8px;border:1px solid var(--accent-secondary, #00875A);border-radius:4px;background:none;color:var(--accent-secondary, #00875A);font-size:10px;font-weight:600;cursor:pointer;" title="Transfer Region">Transfer</button>');
+            }
+            return btns.join(' ') || '<span style="color:var(--text-muted);font-size:11px;">--</span>';
+        }
+
+        function renderTable(items) {
+            var tbody = document.getElementById('assetBody');
+            if (!items || !items.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No equipment found</td></tr>'; return; }
+            tbody.innerHTML = items.map(function(item) {
+                return '<tr><td><strong>#'+item.id+'</strong></td><td>'+item.name+'</td><td>'+(item.manufacturer||'')+'</td><td style="font-family:var(--font-mono);font-size:12px;">'+(item.serial||'--')+'</td><td>'+(item.category||'')+'</td><td>'+assetStatusBadge(item.status)+'</td><td>'+(item.region||'')+'</td><td>'+(item.warehouse||'')+'</td><td>'+assetActions(item)+'</td></tr>';
+            }).join('');
+        }
+
+        function filterAssets() {
+            var q = (document.getElementById('assetSearch').value || '').toLowerCase();
+            var cat = document.getElementById('assetCatFilter').value;
+            var st = document.getElementById('assetStatusFilter').value;
+            var reg = document.getElementById('assetRegionFilter').value;
+            var filtered = _allItems.filter(function(i) {
+                if (q && (i.name||'').toLowerCase().indexOf(q) === -1 && (i.serial||'').toLowerCase().indexOf(q) === -1 && (i.manufacturer||'').toLowerCase().indexOf(q) === -1) return false;
+                if (cat && i.category !== cat) return false;
+                if (st && i.status !== st) return false;
+                if (reg && i.region !== reg) return false;
+                return true;
+            });
+            renderTable(filtered);
+        }
+
+        function populateFilters(data) {
+            var cats = (data.by_category || []).map(function(c){return c.category;});
+            var catSel = document.getElementById('assetCatFilter');
+            cats.forEach(function(c){ var o=document.createElement('option'); o.value=c; o.textContent=c; catSel.appendChild(o); });
+            var regs = (data.by_region || []).map(function(r){return r.region;});
+            var regSel = document.getElementById('assetRegionFilter');
+            regs.forEach(function(r){ var o=document.createElement('option'); o.value=r; o.textContent=r; regSel.appendChild(o); });
+        }
+
+        function showToast(msg, isError) {
+            var t = document.getElementById('assetToast');
+            t.textContent = msg;
+            t.style.background = isError ? 'var(--error, #CC2211)' : 'var(--accent-success, #00875A)';
+            t.style.display = '';
+            setTimeout(function(){ t.style.display='none'; }, 3000);
+        }
+
+        function reportDefective(id) {
+            if (!confirm('Mark equipment #'+id+' as defective?')) return;
+            fetch('/api/assets/'+id+'/status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status:'defective'})})
+            .then(function(r){return r.json();}).then(function(d){
+                if (d.error) { showToast('Error: '+d.error, true); return; }
+                showToast('Equipment #'+id+' marked as defective');
+                loadAssets();
+            }).catch(function(){showToast('Network error',true);});
+        }
+
+        function transferAsset(id) {
+            var region = prompt('Transfer to which region?');
+            if (!region) return;
+            fetch('/api/assets/'+id+'/transfer', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({region:region})})
+            .then(function(r){return r.json();}).then(function(d){
+                if (d.error) { showToast('Error: '+d.error, true); return; }
+                showToast('Equipment #'+id+' transferred to '+region);
+                loadAssets();
+            }).catch(function(){showToast('Network error',true);});
+        }
+
+        var _filtersPopulated = false;
+        function loadAssets() {
+            fetch('/api/assets/summary').then(function(r){return r.json();}).then(function(data) {
+                if (data.error) return;
+                document.getElementById('akTotal').textContent = (data.total||0).toLocaleString();
+                document.getElementById('akInStock').textContent = (data.by_status.in_stock||0).toLocaleString();
+                document.getElementById('akDeployed').textContent = (data.by_status.installed||0).toLocaleString();
+                document.getElementById('akDefective').textContent = (data.by_status.defective||0).toLocaleString();
+                document.getElementById('akValue').textContent = '$'+data.total_value.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0});
+                renderBreakdown('catBreakdown', data.by_category);
+                renderBreakdown('regionBreakdown', data.by_region);
+                _allItems = data.items || [];
+                if (!_filtersPopulated) { populateFilters(data); _filtersPopulated = true; }
+                filterAssets();
+            });
+        }
+        loadAssets();
+        setInterval(loadAssets, 30000);
+    </script>
+{% endblock %}

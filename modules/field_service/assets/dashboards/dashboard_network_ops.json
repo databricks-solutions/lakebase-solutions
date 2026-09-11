@@ -1,0 +1,1928 @@
+{
+  "pages": [
+    {
+      "name": "executive_summary",
+      "displayName": "Executive Summary",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_avg_health",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "avg_health",
+                      "expression": "ROUND(AVG(`avg_health_score`), 1)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Health Score"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_health"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total_nodes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "total_nodes",
+                      "expression": "SUM(`active_nodes`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Active Nodes"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_nodes"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_unhealthy_nodes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "unhealthy",
+                      "expression": "SUM(`unhealthy_node_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Unhealthy Nodes"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "unhealthy"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total_errors",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "errors",
+                      "expression": "SUM(`region_total_errors`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Errors (Latest)"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "errors"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_avg_latency",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "avg_latency",
+                      "expression": "ROUND(AVG(`region_avg_latency_ms`), 1)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Latency (ms)"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_latency"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_connected_users",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "users",
+                      "expression": "SUM(`region_total_connected_users`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Connected Users"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "users"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "health_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "avg_health_score",
+                      "expression": "`avg_health_score`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Health Score by Region"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "avg_health_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Health Score"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "nodes_healthy_vs_unhealthy",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_latest",
+                  "fields": [
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "healthy_node_count",
+                      "expression": "`healthy_node_count`"
+                    },
+                    {
+                      "name": "unhealthy_node_count",
+                      "expression": "`unhealthy_node_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Healthy vs Unhealthy Nodes by Region"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "healthy_node_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Healthy"
+                },
+                "color": {
+                  "fieldName": "healthy_node_count",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "health_trend_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_regional_trend",
+                  "fields": [
+                    {
+                      "name": "measurement_date",
+                      "expression": "`measurement_date`"
+                    },
+                    {
+                      "name": "avg_health_score",
+                      "expression": "`avg_health_score`"
+                    },
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Regional Health Score Trend"
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "measurement_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "avg_health_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Health Score"
+                },
+                "color": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "outage_analysis",
+      "displayName": "Outage Analysis",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_total_outages",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "total_outages",
+                      "expression": "SUM(`outage_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Outages"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_outages"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_customers_affected",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "customers",
+                      "expression": "SUM(`total_affected_customers`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Customers Affected"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "customers"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_revenue_impact",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "revenue",
+                      "expression": "CONCAT('$', FORMAT_NUMBER(SUM(`total_revenue_impact`), 0))"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue Impact"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "revenue"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "outages_by_severity",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "severity",
+                      "expression": "`severity`"
+                    },
+                    {
+                      "name": "outage_count",
+                      "expression": "SUM(`outage_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Outages by Severity"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "outage_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "severity",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Severity"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "outages_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "outage_count",
+                      "expression": "SUM(`outage_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Outages by Region"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "outage_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Outages"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "outage_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outage_summary",
+                  "fields": [
+                    {
+                      "name": "outage_date",
+                      "expression": "`outage_date`"
+                    },
+                    {
+                      "name": "outage_count",
+                      "expression": "SUM(`outage_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Outage Count"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "outage_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "outage_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Outages"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "root_cause_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_root_cause",
+                  "fields": [
+                    {
+                      "name": "root_cause",
+                      "expression": "`root_cause`"
+                    },
+                    {
+                      "name": "total_outages",
+                      "expression": "`total_outages`"
+                    },
+                    {
+                      "name": "total_affected_customers",
+                      "expression": "`total_affected_customers`"
+                    },
+                    {
+                      "name": "avg_duration_minutes",
+                      "expression": "ROUND(`avg_duration_minutes`, 1)"
+                    },
+                    {
+                      "name": "p95_duration_minutes",
+                      "expression": "ROUND(`p95_duration_minutes`, 1)"
+                    },
+                    {
+                      "name": "dispatch_rate_pct",
+                      "expression": "ROUND(`dispatch_rate_pct`, 1)"
+                    },
+                    {
+                      "name": "total_revenue_impact",
+                      "expression": "ROUND(`total_revenue_impact`, 0)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Root Cause Analysis"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "root_cause",
+                    "displayName": "Root Cause"
+                  },
+                  {
+                    "fieldName": "total_outages",
+                    "displayName": "Outages"
+                  },
+                  {
+                    "fieldName": "total_affected_customers",
+                    "displayName": "Customers"
+                  },
+                  {
+                    "fieldName": "avg_duration_minutes",
+                    "displayName": "Avg Duration (min)"
+                  },
+                  {
+                    "fieldName": "p95_duration_minutes",
+                    "displayName": "P95 Duration (min)"
+                  },
+                  {
+                    "fieldName": "dispatch_rate_pct",
+                    "displayName": "Dispatch Rate %"
+                  },
+                  {
+                    "fieldName": "total_revenue_impact",
+                    "displayName": "Revenue Impact ($)"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "node_performance",
+      "displayName": "Node Performance",
+      "layout": [
+        {
+          "widget": {
+            "name": "node_health_distribution",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_node_health_buckets",
+                  "fields": [
+                    {
+                      "name": "health_bucket",
+                      "expression": "`health_bucket`"
+                    },
+                    {
+                      "name": "node_count",
+                      "expression": "`node_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Node Health Distribution"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "node_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "health_bucket",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Health Status"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "throughput_by_type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_node_perf_by_type",
+                  "fields": [
+                    {
+                      "name": "node_type",
+                      "expression": "`node_type`"
+                    },
+                    {
+                      "name": "avg_throughput",
+                      "expression": "`avg_throughput`"
+                    },
+                    {
+                      "name": "avg_latency",
+                      "expression": "`avg_latency`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Throughput by Node Type"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "node_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Node Type"
+                },
+                "y": {
+                  "fieldName": "avg_throughput",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Throughput (Mbps)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "throughput_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_throughput_trend",
+                  "fields": [
+                    {
+                      "name": "measurement_date",
+                      "expression": "`measurement_date`"
+                    },
+                    {
+                      "name": "avg_throughput_mbps",
+                      "expression": "`avg_throughput_mbps`"
+                    },
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Throughput Trend by Region"
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "measurement_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "avg_throughput_mbps",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Throughput (Mbps)"
+                },
+                "color": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "latency_vs_packet_loss",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_node_scatter",
+                  "fields": [
+                    {
+                      "name": "avg_latency_ms",
+                      "expression": "`avg_latency_ms`"
+                    },
+                    {
+                      "name": "avg_packet_loss_pct",
+                      "expression": "`avg_packet_loss_pct`"
+                    },
+                    {
+                      "name": "node_type",
+                      "expression": "`node_type`"
+                    },
+                    {
+                      "name": "health_score",
+                      "expression": "`health_score`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Latency vs Packet Loss (by Node Type)"
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg_latency_ms",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Latency (ms)"
+                },
+                "y": {
+                  "fieldName": "avg_packet_loss_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Packet Loss %"
+                },
+                "color": {
+                  "fieldName": "node_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Node Type"
+                },
+                "size": {
+                  "fieldName": "health_score",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "worst_nodes_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_worst_nodes",
+                  "fields": [
+                    {
+                      "name": "node_name",
+                      "expression": "`node_name`"
+                    },
+                    {
+                      "name": "node_type",
+                      "expression": "`node_type`"
+                    },
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "health_score",
+                      "expression": "`health_score`"
+                    },
+                    {
+                      "name": "avg_throughput_mbps",
+                      "expression": "`avg_throughput_mbps`"
+                    },
+                    {
+                      "name": "avg_latency_ms",
+                      "expression": "`avg_latency_ms`"
+                    },
+                    {
+                      "name": "total_errors",
+                      "expression": "`total_errors`"
+                    },
+                    {
+                      "name": "peak_cpu_pct",
+                      "expression": "`peak_cpu_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Bottom 25 Nodes by Health Score"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "node_name",
+                    "displayName": "Node"
+                  },
+                  {
+                    "fieldName": "node_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "region_code",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "health_score",
+                    "displayName": "Health"
+                  },
+                  {
+                    "fieldName": "avg_throughput_mbps",
+                    "displayName": "Throughput"
+                  },
+                  {
+                    "fieldName": "avg_latency_ms",
+                    "displayName": "Latency"
+                  },
+                  {
+                    "fieldName": "total_errors",
+                    "displayName": "Errors"
+                  },
+                  {
+                    "fieldName": "peak_cpu_pct",
+                    "displayName": "Peak CPU %"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "maintenance_risk",
+      "displayName": "Maintenance & Risk",
+      "layout": [
+        {
+          "widget": {
+            "name": "risk_distribution",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_distribution",
+                  "fields": [
+                    {
+                      "name": "risk_category",
+                      "expression": "`risk_category`"
+                    },
+                    {
+                      "name": "node_count",
+                      "expression": "`node_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Maintenance Risk Distribution"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "node_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "risk_category",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Risk Level"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_by_region",
+                  "fields": [
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "critical",
+                      "expression": "`critical`"
+                    },
+                    {
+                      "name": "high",
+                      "expression": "`high`"
+                    },
+                    {
+                      "name": "medium",
+                      "expression": "`medium`"
+                    },
+                    {
+                      "name": "low",
+                      "expression": "`low`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Risk Breakdown by Region"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region_code",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "critical",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Critical"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_by_vendor",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_by_vendor",
+                  "fields": [
+                    {
+                      "name": "vendor",
+                      "expression": "`vendor`"
+                    },
+                    {
+                      "name": "node_count",
+                      "expression": "`node_count`"
+                    },
+                    {
+                      "name": "avg_risk_score",
+                      "expression": "`avg_risk_score`"
+                    },
+                    {
+                      "name": "critical_count",
+                      "expression": "`critical_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Risk Score by Vendor"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "vendor",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Vendor"
+                },
+                "y": {
+                  "fieldName": "avg_risk_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg Risk Score"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "age_vs_risk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_age_risk",
+                  "fields": [
+                    {
+                      "name": "age_days",
+                      "expression": "`age_days`"
+                    },
+                    {
+                      "name": "maintenance_risk_score",
+                      "expression": "`maintenance_risk_score`"
+                    },
+                    {
+                      "name": "node_type",
+                      "expression": "`node_type`"
+                    },
+                    {
+                      "name": "risk_category",
+                      "expression": "`risk_category`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Equipment Age vs Risk Score"
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "age_days",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Equipment Age (days)"
+                },
+                "y": {
+                  "fieldName": "maintenance_risk_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Risk Score"
+                },
+                "color": {
+                  "fieldName": "risk_category",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Risk Category"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "critical_risk_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_critical_risk_nodes",
+                  "fields": [
+                    {
+                      "name": "node_name",
+                      "expression": "`node_name`"
+                    },
+                    {
+                      "name": "node_type",
+                      "expression": "`node_type`"
+                    },
+                    {
+                      "name": "region_code",
+                      "expression": "`region_code`"
+                    },
+                    {
+                      "name": "vendor",
+                      "expression": "`vendor`"
+                    },
+                    {
+                      "name": "age_days",
+                      "expression": "`age_days`"
+                    },
+                    {
+                      "name": "days_since_maintenance",
+                      "expression": "`days_since_maintenance`"
+                    },
+                    {
+                      "name": "maintenance_risk_score",
+                      "expression": "ROUND(`maintenance_risk_score`, 1)"
+                    },
+                    {
+                      "name": "recent_avg_health",
+                      "expression": "ROUND(`recent_avg_health`, 1)"
+                    },
+                    {
+                      "name": "recent_outage_count",
+                      "expression": "`recent_outage_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Critical & High Risk Nodes (Action Required)"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "node_name",
+                    "displayName": "Node"
+                  },
+                  {
+                    "fieldName": "node_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "region_code",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "vendor",
+                    "displayName": "Vendor"
+                  },
+                  {
+                    "fieldName": "age_days",
+                    "displayName": "Age (days)"
+                  },
+                  {
+                    "fieldName": "days_since_maintenance",
+                    "displayName": "Days Since Maint."
+                  },
+                  {
+                    "fieldName": "maintenance_risk_score",
+                    "displayName": "Risk Score"
+                  },
+                  {
+                    "fieldName": "recent_avg_health",
+                    "displayName": "Avg Health"
+                  },
+                  {
+                    "fieldName": "recent_outage_count",
+                    "displayName": "Outages"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "iot_fleet",
+      "displayName": "IoT Fleet Health",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_iot_devices",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_health",
+                  "fields": [
+                    {
+                      "name": "total_devices",
+                      "expression": "SUM(`device_count`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total IoT Devices"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_devices"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_degraded_iot",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_health",
+                  "fields": [
+                    {
+                      "name": "degraded",
+                      "expression": "SUM(CASE WHEN `iot_health_score` < 50 THEN 1 ELSE 0 END)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Degraded Assets"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "degraded"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total_iot_errors",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_health",
+                  "fields": [
+                    {
+                      "name": "errors",
+                      "expression": "SUM(`total_errors`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total IoT Errors"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "errors"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "iot_health_distribution",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_health_buckets",
+                  "fields": [
+                    {
+                      "name": "health_bucket",
+                      "expression": "`health_bucket`"
+                    },
+                    {
+                      "name": "asset_count",
+                      "expression": "`asset_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "IoT Health Distribution"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "asset_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "health_bucket",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Health Status"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "iot_battery_vs_health",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_health",
+                  "fields": [
+                    {
+                      "name": "avg_battery_pct",
+                      "expression": "`avg_battery_pct`"
+                    },
+                    {
+                      "name": "iot_health_score",
+                      "expression": "`iot_health_score`"
+                    },
+                    {
+                      "name": "device_count",
+                      "expression": "`device_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Battery Level vs Health Score"
+              },
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg_battery_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Battery %"
+                },
+                "y": {
+                  "fieldName": "iot_health_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Health Score"
+                },
+                "size": {
+                  "fieldName": "device_count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "iot_worst_assets",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_iot_worst",
+                  "fields": [
+                    {
+                      "name": "infrastructure_id",
+                      "expression": "`infrastructure_id`"
+                    },
+                    {
+                      "name": "device_count",
+                      "expression": "`device_count`"
+                    },
+                    {
+                      "name": "iot_health_score",
+                      "expression": "ROUND(`iot_health_score`, 1)"
+                    },
+                    {
+                      "name": "avg_signal_dbm",
+                      "expression": "ROUND(`avg_signal_dbm`, 1)"
+                    },
+                    {
+                      "name": "avg_throughput_mbps",
+                      "expression": "ROUND(`avg_throughput_mbps`, 1)"
+                    },
+                    {
+                      "name": "avg_battery_pct",
+                      "expression": "ROUND(`avg_battery_pct`, 1)"
+                    },
+                    {
+                      "name": "total_errors",
+                      "expression": "`total_errors`"
+                    },
+                    {
+                      "name": "total_connected_clients",
+                      "expression": "`total_connected_clients`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Bottom 20 IoT Assets by Health"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "infrastructure_id",
+                    "displayName": "Asset ID"
+                  },
+                  {
+                    "fieldName": "device_count",
+                    "displayName": "Devices"
+                  },
+                  {
+                    "fieldName": "iot_health_score",
+                    "displayName": "Health"
+                  },
+                  {
+                    "fieldName": "avg_signal_dbm",
+                    "displayName": "Signal (dBm)"
+                  },
+                  {
+                    "fieldName": "avg_throughput_mbps",
+                    "displayName": "Throughput"
+                  },
+                  {
+                    "fieldName": "avg_battery_pct",
+                    "displayName": "Battery %"
+                  },
+                  {
+                    "fieldName": "total_errors",
+                    "displayName": "Errors"
+                  },
+                  {
+                    "fieldName": "total_connected_clients",
+                    "displayName": "Clients"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    }
+  ],
+  "datasets": [
+    {
+      "name": "ds_regional_latest",
+      "displayName": "Regional Summary (Latest)",
+      "query": "SELECT region_code, avg_health_score, active_nodes, healthy_node_count, unhealthy_node_count, region_avg_throughput_mbps, region_avg_latency_ms, region_avg_packet_loss_pct, region_total_connected_users, region_total_errors FROM `{pipeline_catalog}`.network_data.gold_regional_network_summary WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_regional_network_summary)"
+    },
+    {
+      "name": "ds_regional_trend",
+      "displayName": "Regional Health Trend",
+      "query": "SELECT measurement_date, region_code, avg_health_score, region_avg_throughput_mbps, region_avg_latency_ms, region_total_errors FROM `{pipeline_catalog}`.network_data.gold_regional_network_summary ORDER BY measurement_date, region_code"
+    },
+    {
+      "name": "ds_outage_summary",
+      "displayName": "Outage Summary",
+      "query": "SELECT outage_date, region_code, severity, outage_count, total_affected_customers, avg_duration_minutes, total_outage_minutes, total_revenue_impact, dispatches_required, work_orders_created, ongoing_outages FROM `{pipeline_catalog}`.network_data.gold_daily_outage_summary ORDER BY outage_date DESC"
+    },
+    {
+      "name": "ds_root_cause",
+      "displayName": "Root Cause Analysis",
+      "query": "SELECT root_cause, severity, total_outages, total_affected_customers, avg_duration_minutes, median_duration_minutes, p95_duration_minutes, total_dispatches, dispatch_rate_pct, total_revenue_impact FROM `{pipeline_catalog}`.network_data.gold_outage_root_cause_analysis ORDER BY total_outages DESC"
+    },
+    {
+      "name": "ds_node_health_buckets",
+      "displayName": "Node Health Buckets",
+      "query": "SELECT CASE WHEN health_score >= 75 THEN 'Healthy (75+)' WHEN health_score >= 50 THEN 'Degraded (50-75)' WHEN health_score >= 25 THEN 'Poor (25-50)' ELSE 'Critical (<25)' END AS health_bucket, COUNT(*) AS node_count FROM `{pipeline_catalog}`.network_data.gold_daily_node_health WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_daily_node_health) GROUP BY 1 ORDER BY node_count DESC"
+    },
+    {
+      "name": "ds_node_perf_by_type",
+      "displayName": "Performance by Node Type",
+      "query": "SELECT node_type, ROUND(AVG(avg_throughput_mbps), 1) AS avg_throughput, ROUND(AVG(avg_latency_ms), 1) AS avg_latency, ROUND(AVG(avg_packet_loss_pct), 3) AS avg_packet_loss FROM `{pipeline_catalog}`.network_data.gold_daily_node_health WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_daily_node_health) GROUP BY node_type ORDER BY avg_throughput DESC"
+    },
+    {
+      "name": "ds_throughput_trend",
+      "displayName": "Throughput Trend",
+      "query": "SELECT measurement_date, region_code, ROUND(region_avg_throughput_mbps, 1) AS avg_throughput_mbps FROM `{pipeline_catalog}`.network_data.gold_regional_network_summary ORDER BY measurement_date, region_code"
+    },
+    {
+      "name": "ds_node_scatter",
+      "displayName": "Node Latency vs Packet Loss",
+      "query": "SELECT node_name, node_type, region_code, health_score, avg_latency_ms, avg_packet_loss_pct, avg_throughput_mbps, total_errors FROM `{pipeline_catalog}`.network_data.gold_daily_node_health WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_daily_node_health)"
+    },
+    {
+      "name": "ds_worst_nodes",
+      "displayName": "Worst Performing Nodes",
+      "query": "SELECT node_name, node_type, region_code, vendor, health_score, ROUND(avg_throughput_mbps, 1) AS avg_throughput_mbps, ROUND(avg_latency_ms, 1) AS avg_latency_ms, total_errors, ROUND(peak_cpu_pct, 1) AS peak_cpu_pct FROM `{pipeline_catalog}`.network_data.gold_daily_node_health WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_daily_node_health) ORDER BY health_score ASC LIMIT 25"
+    },
+    {
+      "name": "ds_risk_distribution",
+      "displayName": "Risk Distribution",
+      "query": "SELECT risk_category, COUNT(*) AS node_count FROM `{pipeline_catalog}`.network_data.gold_node_maintenance_risk GROUP BY risk_category ORDER BY CASE risk_category WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END"
+    },
+    {
+      "name": "ds_risk_by_region",
+      "displayName": "Risk by Region",
+      "query": "SELECT region_code, SUM(CASE WHEN risk_category = 'critical' THEN 1 ELSE 0 END) AS critical, SUM(CASE WHEN risk_category = 'high' THEN 1 ELSE 0 END) AS high, SUM(CASE WHEN risk_category = 'medium' THEN 1 ELSE 0 END) AS medium, SUM(CASE WHEN risk_category = 'low' THEN 1 ELSE 0 END) AS low FROM `{pipeline_catalog}`.network_data.gold_node_maintenance_risk GROUP BY region_code ORDER BY region_code"
+    },
+    {
+      "name": "ds_risk_by_vendor",
+      "displayName": "Risk by Vendor",
+      "query": "SELECT vendor, COUNT(*) AS node_count, ROUND(AVG(maintenance_risk_score), 1) AS avg_risk_score, SUM(CASE WHEN risk_category = 'critical' THEN 1 ELSE 0 END) AS critical_count FROM `{pipeline_catalog}`.network_data.gold_node_maintenance_risk GROUP BY vendor ORDER BY avg_risk_score DESC"
+    },
+    {
+      "name": "ds_age_risk",
+      "displayName": "Age vs Risk",
+      "query": "SELECT node_name, node_type, region_code, vendor, age_days, days_since_maintenance, maintenance_risk_score, risk_category, ROUND(recent_avg_health, 1) AS recent_avg_health FROM `{pipeline_catalog}`.network_data.gold_node_maintenance_risk"
+    },
+    {
+      "name": "ds_critical_risk_nodes",
+      "displayName": "Critical Risk Nodes",
+      "query": "SELECT node_name, node_type, region_code, vendor, age_days, days_since_maintenance, maintenance_risk_score, recent_avg_health, recent_outage_count FROM `{pipeline_catalog}`.network_data.gold_node_maintenance_risk WHERE risk_category IN ('critical', 'high') ORDER BY maintenance_risk_score DESC"
+    },
+    {
+      "name": "ds_iot_health",
+      "displayName": "IoT Device Health",
+      "query": "SELECT infrastructure_id, device_count, avg_signal_dbm, avg_throughput_mbps, avg_latency_ms, avg_packet_loss_pct, avg_temperature_c, avg_battery_pct, total_connected_clients, total_errors, iot_health_score FROM `{pipeline_catalog}`.network_data.gold_iot_device_health"
+    },
+    {
+      "name": "ds_iot_health_buckets",
+      "displayName": "IoT Health Buckets",
+      "query": "SELECT CASE WHEN iot_health_score >= 75 THEN 'Healthy (75+)' WHEN iot_health_score >= 50 THEN 'Degraded (50-75)' WHEN iot_health_score >= 25 THEN 'Poor (25-50)' ELSE 'Critical (<25)' END AS health_bucket, COUNT(*) AS asset_count FROM `{pipeline_catalog}`.network_data.gold_iot_device_health GROUP BY 1 ORDER BY asset_count DESC"
+    },
+    {
+      "name": "ds_iot_worst",
+      "displayName": "Worst IoT Assets",
+      "query": "SELECT infrastructure_id, device_count, iot_health_score, avg_signal_dbm, avg_throughput_mbps, avg_battery_pct, total_errors, total_connected_clients FROM `{pipeline_catalog}`.network_data.gold_iot_device_health ORDER BY iot_health_score ASC LIMIT 20"
+    }
+  ]
+}

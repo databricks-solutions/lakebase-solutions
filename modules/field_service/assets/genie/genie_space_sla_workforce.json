@@ -1,0 +1,335 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "3a51686c3085493e9cc6737f17dee84f",
+        "question": [
+          "What is our SLA compliance rate by region?"
+        ]
+      },
+      {
+        "id": "81d411b08bd142ce875b08ae28a131c9",
+        "question": [
+          "Who are the top-performing technicians by completion rate?"
+        ]
+      },
+      {
+        "id": "d7d48fcee7b646f48fb878ecfb811a3b",
+        "question": [
+          "Show SLA compliance trends over the last 30 days"
+        ]
+      },
+      {
+        "id": "311fc7dfe05d43359a9b252c8d184e57",
+        "question": [
+          "Which regions have the highest work order volume?"
+        ]
+      },
+      {
+        "id": "62327e89f82046d2b9ad7e7df9164117",
+        "question": [
+          "How many work orders are at risk of SLA breach?"
+        ]
+      },
+      {
+        "id": "ecc57bc6c1764f5aba28313e13ca4290",
+        "question": [
+          "What is the average technician utilization by region?"
+        ]
+      },
+      {
+        "id": "2def7ffa07db431186df54cc9b233d60",
+        "question": [
+          "Show work order distribution by customer tier"
+        ]
+      },
+      {
+        "id": "8a9bc556a156420a8b49a28e1da3c1fd",
+        "question": [
+          "Which regions have SLA compliance below 90%?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "dba-lakebase-network.governance.v_customers_masked",
+        "description": [
+          "Masked customer records with PII redacted for governance compliance.",
+          "Contains customer tier, region, and account metadata but no personally identifiable information.",
+          "Use for understanding customer distribution and segmentation without exposing sensitive data."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.governance.v_regional_work_orders",
+        "description": [
+          "Regional-level work order metrics including volume, completion rates, and backlog.",
+          "Aggregates work order data by region for capacity planning and regional performance comparison.",
+          "Use for understanding work order distribution and regional workload balance."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.governance.v_sla_compliance",
+        "description": [
+          "SLA compliance metrics broken down by region, service category, and priority level.",
+          "Tracks total orders, completions, SLA adherence, and breach counts.",
+          "Compliance above 95% is good, 90-95% needs attention, below 90% is critical."
+        ],
+        "column_configs": [
+          {
+            "column_name": "category",
+            "description": [
+              "Service category of the work order (e.g. installation, repair, maintenance, upgrade)."
+            ],
+            "synonyms": [
+              "service category",
+              "work type",
+              "order type",
+              "service type",
+              "job type"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "completed",
+            "description": [
+              "Number of work orders that have been completed."
+            ],
+            "synonyms": [
+              "completed orders",
+              "finished",
+              "closed orders",
+              "done"
+            ]
+          },
+          {
+            "column_name": "priority",
+            "description": [
+              "Priority level of the work order: high, medium, or low."
+            ],
+            "synonyms": [
+              "urgency",
+              "severity",
+              "importance",
+              "priority level"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "region_name",
+            "description": [
+              "Name of the geographic region where the work orders originate."
+            ],
+            "synonyms": [
+              "region",
+              "location",
+              "area",
+              "geography",
+              "territory"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "sla_breached",
+            "description": [
+              "Number of work orders that exceeded the SLA target time."
+            ],
+            "synonyms": [
+              "breached",
+              "overdue",
+              "SLA missed",
+              "late orders",
+              "violations"
+            ]
+          },
+          {
+            "column_name": "sla_compliance_pct",
+            "description": [
+              "Percentage of orders completed within SLA. Above 95% is good, 90-95% needs attention, below 90% is critical."
+            ],
+            "synonyms": [
+              "compliance rate",
+              "SLA rate",
+              "on-time percentage",
+              "SLA percentage",
+              "compliance"
+            ]
+          },
+          {
+            "column_name": "sla_resolution_hours",
+            "description": [
+              "Contractual SLA target for full resolution time in hours."
+            ],
+            "synonyms": [
+              "resolution SLA",
+              "resolution time target",
+              "fix deadline",
+              "resolution deadline"
+            ]
+          },
+          {
+            "column_name": "sla_response_hours",
+            "description": [
+              "Contractual SLA target for initial response time in hours."
+            ],
+            "synonyms": [
+              "response SLA",
+              "response time target",
+              "response deadline"
+            ]
+          },
+          {
+            "column_name": "total_orders",
+            "description": [
+              "Total number of work orders for this region/category/priority combination."
+            ],
+            "synonyms": [
+              "order count",
+              "work order count",
+              "total work orders",
+              "volume"
+            ]
+          },
+          {
+            "column_name": "within_sla",
+            "description": [
+              "Number of work orders completed within the SLA target time."
+            ],
+            "synonyms": [
+              "on time",
+              "SLA met",
+              "compliant orders",
+              "within target"
+            ]
+          }
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.governance.v_technician_performance",
+        "description": [
+          "Individual technician performance metrics including completion counts, active workload, and SLA breach history.",
+          "Each row represents one technician with their current performance snapshot.",
+          "Use for identifying top performers, overloaded technicians, and those with high breach rates."
+        ],
+        "column_configs": [
+          {
+            "column_name": "active_orders",
+            "description": [
+              "Number of work orders currently assigned to and in progress by this technician."
+            ],
+            "synonyms": [
+              "current orders",
+              "open orders",
+              "in progress",
+              "workload",
+              "active jobs"
+            ]
+          },
+          {
+            "column_name": "avg_completion_hours",
+            "description": [
+              "Average time in hours the technician takes to complete a work order."
+            ],
+            "synonyms": [
+              "average time",
+              "completion time",
+              "avg resolution time",
+              "turnaround time"
+            ]
+          },
+          {
+            "column_name": "certification_level",
+            "description": [
+              "Technician's certification tier (e.g. junior, senior, lead, expert)."
+            ],
+            "synonyms": [
+              "cert level",
+              "skill level",
+              "qualification",
+              "tier",
+              "grade"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "employee_id",
+            "description": [
+              "Unique identifier for the field technician."
+            ],
+            "synonyms": [
+              "technician id",
+              "tech id",
+              "worker id",
+              "staff id",
+              "employee number"
+            ]
+          },
+          {
+            "column_name": "region_name",
+            "description": [
+              "Region where the technician is assigned."
+            ],
+            "synonyms": [
+              "region",
+              "location",
+              "area",
+              "territory",
+              "assigned region"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "sla_breaches",
+            "description": [
+              "Number of work orders where this technician exceeded the SLA target."
+            ],
+            "synonyms": [
+              "breaches",
+              "violations",
+              "SLA misses",
+              "overdue count",
+              "late completions"
+            ]
+          },
+          {
+            "column_name": "status",
+            "description": [
+              "Current employment status of the technician (e.g. active, inactive, on_leave)."
+            ],
+            "synonyms": [
+              "employment status",
+              "work status",
+              "availability",
+              "state"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "total_completed",
+            "description": [
+              "Total number of work orders the technician has completed."
+            ],
+            "synonyms": [
+              "completed orders",
+              "jobs done",
+              "finished orders",
+              "completions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "b99828c3ece446a5b0dbc5e1cab4ca04",
+        "content": [
+          "These are masked governance views with PII redacted \u2014 focus on aggregate metrics. SLA compliance thresholds: above 95% is good (green), 90-95% needs attention (yellow), below 90% is critical (red) \u2014 always flag regions below 90%. Technician performance is best compared within the same certification_level. When computing breach rates, always use NULLIF to avoid division by zero. The v_customers_masked table has PII redacted \u2014 do not attempt to identify individuals. For workload analysis, compare active_orders across technicians in the same region to find imbalances."
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}Lakebase Data API{% endblock %}
+{% block page_title %}Lakebase Data API{% endblock %}
+
+{% block content %}
+{% include "_lb_console.html" %}
+<style>
+.da-intro { max-width:820px; }
+.da-doclink { color:#00A972; text-decoration:none; font-weight:600; }
+.da-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(440px,1fr)); gap:16px; margin-top:16px; }
+.da-card { padding:20px; }
+.da-card h3 { margin:0 0 4px; font-size:1rem; display:flex; align-items:center; gap:8px; }
+.da-tag { font-size:.62rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#00A972; border:1px solid #00A97255; border-radius:4px; padding:1px 6px; }
+.da-blurb { font-size:.83rem; color:var(--text-secondary); margin:0 0 12px; line-height:1.5; }
+.da-controls { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.da-controls input { width:64px; padding:5px 8px; border-radius:6px; border:1px solid var(--border-primary,#3334); background:var(--bg-secondary,#111); color:var(--text-primary); font-size:.82rem; }
+.da-summary { font-size:11px; color:var(--text-secondary); margin:8px 0 4px; font-family:var(--font-mono,monospace); }
+.da-json { max-height:260px; overflow:auto; background:#0b0b0f; border:1px solid var(--border-primary,#3334); border-radius:8px; padding:10px 12px; font-family:var(--font-mono,monospace); font-size:11.5px; line-height:1.55; color:#c9d7cf; white-space:pre; }
+.da-warn { font-size:.82rem; color:#E6A700; padding:8px 0; }
+.da-notice { border:1px solid rgba(230,167,0,0.4); background:rgba(230,167,0,0.08); border-radius:8px; padding:12px 16px; margin-top:12px; font-size:.85rem; color:var(--text-primary); }
+.da-ref { margin-top:26px; }
+.da-ref-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:10px; }
+@media (max-width:800px){ .da-ref-grid { grid-template-columns:1fr; } }
+.da-ref table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.da-ref th, .da-ref td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border-primary,#2224); vertical-align:top; }
+.da-ref th { color:var(--text-secondary); font-weight:600; }
+.da-ref code { font-family:var(--font-mono,monospace); font-size:.76rem; color:#00C77E; }
+.da-limit { font-size:.82rem; line-height:1.6; }
+.da-limit li { margin-bottom:6px; }
+/* "How this works" teaching panel */
+.da-explain { margin:-4px 0 12px; border:1px solid var(--border-primary,#2a2a33); border-radius:8px; background:rgba(0,169,114,0.04); }
+.da-explain > summary { cursor:pointer; list-style:none; padding:7px 12px; font-size:.76rem; font-weight:700; color:#00A972; display:flex; align-items:center; gap:6px; }
+.da-explain > summary::-webkit-details-marker { display:none; }
+.da-explain > summary::before { content:'\25B8'; font-size:.7rem; transition:transform .15s; }
+.da-explain[open] > summary::before { transform:rotate(90deg); }
+.da-explain-body { padding:0 14px 12px; font-size:.8rem; line-height:1.55; color:var(--text-secondary); }
+.da-ex-row { margin:9px 0; }
+.da-ex-k { display:block; font-weight:700; color:var(--text-primary); font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px; }
+.da-ex-url { font-family:var(--font-mono,monospace); font-size:11px; word-break:break-all; color:var(--text-secondary); }
+.da-ex-url .seg-schema { background:rgba(0,199,126,0.16); color:#00C77E; padding:1px 3px; border-radius:3px; }
+.da-ex-url .seg-resource { background:rgba(120,150,255,0.16); color:#9db4ff; padding:1px 3px; border-radius:3px; }
+.da-ex-url .seg-param { background:rgba(230,167,0,0.14); color:#E6A700; padding:1px 3px; border-radius:3px; }
+.da-ex-sql { margin:4px 0 0; background:#0b0b0f; border:1px solid var(--border-primary,#2224); border-radius:6px; padding:8px 10px; font-family:var(--font-mono,monospace); font-size:11px; line-height:1.5; color:#c9d7cf; white-space:pre-wrap; overflow-x:auto; }
+.da-legend { font-size:.7rem; color:var(--text-secondary); margin-top:2px; }
+</style>
+
+<div class="container">
+    <div class="da-intro">
+        <h1>Lakebase Data API</h1>
+        <p class="subtitle page-description dbx-only">A <strong>PostgREST-compatible REST API</strong> over the Lakebase Postgres instance — query your operational data over HTTP with filtering, joins, RPC, and bulk writes, secured by Databricks OAuth + row-level security. Every card below fires a <em>real</em> Data API call; open "Under the hood" to see the exact method + URL. <a class="da-doclink" href="https://docs.databricks.com/aws/en/oltp/projects/data-api" target="_blank" rel="noopener">Databricks docs &rarr;</a></p>
+    </div>
+
+    <div id="daNotice" class="da-notice" style="display:none;">
+        <strong>Data API not enabled yet.</strong> Enable it on the <code>dba-lakebase-1</code> project's <em>Data API</em> tab, expose the <code>field_service</code> schema, create a role for the app service principal, and set <code>LAKEBASE_DATA_API_URL</code> in the app config. The cards will go live once configured.
+    </div>
+
+    <div class="da-grid">
+
+        <!-- 1. Filtering + ordering + pagination + column select -->
+        <div class="card da-card">
+            <h3><span class="da-tag">GET</span> Filter, order &amp; paginate</h3>
+            <p class="da-blurb">First-class filtering (<code>eq / gte / lte / neq / like / in</code>), ordering, <code>limit</code>/<code>offset</code> pagination, and column (vertical) selection — all in the URL. Here: critical work orders, newest first.</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">The call</span>
+                    <div class="da-ex-url">GET <span class="seg-schema">/field_service</span><span class="seg-resource">/work_orders</span>?<span class="seg-param">select=work_order_id,status,priority,created_at</span>&amp;<span class="seg-param">priority=eq.critical</span>&amp;<span class="seg-param">order=created_at.desc</span>&amp;<span class="seg-param">limit=10</span>&amp;<span class="seg-param">offset=0</span></div>
+                    <div class="da-legend">+ header <code>Prefer: count=exact</code> &nbsp;·&nbsp; <span class="seg-schema">schema</span> / <span class="seg-resource">table</span> / <span class="seg-param">query params</span></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> The URL <em>is</em> the query. PostgREST turns each query-string param into SQL: <code>select=</code> picks columns, <code>priority=eq.critical</code> is a <code>WHERE</code> filter (operator <code>eq</code>), <code>order=</code> sorts, <code>limit</code>/<code>offset</code> page. <code>Prefer: count=exact</code> asks the server for the exact total, returned in the <code>Content-Range</code> header — which is why a page comes back as <code>206 Partial Content</code>.</div>
+                <div class="da-ex-row"><span class="da-ex-k">Equivalent SQL</span><pre class="da-ex-sql">SELECT work_order_id, status, priority, created_at
+FROM   field_service.work_orders
+WHERE  priority = 'critical'
+ORDER  BY created_at DESC
+LIMIT 10 OFFSET 0;</pre></div>
+            </div></details>
+            <div class="da-controls">
+                <button type="button" class="btn btn-primary" onclick="daFilter(this,0)">Run</button>
+                <button type="button" class="btn" onclick="daFilter(this,-1)">&larr; Prev page</button>
+                <button type="button" class="btn" onclick="daFilter(this,1)">Next page &rarr;</button>
+                <span id="daFilterOffset" style="font-size:.78rem;color:var(--text-secondary);">offset 0</span>
+            </div>
+            <div id="daFilterResult"></div>
+            <div class="lb-console collapsed" id="daFilterConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST call <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+        <!-- 2. Multi-table join / hierarchical (resource embedding) -->
+        <div class="card da-card">
+            <h3><span class="da-tag">GET</span> Multi-table join &amp; hierarchical</h3>
+            <p class="da-blurb">FK <strong>resource embedding</strong> returns nested related rows in a single request — work orders with their customer and appointments — via <code>?select=…customers(…),appointments(…)</code>. That's your nested/hierarchical retrieval.</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">The call</span>
+                    <div class="da-ex-url">GET <span class="seg-schema">/field_service</span><span class="seg-resource">/work_orders</span>?<span class="seg-param">select=work_order_id,status,priority,customers(first_name,last_name,region_id),appointments(scheduled_start,status)</span></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> <strong>Resource embedding.</strong> Naming a related table inside <code>select=…customers(…)</code> tells PostgREST to follow the foreign keys from <code>work_orders</code> → <code>customers</code> and → <code>appointments</code>, and nest those rows in the JSON — one request, no client-side joins.</div>
+                <div class="da-ex-row"><span class="da-ex-k">Equivalent SQL</span><pre class="da-ex-sql">SELECT wo.work_order_id, wo.status, wo.priority,
+       c.first_name, c.last_name, c.region_id,   -- nested customers(…)
+       a.scheduled_start, a.status               -- nested appointments(…)
+FROM   field_service.work_orders wo
+LEFT JOIN field_service.customers    c ON c.customer_id   = wo.customer_id
+LEFT JOIN field_service.appointments a ON a.work_order_id = wo.work_order_id
+ORDER BY wo.work_order_id LIMIT 5;</pre></div>
+            </div></details>
+            <div class="da-controls"><button type="button" class="btn btn-primary" onclick="daRun(this,'/api/data-api/embed','daEmbedConsole','daEmbedResult')">Run</button></div>
+            <div id="daEmbedResult"></div>
+            <div class="lb-console collapsed" id="daEmbedConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST call <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+        <!-- 3. Aggregation via RPC -->
+        <div class="card da-card">
+            <h3><span class="da-tag">POST /rpc</span> Aggregation</h3>
+            <p class="da-blurb">Aggregations aren't in the PostgREST <code>select</code> grammar — the recommended pattern is a SQL <code>SETOF</code> function / view exposed as an RPC. Here: <code>/rpc/sla_compliance_by_region</code> (GROUP BY region).</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">The call</span>
+                    <div class="da-ex-url">POST <span class="seg-schema">/public</span><span class="seg-resource">/rpc/sla_compliance_by_region</span> &nbsp;body <span class="seg-param">{}</span></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> The <code>select</code> grammar has no <code>GROUP BY</code>. So the aggregation lives in a Postgres function and you call it at <code>/rpc/&lt;name&gt;</code> (<code>/public</code> = schema, <code>/rpc</code> = the function-call namespace). The JSON body carries function args — none here.</div>
+                <div class="da-ex-row"><span class="da-ex-k">Function body (SQL)</span><pre class="da-ex-sql">SELECT sr.region_name,
+       COUNT(*)                       AS completed_orders,
+       COUNT(*) FILTER (WHERE sla_met) AS sla_met_orders,
+       ROUND(100.0 * COUNT(*) FILTER (WHERE sla_met)
+             / NULLIF(COUNT(*),0), 1)  AS compliance_pct
+FROM   field_service.work_orders wo
+JOIN   field_service.service_regions sr ON sr.region_id = wo.region_id
+WHERE  wo.status = 'completed'
+GROUP  BY sr.region_name
+ORDER  BY compliance_pct DESC;</pre></div>
+            </div></details>
+            <div class="da-controls"><button type="button" class="btn btn-primary" onclick="daRun(this,'/api/data-api/rpc-aggregate','daAggConsole','daAggResult')">Run</button></div>
+            <div id="daAggResult"></div>
+            <div class="lb-console collapsed" id="daAggConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST call <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+        <!-- 4. Nested subquery + JOIN via RPC -->
+        <div class="card da-card">
+            <h3><span class="da-tag">POST /rpc</span> Nested subquery + JOIN</h3>
+            <p class="da-blurb">Complex/nested queries (CTE + JOIN + window function) live in a function, called via <code>/rpc/</code>. Here: top-N technicians per region by completed work orders.</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">The call</span>
+                    <div class="da-ex-url">POST <span class="seg-schema">/public</span><span class="seg-resource">/rpc/top_technicians_by_completions</span> &nbsp;body <span class="seg-param">{"n": 5}</span></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> Same RPC pattern for a genuinely complex query: a CTE counts completions per technician, then a <code>ROW_NUMBER()</code> window ranks them within each region. The JSON body <code>{"n":5}</code> maps to the function's <code>n</code> argument (top-5 per region).</div>
+                <div class="da-ex-row"><span class="da-ex-k">Function body (SQL)</span><pre class="da-ex-sql">WITH tech_completions AS (          -- served by a partial index on completed WOs
+  SELECT assigned_technician_id AS technician_id, COUNT(*) AS completions
+  FROM   field_service.work_orders
+  WHERE  status = 'completed' AND assigned_technician_id IS NOT NULL
+  GROUP  BY assigned_technician_id
+), ranked AS (
+  SELECT t.technician_id, t.first_name||' '||t.last_name AS tech_name,
+         sr.region_name, COALESCE(tc.completions,0) AS completions,
+         ROW_NUMBER() OVER (PARTITION BY t.region_id
+                            ORDER BY COALESCE(tc.completions,0) DESC) AS region_rank
+  FROM   field_service.technicians t
+  JOIN   field_service.service_regions sr ON sr.region_id = t.region_id
+  LEFT JOIN tech_completions tc ON tc.technician_id = t.technician_id
+)
+SELECT * FROM ranked WHERE region_rank <= 5 ORDER BY region_name, region_rank;</pre></div>
+            </div></details>
+            <div class="da-controls">
+                <label style="font-size:.8rem;color:var(--text-secondary);">Top N/region <input type="number" id="daNestedN" value="5" min="1" max="20"></label>
+                <button type="button" class="btn btn-primary" onclick="daNested(this)">Run</button>
+            </div>
+            <div id="daNestedResult"></div>
+            <div class="lb-console collapsed" id="daNestedConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST call <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+        <!-- 5. Large result sets -->
+        <div class="card da-card">
+            <h3><span class="da-tag">GET</span> Large result sets</h3>
+            <p class="da-blurb">Handle millions of rows: page with <code>limit</code>/<code>offset</code> and get the total in the <code>Content-Range</code> header via <code>Prefer: count=estimated</code> (planner estimate — instant, the right call on huge tables; <code>count=exact</code> is a full scan) — then watch an unbounded pull hit the API's <strong>~10&nbsp;MB response cap</strong> (HTTP 400). Pagination is the pattern.</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">Three calls</span>
+                    <div class="da-ex-url">GET <span class="seg-schema">/field_service</span><span class="seg-resource">/work_orders</span>?<span class="seg-param">select=work_order_id</span>&amp;<span class="seg-param">limit=1000</span> &rarr; <strong>206</strong> (a cheap page)</div>
+                    <div class="da-ex-url" style="margin-top:5px;">POST <span class="seg-schema">/public</span><span class="seg-resource">/rpc/work_orders_estimate</span> &rarr; <strong>~5.2M</strong> (planner estimate, instant)</div>
+                    <div class="da-ex-url" style="margin-top:5px;">GET …?<span class="seg-param">limit=1000000</span> &rarr; <strong>400</strong> <code>response is too large (max is 10485760 bytes)</code></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> For millions of rows: page with <code>limit</code>/<code>offset</code>, and get the <em>total</em> from the planner's statistic (<code>pg_class.reltuples</code>) via a tiny RPC — instant at any table size. An <em>exact</em> <code>count(*)</code> over 5M rows is a full scan that can exceed the API's ~8s timeout on a cold endpoint, so it's the wrong tool at scale. An unbounded pull trips the ~10&nbsp;MB response cap, so pagination is required.</div>
+                <div class="da-ex-row"><span class="da-ex-k">Equivalent SQL</span><pre class="da-ex-sql">SELECT work_order_id FROM field_service.work_orders LIMIT 1000;   -- the page
+SELECT reltuples::bigint FROM pg_class                            -- the total (no scan)
+WHERE oid = 'field_service.work_orders'::regclass;</pre></div>
+            </div></details>
+            <div class="da-controls"><button type="button" class="btn btn-primary" onclick="daRun(this,'/api/data-api/large-result','daLargeConsole','daLargeResult')">Run</button></div>
+            <div id="daLargeResult"></div>
+            <div class="lb-console collapsed" id="daLargeConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST call <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+        <!-- 6. Bulk read/write -->
+        <div class="card da-card">
+            <h3><span class="da-tag">POST / PATCH / DELETE</span> Bulk read/write</h3>
+            <p class="da-blurb">Bulk write via POST (insert an array), PATCH (+filter), DELETE (+filter). Runs against a <code>public.data_api_demo</code> sandbox — <strong>production is never touched</strong>. Inserts 3 rows, bulk-updates, then deletes them (self-resetting).</p>
+            <details class="da-explain"><summary>How this works</summary><div class="da-explain-body">
+                <div class="da-ex-row"><span class="da-ex-k">Three calls</span>
+                    <div class="da-ex-url">POST <span class="seg-schema">/public</span><span class="seg-resource">/data_api_demo</span> &nbsp;body <span class="seg-param">[{label,value}×3]</span> &rarr; <strong>201</strong></div>
+                    <div class="da-ex-url" style="margin-top:5px;">PATCH <span class="seg-schema">/public</span><span class="seg-resource">/data_api_demo</span>?<span class="seg-param">label=like.bulk-*</span> &nbsp;body <span class="seg-param">{value:999}</span> &rarr; <strong>200</strong></div>
+                    <div class="da-ex-url" style="margin-top:5px;">DELETE <span class="seg-schema">/public</span><span class="seg-resource">/data_api_demo</span>?<span class="seg-param">label=like.bulk-*</span> &rarr; <strong>200</strong></div>
+                </div>
+                <div class="da-ex-row"><span class="da-ex-k">The idea</span> One POST with a JSON <em>array</em> inserts many rows at once. PATCH and DELETE act on every row matching the URL filter (same <code>eq/like/in</code> grammar as GET), so <code>?label=like.bulk-*</code> targets just our demo rows. Sandbox only — <code>field_service</code> is never touched.</div>
+                <div class="da-ex-row"><span class="da-ex-k">Equivalent SQL</span><pre class="da-ex-sql">INSERT INTO public.data_api_demo (label,value) VALUES ('bulk-1',100),('bulk-2',200),('bulk-3',300);
+UPDATE public.data_api_demo SET value = 999 WHERE label LIKE 'bulk-%';
+DELETE FROM public.data_api_demo            WHERE label LIKE 'bulk-%';</pre></div>
+            </div></details>
+            <div class="da-controls"><button type="button" class="btn btn-primary" onclick="daRun(this,'/api/data-api/bulk-write','daBulkConsole','daBulkResult')">Run insert &rarr; update &rarr; delete</button></div>
+            <div id="daBulkResult"></div>
+            <div class="lb-console" id="daBulkConsole"><div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live REST calls <span class="lb-c-count"></span></div><div class="lb-console-body"></div></div>
+        </div>
+
+    </div>
+
+    <!-- Capabilities & limitations reference (doc-backed) -->
+    <div class="card da-ref">
+        <h2 style="margin:0 0 4px;font-size:1rem;">Capabilities &amp; limitations</h2>
+        <p class="da-blurb" style="margin-bottom:6px;">Straight answers to the common questions, backed by the <a class="da-doclink" href="https://docs.databricks.com/aws/en/oltp/projects/data-api" target="_blank" rel="noopener">Data API docs</a>.</p>
+        <div class="da-ref-grid">
+            <div>
+                <table>
+                    <tr><th>Question</th><th>Data API answer</th></tr>
+                    <tr><td>Multi-table joins</td><td>FK <strong>resource embedding</strong> (<code>select=…child(…)</code>); complex/ambiguous joins via a view or RPC function</td></tr>
+                    <tr><td>Large result sets</td><td><code>limit</code>/<code>offset</code> pagination + exact count via <code>Prefer: count=exact</code> (<code>Content-Range</code>); ~10&nbsp;MB response-size cap (paginate past it)</td></tr>
+                    <tr><td>Aggregations / analytical</td><td>Not in the select grammar — expose a <code>SETOF</code> function / view, call via <code>/rpc/</code></td></tr>
+                    <tr><td>Nested subquery + JOINs</td><td>Encapsulate in a view/function, call via <code>/rpc/</code></td></tr>
+                    <tr><td>Nested / hierarchical</td><td>Nested embedding: <code>select=customers(work_orders(appointments(…)))</code></td></tr>
+                    <tr><td>Pagination &amp; filtering</td><td>First-class: <code>limit</code>/<code>offset</code>, <code>order</code>, <code>eq/gte/lte/neq/like/in</code>; row access via RLS</td></tr>
+                    <tr><td>Bulk read/write</td><td>GET + filters; POST (array) / PATCH (+filter) / DELETE (+filter)</td></tr>
+                </table>
+            </div>
+            <div>
+                <p style="font-weight:600;font-size:.85rem;margin:0 0 6px;">Limitations &amp; recommended patterns</p>
+                <ul class="da-limit">
+                    <li>Auth is Databricks OAuth (each identity → a PG role); <strong>no JWT config, GUCs, pre-request functions, or trace headers</strong>.</li>
+                    <li>Only the <code>public</code> schema is exposed by default; others (e.g. <code>field_service</code>) must be explicitly exposed.</li>
+                    <li>Enforce <strong>row-level security</strong> for multi-tenant access; RLS on views needs <code>security_invoker</code>.</li>
+                    <li>FK auto-embedding can be ambiguous on partitioned tables / views with UNIONs — use computed relationships or RPC.</li>
+                    <li>For heavy analytical scans, push aggregations into RPC functions, materialized/synced tables, or run them in the <strong><a class="da-doclink" href="/lakebase#lakebaseDiff">lakehouse / Databricks SQL</a></strong> — Lakebase is the OLTP layer.</li>
+                    <li>Per-workspace rate/concurrency limits aren't publicly documented — confirm with your Databricks account team for strict SLAs.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Gracefully surface not-yet-enabled state.
+fetch('/api/data-api/config').then(function (r) { return r.json(); }).then(function (c) {
+    if (!c.configured) document.getElementById('daNotice').style.display = '';
+}).catch(function () {});
+
+// Generic single-call runner: POST endpoint -> render console + result panel.
+function daRun(btn, endpoint, consoleId, resultId, bodyObj) {
+    var old = btn.textContent; btn.disabled = true; btn.textContent = 'Running…';
+    var con = document.getElementById(consoleId);
+    window.lbRenderConsole(con, [{ kind: 'info', label: 'Calling the Lakebase Data API…', t: '' }]);
+    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyObj || {}) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            btn.disabled = false; btn.textContent = old;
+            window.lbRenderConsole(con, d.steps || []);
+            var res = document.getElementById(resultId);
+            if (d.configured === false) { res.innerHTML = '<div class="da-warn">Data API not enabled yet — see the note at the top of the page.</div>'; return; }
+            var payload = (d.rows !== undefined) ? d.rows : d.results;
+            if (d.error && payload == null) { res.innerHTML = '<div class="da-warn">' + window.lbEsc(d.error) + '</div>'; return; }
+            var meta = d.meta || {};
+            var summary = meta.status ? ('HTTP ' + meta.status + ' · ' + meta.elapsed_ms + ' ms' + (meta.content_range ? (' · Content-Range: ' + meta.content_range) : '')) : '';
+            res.innerHTML = (summary ? '<div class="da-summary">' + window.lbEsc(summary) + '</div>' : '') +
+                '<pre class="da-json">' + window.lbEsc(JSON.stringify(payload, null, 2)) + '</pre>';
+        })
+        .catch(function (e) { btn.disabled = false; btn.textContent = old; window.lbRenderConsole(con, [{ kind: 'result', label: 'Failed: ' + e.message }]); });
+}
+
+// Pagination card — track offset across Prev/Next.
+var daOffset = 0;
+function daFilter(btn, dir) {
+    if (dir === 1) daOffset += 10; else if (dir === -1) daOffset = Math.max(0, daOffset - 10); else daOffset = 0;
+    document.getElementById('daFilterOffset').textContent = 'offset ' + daOffset;
+    daRun(btn, '/api/data-api/filter-paginate', 'daFilterConsole', 'daFilterResult', { limit: 10, offset: daOffset });
+}
+
+function daNested(btn) {
+    var n = parseInt(document.getElementById('daNestedN').value, 10) || 5;
+    daRun(btn, '/api/data-api/rpc-nested', 'daNestedConsole', 'daNestedResult', { n: n });
+}
+</script>
+{% endblock %}

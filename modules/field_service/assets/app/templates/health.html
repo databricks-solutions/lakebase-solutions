@@ -1,0 +1,478 @@
+{% extends "base.html" %}
+{% block title %}System Health{% endblock %}
+{% block page_title %}System Health{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>System Health</h1>
+                <p class="subtitle" style="text-align:left; margin-bottom:20px;">Real-time application health metrics and diagnostics.</p>
+            </div>
+            <div class="powered-by" style="margin-top:8px;">
+                <img src="/static/apps-icon-full-color.webp" class="powered-by-icon" alt="Apps">
+                <span>Powered by <strong>Databricks Apps</strong></span>
+            </div>
+        </div>
+
+        <!-- Overall Status Banner -->
+        <div class="health-banner" id="healthBanner">
+            <div class="health-banner-icon" id="bannerIcon">&#9679;</div>
+            <div class="health-banner-text">
+                <div class="health-banner-status" id="bannerStatus">CHECKING...</div>
+                <div class="health-banner-uptime" id="bannerUptime">Uptime: --</div>
+            </div>
+            <button class="btn-secondary" onclick="refreshHealth()" style="margin-left:auto;">REFRESH</button>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="health-grid" id="healthGrid">
+            <!-- Database -->
+            <div class="health-card" id="cardDb" data-tooltip="Tests connectivity to the Lakebase PostgreSQL instance by executing a simple query and measuring round-trip latency in milliseconds.">
+                <div class="health-card-header">
+                    <span class="health-card-title">DATABASE</span>
+                    <span class="health-dot" id="dotDb">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Latency</span>
+                        <span class="health-metric-value" id="dbLatency">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Status</span>
+                        <span class="health-metric-value" id="dbStatus">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Pool -->
+            <div class="health-card" id="cardPool" data-tooltip="Monitors the psycopg connection pool that manages reusable database connections. Shows current pool size, available connections, queued requests, and lifetime total requests served.">
+                <div class="health-card-header">
+                    <span class="health-card-title">CONNECTION POOL</span>
+                    <span class="health-dot" id="dotPool">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Size</span>
+                        <span class="health-metric-value" id="poolSize">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Available</span>
+                        <span class="health-metric-value" id="poolAvail">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Waiting</span>
+                        <span class="health-metric-value" id="poolWaiting">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Total Requests</span>
+                        <span class="health-metric-value" id="poolRequests">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tables -->
+            <div class="health-card" id="cardTables" data-tooltip="Queries the information_schema to count all user tables and list the schemas they belong to. Confirms the database has the expected tables for the demo.">
+                <div class="health-card-header">
+                    <span class="health-card-title">DATA TABLES</span>
+                    <span class="health-dot" id="dotTables">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Total Tables</span>
+                        <span class="health-metric-value" id="tableCount">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Schemas</span>
+                        <span class="health-metric-value" id="schemaList">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Simulator -->
+            <div class="health-card" id="cardSim" data-tooltip="Tracks the real-time data generator that produces simulated viewer sessions, support tickets, and device registrations. Shows whether a simulation job is currently running.">
+                <div class="health-card-header">
+                    <span class="health-card-title">SIMULATOR</span>
+                    <span class="health-dot" id="dotSim">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Status</span>
+                        <span class="health-metric-value" id="simStatus">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Last Start</span>
+                        <span class="health-metric-value" id="simLastStart">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Genie Spaces -->
+            <div class="health-card" id="cardGenie" data-tooltip="Verifies that the Databricks Genie AI space IDs are configured in the app environment. Missing IDs mean the natural language query feature will not work until app.yaml is regenerated.">
+                <div class="health-card-header">
+                    <span class="health-card-title">GENIE AI SPACES</span>
+                    <span class="health-dot" id="dotGenie">&#9679;</span>
+                </div>
+                <div class="health-card-body" id="genieSpaces">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Freshness -->
+            <div class="health-card" id="cardFreshness" data-tooltip="Checks how recently seed data was generated. If the newest non-simulator work order is more than 12 hours old, data may need refreshing.">
+                <div class="health-card-header">
+                    <span class="health-card-title">DATA FRESHNESS</span>
+                    <span class="health-dot" id="dotFreshness">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Status</span>
+                        <span class="health-metric-value" id="freshnessStatus">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Age</span>
+                        <span class="health-metric-value" id="freshnessAge">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Environment Config -->
+            <div class="health-card" id="cardEnv" data-tooltip="Checks that all required and optional environment variables are set in app.yaml. Missing variables usually mean the app was deployed without a fully generated app.yaml — redeploy to fix.">
+                <div class="health-card-header">
+                    <span class="health-card-title">ENV CONFIG</span>
+                    <span class="health-dot" id="dotEnv">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Status</span>
+                        <span class="health-metric-value" id="envStatus">--</span>
+                    </div>
+                    <div class="health-metric" id="envDetail" style="display:none;">
+                        <span class="health-metric-label">Issue</span>
+                        <span class="health-metric-value" id="envMsg" style="font-size:0.75rem; line-height:1.3;">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SQL Warehouse -->
+            <div class="health-card" id="cardWarehouse" data-tooltip="Checks the SQL Warehouse used for IoT diagnostics queries and Genie AI. Reports running state and warehouse name.">
+                <div class="health-card-header">
+                    <span class="health-card-title">SQL WAREHOUSE</span>
+                    <span class="health-dot" id="dotWarehouse">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">State</span>
+                        <span class="health-metric-value" id="whState">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Name</span>
+                        <span class="health-metric-value" id="whName">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pipeline -->
+            <div class="health-card" id="cardPipeline" data-tooltip="Monitors the IoT streaming pipeline job. Shows the most recent run state and result. Idle means no pipeline has been triggered this session.">
+                <div class="health-card-header">
+                    <span class="health-card-title">IOT PIPELINE</span>
+                    <span class="health-dot" id="dotPipeline">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">State</span>
+                        <span class="health-metric-value" id="pipeState">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Result</span>
+                        <span class="health-metric-value" id="pipeResult">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Endpoint -->
+            <div class="health-card" id="cardAgent" data-tooltip="Checks the Model Serving endpoint used by the AI Supervisor for multi-agent orchestration. Reports whether the endpoint is READY to serve requests.">
+                <div class="health-card-header">
+                    <span class="health-card-title">AI AGENT</span>
+                    <span class="health-dot" id="dotAgent">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">State</span>
+                        <span class="health-metric-value" id="agentState">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Endpoint</span>
+                        <span class="health-metric-value" id="agentName">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Iceberg Catalog -->
+            <div class="health-card" id="cardIceberg" data-tooltip="Tests connectivity to the Unity Catalog Iceberg REST endpoint by listing namespaces via PyIceberg. Confirms that external Iceberg clients can reach your tables.">
+                <div class="health-card-header">
+                    <span class="health-card-title">UNITY CATALOG</span>
+                    <span class="health-dot" id="dotIceberg">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Iceberg REST</span>
+                        <span class="health-metric-value" id="iceStatus">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Namespaces</span>
+                        <span class="health-metric-value" id="iceNamespaces">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ML Model -->
+            <div class="health-card" id="cardModel" data-tooltip="Checks whether the predictive maintenance model is registered in Unity Catalog Model Registry. Shows latest version and status.">
+                <div class="health-card-header">
+                    <span class="health-card-title">ML MODEL</span>
+                    <span class="health-dot" id="dotModel">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Status</span>
+                        <span class="health-metric-value" id="modelStatus">--</span>
+                    </div>
+                    <div class="health-metric">
+                        <span class="health-metric-label">Version</span>
+                        <span class="health-metric-value" id="modelVersion">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table Row Counts -->
+            <div class="health-card" id="cardRows" data-tooltip="Queries row counts for key operational tables (work_orders, technicians, customers, appointments). Empty tables indicate missing seed data.">
+                <div class="health-card-header">
+                    <span class="health-card-title">TABLE ROWS</span>
+                    <span class="health-dot" id="dotRows">&#9679;</span>
+                </div>
+                <div class="health-card-body" id="rowCounts">
+                    <div class="health-metric">
+                        <span class="health-metric-label">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory -->
+            <div class="health-card" id="cardMem" data-tooltip="Reports the resident set size (RSS) of the Flask application process — the actual physical memory in use. Useful for detecting memory leaks or sizing the app container.">
+                <div class="health-card-header">
+                    <span class="health-card-title">MEMORY</span>
+                    <span class="health-dot" id="dotMem">&#9679;</span>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-metric">
+                        <span class="health-metric-label">RSS</span>
+                        <span class="health-metric-value" id="memRss">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Errors -->
+        <h2>Recent Errors</h2>
+        <div class="health-errors" id="errorLog">
+            <div class="health-error-empty">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        let refreshTimer = null;
+
+        function refreshHealth() {
+            fetch('/api/health')
+                .then(r => r.json())
+                .then(data => renderHealth(data))
+                .catch(err => {
+                    document.getElementById('bannerStatus').textContent = 'UNREACHABLE';
+                    document.getElementById('bannerIcon').style.color = 'var(--status-breached)';
+                });
+        }
+
+        function formatUptime(secs) {
+            const d = Math.floor(secs / 86400);
+            const h = Math.floor((secs % 86400) / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = Math.floor(secs % 60);
+            if (d > 0) return `${d}d ${h}h ${m}m`;
+            if (h > 0) return `${h}h ${m}m ${s}s`;
+            return `${m}m ${s}s`;
+        }
+
+        function statusColor(status) {
+            if (status === 'healthy' || status === 'fresh') return 'var(--status-completed)';
+            if (status === 'warning' || status === 'idle' || status === 'not_configured') return 'var(--text-muted, #6B6B78)';
+            if (status === 'degraded' || status === 'stale') return 'var(--status-at-risk)';
+            if (status === 'unknown') return 'var(--text-muted, #6B6B78)';
+            return 'var(--status-breached)';
+        }
+
+        function setDot(id, status) {
+            const el = document.getElementById(id);
+            el.style.color = statusColor(status);
+        }
+
+        function renderHealth(data) {
+            // Banner
+            const bIcon = document.getElementById('bannerIcon');
+            const bStatus = document.getElementById('bannerStatus');
+            const bUptime = document.getElementById('bannerUptime');
+            const banner = document.getElementById('healthBanner');
+
+            const s = data.status;
+            bStatus.textContent = s.toUpperCase();
+            bIcon.style.color = statusColor(s);
+            bUptime.textContent = 'Uptime: ' + formatUptime(data.uptime_seconds);
+            banner.className = 'health-banner health-banner-' + s;
+
+            // Database
+            const db = data.checks.database || {};
+            document.getElementById('dbLatency').textContent = db.latency_ms ? db.latency_ms + ' ms' : 'N/A';
+            document.getElementById('dbStatus').textContent = (db.status || 'unknown').toUpperCase();
+            setDot('dotDb', db.status || 'unknown');
+
+            // Pool
+            const pool = data.checks.connection_pool || {};
+            document.getElementById('poolSize').textContent = pool.pool_size !== undefined ? `${pool.pool_size} / ${pool.max_size}` : '--';
+            document.getElementById('poolAvail').textContent = pool.pool_available !== undefined ? pool.pool_available : '--';
+            document.getElementById('poolWaiting').textContent = pool.requests_waiting !== undefined ? pool.requests_waiting : '--';
+            document.getElementById('poolRequests').textContent = pool.requests_num !== undefined ? pool.requests_num.toLocaleString() : '--';
+            setDot('dotPool', pool.status || 'unknown');
+
+            // Tables
+            const tables = data.checks.tables || {};
+            document.getElementById('tableCount').textContent = tables.count !== undefined ? tables.count : '--';
+            document.getElementById('schemaList').textContent = tables.schemas ? tables.schemas.join(', ') : '--';
+            setDot('dotTables', tables.status || 'unknown');
+
+            // Simulator
+            const sim = data.checks.simulator || {};
+            document.getElementById('simStatus').textContent = sim.running ? 'RUNNING' : 'IDLE';
+            document.getElementById('simLastStart').textContent = sim.last_start
+                ? new Date(sim.last_start).toLocaleString()
+                : 'Never';
+            setDot('dotSim', sim.running ? 'healthy' : (sim.last_error ? 'unhealthy' : 'healthy'));
+
+            // Genie
+            const genie = data.checks.genie_spaces || {};
+            const genieEl = document.getElementById('genieSpaces');
+            let genieHtml = '';
+            const genieStatus = genie.status || 'unknown';
+            for (const [key, space] of Object.entries(genie)) {
+                if (key === 'status' || key === 'error') continue;
+                const label = space.configured ? 'Configured' : 'Missing ID';
+                genieHtml += `<div class="health-metric">
+                    <span class="health-metric-label">${space.name}</span>
+                    <span class="health-metric-value" style="color:${space.configured ? 'var(--status-completed)' : 'var(--status-breached)'}">${label}</span>
+                </div>`;
+            }
+            if (genie.error) {
+                genieHtml += `<div class="health-metric">
+                    <span class="health-metric-label" style="color:var(--status-at-risk); font-size:0.75rem; line-height:1.3;">${genie.error}</span>
+                </div>`;
+            }
+            genieEl.innerHTML = genieHtml || '<div class="health-metric"><span class="health-metric-label">None</span></div>';
+            setDot('dotGenie', genieStatus === 'healthy' ? 'healthy' : 'warning');
+
+            // Data Freshness
+            const fresh = data.checks.data_freshness || {};
+            document.getElementById('freshnessStatus').textContent = (fresh.status || 'unknown').toUpperCase();
+            document.getElementById('freshnessStatus').style.color = statusColor(fresh.status || 'unknown');
+            document.getElementById('freshnessAge').textContent = fresh.hours_old !== undefined ? fresh.hours_old + 'h ago' : '--';
+            setDot('dotFreshness', fresh.status === 'fresh' ? 'healthy' : fresh.status === 'stale' ? 'degraded' : 'unknown');
+
+            // Env Config
+            const env = data.checks.env_config || {};
+            const envStatus = env.status || 'unknown';
+            document.getElementById('envStatus').textContent = envStatus.toUpperCase();
+            document.getElementById('envStatus').style.color = statusColor(envStatus);
+            setDot('dotEnv', envStatus);
+            const envDetail = document.getElementById('envDetail');
+            const envMsg = document.getElementById('envMsg');
+            if (env.error || env.note) {
+                envDetail.style.display = '';
+                envMsg.textContent = env.error || env.note;
+                envMsg.style.color = env.error ? 'var(--status-breached)' : 'var(--status-open)';
+            } else {
+                envDetail.style.display = 'none';
+            }
+
+            // SQL Warehouse
+            const wh = data.checks.sql_warehouse || {};
+            document.getElementById('whState').textContent = wh.state || wh.status || '--';
+            document.getElementById('whState').style.color = wh.state === 'RUNNING' ? 'var(--status-completed)' : 'var(--status-open)';
+            document.getElementById('whName').textContent = wh.name || (wh.status === 'not_configured' ? 'Not configured' : '--');
+            setDot('dotWarehouse', wh.status || 'unknown');
+
+            // Pipeline
+            const pipe = data.checks.pipeline || {};
+            document.getElementById('pipeState').textContent = pipe.state || pipe.status || '--';
+            document.getElementById('pipeResult').textContent = pipe.result || pipe.note || '--';
+            setDot('dotPipeline', pipe.status || 'unknown');
+
+            // Agent Endpoint
+            const agent = data.checks.agent_endpoint || {};
+            document.getElementById('agentState').textContent = agent.state || (agent.status === 'not_configured' ? 'Not deployed' : '--');
+            document.getElementById('agentName').textContent = agent.name || (agent.status === 'not_configured' ? 'Not configured' : '--');
+            setDot('dotAgent', agent.status || 'unknown');
+
+            // Iceberg Catalog
+            const ice = data.checks.iceberg_catalog || {};
+            document.getElementById('iceStatus').textContent = (ice.status || 'unknown').toUpperCase();
+            document.getElementById('iceStatus').style.color = statusColor(ice.status || 'unknown');
+            document.getElementById('iceNamespaces').textContent = ice.namespaces !== undefined ? ice.namespaces : (ice.error ? 'Error' : '--');
+            setDot('dotIceberg', ice.status || 'unknown');
+
+            // ML Model
+            const ml = data.checks.ml_model || {};
+            const mlStatus = ml.status || 'unknown';
+            document.getElementById('modelStatus').textContent = mlStatus === 'healthy' ? 'REGISTERED' : mlStatus === 'not_trained' ? 'Not trained' : mlStatus.toUpperCase();
+            document.getElementById('modelStatus').style.color = statusColor(mlStatus);
+            document.getElementById('modelVersion').textContent = ml.latest_version ? `v${ml.latest_version}` : (ml.note || '--');
+            setDot('dotModel', mlStatus === 'not_trained' ? 'not_configured' : mlStatus);
+
+            // Table Row Counts
+            const rows = data.checks.table_rows || {};
+            const rowsEl = document.getElementById('rowCounts');
+            if (rows.counts) {
+                let rowsHtml = '';
+                for (const [tbl, cnt] of Object.entries(rows.counts)) {
+                    const color = cnt === 0 ? 'var(--status-breached)' : cnt === 'error' ? 'var(--status-at-risk)' : 'var(--status-completed)';
+                    rowsHtml += `<div class="health-metric">
+                        <span class="health-metric-label">${tbl}</span>
+                        <span class="health-metric-value" style="color:${color}">${typeof cnt === 'number' ? cnt.toLocaleString() : cnt}</span>
+                    </div>`;
+                }
+                rowsEl.innerHTML = rowsHtml;
+            }
+            setDot('dotRows', rows.status || 'unknown');
+
+            // Memory
+            const mem = data.checks.memory || {};
+            document.getElementById('memRss').textContent = mem.rss_mb !== 'unavailable' ? mem.rss_mb + ' MB' : 'N/A';
+            setDot('dotMem', 'healthy');
+
+            // Errors
+            const errEl = document.getElementById('errorLog');
+            if (data.recent_errors && data.recent_errors.length > 0) {
+                errEl.innerHTML = data.recent_errors.map(e => `
+                    <div class="health-error-item">
+                        <span class="health-error-time">${new Date(e.time).toLocaleString()}</span>
+                        <span class="health-error-source">${e.source}</span>
+                        <span class="health-error-msg">${e.error}</span>
+                    </div>
+                `).join('');
+            } else {
+                errEl.innerHTML = '<div class="health-error-empty">No recent errors</div>';
+            }
+        }
+
+        refreshHealth();
+        refreshTimer = setInterval(refreshHealth, 15000);
+    </script>
+{% endblock %}

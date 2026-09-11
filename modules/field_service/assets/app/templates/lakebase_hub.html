@@ -1,0 +1,845 @@
+{% extends "base.html" %}
+{% block title %}Lakebase Control Tower{% endblock %}
+{% block page_title %}Lakebase Control Tower{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+            <h1>Lakebase Control Tower</h1>
+            <p class="subtitle page-description dbx-only">The Lakebase wing — a live view of what sets Lakebase apart from a self-managed Postgres. Every tile links to a hands-on deep dive.</p>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-top:8px;">
+            <button type="button" id="lbTourBtn" class="lb-tour-btn">▶ Take the Lakebase tour</button>
+            <div class="powered-by">
+                <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                <span>Powered by <strong>Lakebase</strong> (PostgreSQL OLTP)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Headline live metrics ─────────────────────────────────────────── -->
+    <div class="kpi-row" style="grid-template-columns: repeat(4, 1fr); margin-top:16px;">
+        <div class="kpi-card">
+            <div class="kpi-label">Compute Units</div>
+            <div class="kpi-value" id="lbCu"><span class="loading-spinner sm"></span></div>
+            <div class="kpi-sub" id="lbCuSub">Autoscaling</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Open Branches</div>
+            <div class="kpi-value" id="lbBranches"><span class="loading-spinner sm"></span></div>
+            <div class="kpi-sub">Copy-on-write clones</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Active Sessions</div>
+            <div class="kpi-value" id="lbSessions"><span class="loading-spinner sm"></span></div>
+            <div class="kpi-sub" id="lbSessionsSub">Live on pg_stat_activity</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Work Orders</div>
+            <div class="kpi-value" id="lbVolume"><span class="loading-spinner sm"></span></div>
+            <div class="kpi-sub">OLTP rows served</div>
+        </div>
+    </div>
+
+    <!-- ── Tier 1: genuinely differentiated ──────────────────────────────── -->
+    <section id="lbHeroSec" class="lb-tour-sec">
+    <h2 id="lbHero" style="margin:28px 0 4px;font-size:1.05rem;scroll-margin-top:80px;">The Lakebase difference</h2>
+    <p class="subtitle" style="margin-top:0;">Capabilities a self-managed Postgres can't offer on its own — the reasons to run OLTP on Lakebase.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:12px;">
+
+        <!-- Branching -->
+        <a href="/what-if" class="card lb-diff-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00BCD4" stroke-width="1.5"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>
+                <span class="lb-diff-title">Database Branching</span>
+            </div>
+            <div class="lb-diff-stat" id="lbBranchStat">—</div>
+            <p class="lb-diff-desc">Fork your production database in seconds with copy-on-write — no full data copy. Test a change, compare KPIs, discard. There's no native equivalent in vanilla Postgres.</p>
+            <span class="lb-diff-cta">Open What-If Analysis &rarr;</span>
+        </a>
+
+        <!-- Serverless autoscaling -->
+        <a href="/admin" class="card lb-diff-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="1.5"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg>
+                <span class="lb-diff-title">Serverless Autoscaling</span>
+            </div>
+            <div class="lb-diff-stat" id="lbAutoStat">—</div>
+            <p class="lb-diff-desc">Compute scales automatically with load and supports scale-to-zero when idle — no instance to size, no cluster to manage. A managed capability plain Postgres leaves to you.</p>
+            <span class="lb-diff-cta">Open Lakebase Admin &rarr;</span>
+        </a>
+
+        <!-- Lakehouse-native -->
+        <a href="/view-data" class="card lb-diff-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6F00" stroke-width="1.5"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>
+                <span class="lb-diff-title">Lakehouse-Native</span>
+            </div>
+            <div class="lb-diff-stat" style="font-size:1.15rem;">Unity Catalog governed</div>
+            <p class="lb-diff-desc">The same operational data is governed in Unity Catalog and reachable by analytics, Genie, and AI — one copy, no separate ETL pipeline. This is the integration only Databricks offers.</p>
+            <span class="lb-diff-cta">Open Data Explorer &rarr;</span>
+        </a>
+
+    </div>
+
+    </section>
+    <!-- ── See it live: interactive Lakebase demos ───────────────────────── -->
+    <section id="lbLiveSec" class="lb-tour-sec">
+    <h2 id="lbLive" style="margin:28px 0 4px;font-size:1.05rem;scroll-margin-top:80px;">See it live</h2>
+    <p class="subtitle" style="margin-top:0;">Drive these yourself — production is never touched. Branches are left running so you can see them in the Databricks UI.</p>
+
+    <div class="lb-branchbar">
+        <span>&#9670; Demo branches open: <strong id="lbBranchCount">—</strong></span>
+        <span style="opacity:.72;">They persist for inspection and auto-expire after ~60 min (Lakebase branch TTL).</span>
+        <button type="button" id="lbCleanupBtn" class="lb-cleanup-btn">Clean up now</button>
+        <span id="lbCleanupMsg" style="opacity:.85;"></span>
+    </div>
+
+    <!-- 🅱 Instant Undo — point-in-time time travel -->
+    <div class="card" id="lbUndoCard" style="padding:22px;margin-top:12px;border:1px solid var(--accent-primary,#00A972);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div style="max-width:560px;">
+                <div class="lb-diff-head">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="1.5"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 103-7.7L3 7"/></svg>
+                    <span class="lb-diff-title">Instant Undo — time-travel a live database</span>
+                </div>
+                <p class="lb-diff-desc" style="margin:0;">Delete a chunk of work orders, then recover the database to the instant <em>before</em> the delete — by branching Lakebase from a point in time. Runs entirely on branches; production is never touched. (Takes ~20–40s: two branches spin up and are cleaned up.)</p>
+            </div>
+            <button type="button" id="lbUndoBtn" class="btn btn-primary" style="padding:10px 20px;font-weight:600;white-space:nowrap;">&#8630; Run Instant Undo</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:28px;margin-top:18px;flex-wrap:wrap;">
+            <div>
+                <div id="lbUndoCount" style="font-size:2.8rem;font-weight:800;line-height:1;color:var(--text-secondary);font-variant-numeric:tabular-nums;">—</div>
+                <div style="font-size:11px;opacity:.6;margin-top:4px;">active work orders</div>
+            </div>
+            <div id="lbUndoPhases" style="font-size:.82rem;line-height:1.9;font-family:var(--font-mono,monospace);"></div>
+        </div>
+        <div id="lbUndoMsg" style="margin-top:12px;font-size:.85rem;opacity:.9;line-height:1.5;"></div>
+        <div class="lb-console" id="lbUndoConsole">
+            <div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live SQL &amp; API <span class="lb-c-count"></span></div>
+            <div class="lb-console-body"></div>
+        </div>
+    </div>
+
+    <!-- 🅳 Parallel Universes -->
+    <div class="card" id="lbPuCard" style="padding:22px;margin-top:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div style="max-width:560px;">
+                <div class="lb-diff-head">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00BCD4" stroke-width="1.5"><line x1="6" y1="4" x2="6" y2="10"/><circle cx="6" cy="15" r="2"/><circle cx="16" cy="6" r="2"/><circle cx="16" cy="13" r="2"/><circle cx="16" cy="20" r="2"/><path d="M6 6h4a2 2 0 012 2v0M14 6h-2M14 13h-2a2 2 0 00-2 2v0"/></svg>
+                    <span class="lb-diff-title">Parallel Universes — test many strategies at once</span>
+                </div>
+                <p class="lb-diff-desc" style="margin:0;">Fork production into three isolated branches <em>simultaneously</em>, run a different what-if scenario on each, and compare every outcome to live production. Each branch is a full copy; all are cleaned up after (~30–60s).</p>
+            </div>
+            <button type="button" id="lbPuBtn" class="btn btn-primary" style="padding:10px 20px;font-weight:600;white-space:nowrap;">&#9109; Fork 3 universes</button>
+        </div>
+        <div id="lbPuTree" style="margin-top:18px;"></div>
+        <div class="lb-console" id="lbPuConsole">
+            <div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live SQL &amp; API <span class="lb-c-count"></span></div>
+            <div class="lb-console-body"></div>
+        </div>
+    </div>
+
+    <!-- 🅲 Autoscale under fire (full-width) -->
+    <div class="card" id="lbLoadCard" style="padding:22px;margin-top:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div style="max-width:600px;">
+                <div class="lb-diff-head">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="1.5"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6h-6"/></svg>
+                    <span class="lb-diff-title">Autoscale under fire</span>
+                </div>
+                <p class="lb-diff-desc" style="margin:0;">Ramp CPU-bound load in stages and watch Lakebase <em>autoscale compute to match</em>. Per Databricks, Lakebase autoscaling continuously monitors <strong>CPU load, memory, and working-set size</strong> and adjusts Compute Units within your min–max range (each CU ≈ 2 GB RAM), with <strong>no connection interruption</strong>. Each scale event is called out below with the reason it fired. CU is read live from the local file cache. Best from a <em>cold start</em> (1 CU) — scale-down takes a few minutes, so let it settle before re-firing.</p>
+            </div>
+            <button type="button" id="lbLoadBtn" class="btn btn-primary" style="padding:10px 20px;font-weight:600;white-space:nowrap;">&#9889; Fire ramping load (~90s)</button>
+        </div>
+        <div style="display:flex;gap:26px;margin-top:16px;flex-wrap:wrap;align-items:flex-end;">
+            <div><div id="lbLoadQps" style="font-size:1.7rem;font-weight:800;line-height:1;color:var(--text-primary);">—</div><div style="font-size:11px;opacity:.6;">queries/sec</div></div>
+            <div><div id="lbLoadLat" style="font-size:1.7rem;font-weight:800;line-height:1;color:var(--text-primary);">—</div><div style="font-size:11px;opacity:.6;">avg latency (ms)</div></div>
+            <div><div id="lbLoadTotal" style="font-size:1.7rem;font-weight:800;line-height:1;color:var(--text-primary);">—</div><div style="font-size:11px;opacity:.6;">total queries</div></div>
+            <div style="min-width:170px;">
+                <div style="display:flex;align-items:baseline;gap:6px;"><span id="lbLoadCu" style="font-size:1.7rem;font-weight:800;line-height:1;color:var(--text-primary);">—</span><span style="font-size:11px;opacity:.6;">allocated CU (probed)</span></div>
+                <div class="lb-gauge-track" style="margin-top:6px;"><div class="lb-gauge-fill" id="lbGaugeFill"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;opacity:.6;margin-top:3px;"><span id="lbGaugeMin">min</span><span id="lbGaugeMax">max</span></div>
+            </div>
+        </div>
+        <div id="lbScaleCallout" class="lb-scale-callout" style="display:none;"></div>
+        <div id="lbLoadMsg" style="font-size:.8rem;opacity:.8;margin-top:10px;line-height:1.5;"></div>
+        <div class="lb-console" id="lbLoadConsole">
+            <div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live SQL &amp; CU probes <span class="lb-c-count"></span></div>
+            <div class="lb-console-body"></div>
+        </div>
+    </div>
+
+    <!-- 🌐 One row, two engines — lakehouse-native (the Databricks-only differentiator) -->
+    <div class="card" id="lb2eCard" style="padding:22px;margin-top:16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div style="max-width:620px;">
+                <div class="lb-diff-head">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6F00" stroke-width="1.5"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>
+                    <span class="lb-diff-title">One row, two engines — lakehouse-native</span>
+                </div>
+                <p class="lb-diff-desc" style="margin:0;">Read the <em>same</em> work order two ways: from <strong>Lakebase (OLTP)</strong> and — with no ETL and no copy — from a <strong>Databricks SQL Warehouse</strong> via Unity Catalog federation. One governed copy of operational data, serving apps, analytics, and AI at once. The integration only Databricks offers.</p>
+            </div>
+            <button type="button" id="lb2eBtn" class="btn btn-primary" style="padding:10px 20px;font-weight:600;white-space:nowrap;">Query both engines</button>
+        </div>
+        <div id="lb2eResult" style="display:none;margin-top:16px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                <div class="card" style="padding:14px;border:1px solid rgba(0,169,114,0.4);">
+                    <div style="font-weight:700;font-size:.85rem;color:#00A972;">&#128994; Lakebase — OLTP (native Postgres)</div>
+                    <div id="lb2eOltp" class="lb-2e-json"></div>
+                    <div id="lb2eOltpMs" style="font-size:11px;opacity:.6;margin-top:6px;"></div>
+                </div>
+                <div class="card" style="padding:14px;border:1px solid rgba(255,111,0,0.4);">
+                    <div style="font-weight:700;font-size:.85rem;color:#FF6F00;">&#128992; SQL Warehouse — analytics (UC federation)</div>
+                    <div id="lb2eLake" class="lb-2e-json"></div>
+                    <div id="lb2eLakeMs" style="font-size:11px;opacity:.6;margin-top:6px;"></div>
+                </div>
+            </div>
+            <div id="lb2eMatch" style="margin-top:10px;font-size:.85rem;"></div>
+        </div>
+        <div class="lb-console" id="lb2eConsole">
+            <div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live SQL &amp; engines <span class="lb-c-count"></span></div>
+            <div class="lb-console-body"></div>
+        </div>
+    </div>
+
+    </section>
+    <!-- ── Tier 2: standard Postgres, fully managed here ─────────────────── -->
+    <section id="lbEssSec" class="lb-tour-sec">
+    <h2 id="lbEssentials" style="margin:28px 0 4px;font-size:.95rem;color:var(--text-secondary);scroll-margin-top:80px;">Managed Postgres essentials</h2>
+    <p class="subtitle" style="margin-top:0;">Standard Postgres capabilities you already know — delivered fully managed and governed, with nothing to operate.</p>
+
+    <!-- Trigger demo (a managed-Postgres essential — standard PG triggers, made transparent) -->
+    <div class="card" style="padding:20px;margin-top:12px;">
+        <div class="lb-diff-head">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF6F00" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <span class="lb-diff-title" style="font-size:.95rem;">Watch the SLA trigger fire</span>
+        </div>
+        <p class="lb-diff-desc" style="margin:0 0 10px;">A core Postgres trigger — pick an SLA deadline and the database computes the risk score <em>at the moment of write</em>, then we roll the change back (production untouched). Standard PG, running fully managed.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+            <button type="button" class="lb-trig-btn" data-hours="12">Due in 12h</button>
+            <button type="button" class="lb-trig-btn" data-hours="3">Due in 3h</button>
+            <button type="button" class="lb-trig-btn" data-hours="1">Due in 1h</button>
+            <button type="button" class="lb-trig-btn" data-hours="-1">Already breached</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;">
+            <div style="text-align:center;min-width:72px;">
+                <div id="lbTrigScore" style="font-size:2.4rem;font-weight:800;line-height:1;color:var(--text-secondary);">--</div>
+                <div style="font-size:11px;opacity:.6;">sla_risk_score</div>
+            </div>
+            <div id="lbTrigMsg" style="font-size:.8rem;opacity:.85;line-height:1.45;">Choose a deadline above — the database computes the score, not the app.</div>
+        </div>
+        <div class="lb-console" id="lbTrigConsole">
+            <div class="lb-console-head"><svg class="lb-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg> Under the hood — live SQL &amp; trigger <span class="lb-c-count"></span></div>
+            <div class="lb-console-body"></div>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:12px;">
+
+        <!-- Real-time triggers -->
+        <a href="/analytics" class="card lb-diff-card lb-ess-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF6F00" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span class="lb-diff-title" style="font-size:.9rem;">Real-Time Triggers</span>
+            </div>
+            <div class="lb-diff-stat" id="lbOltpStat">—</div>
+            <p class="lb-diff-desc">A core Postgres trigger scores SLA risk at the moment of write — no batch job. Standard SQL, running on managed infrastructure.</p>
+            <span class="lb-diff-cta">Open SLA Analytics &rarr;</span>
+        </a>
+
+        <!-- Agent memory -->
+        <a href="/supervisor" class="card lb-diff-card lb-ess-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9C27B0" stroke-width="1.5"><path d="M12 2a7 7 0 00-7 7c0 3 2 4 2 7h10c0-3 2-4 2-7a7 7 0 00-7-7z"/><path d="M9 21h6"/></svg>
+                <span class="lb-diff-title" style="font-size:.9rem;">Agent Memory</span>
+            </div>
+            <div class="lb-diff-stat" id="lbMemStat">—</div>
+            <p class="lb-diff-desc">Agent conversations stored in ordinary Postgres tables with full-text search — governed alongside the rest of your data, no separate store to run.</p>
+            <span class="lb-diff-cta">Open AI Supervisor &rarr;</span>
+        </a>
+
+        <!-- Connection pooling -->
+        <a href="/admin" class="card lb-diff-card lb-ess-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00A972" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+                <span class="lb-diff-title" style="font-size:.9rem;">Connection Pooling</span>
+            </div>
+            <div class="lb-diff-stat" id="lbPoolStat">—</div>
+            <p class="lb-diff-desc">Managed pooling over the native Postgres wire protocol absorbs bursty app traffic — the PgBouncer pattern, run for you.</p>
+            <span class="lb-diff-cta">Open Lakebase Admin &rarr;</span>
+        </a>
+
+        <!-- Observability -->
+        <a href="/admin" class="card lb-diff-card lb-ess-card" style="text-decoration:none;color:inherit;display:block;">
+            <div class="lb-diff-head">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1B7FE3" stroke-width="1.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span class="lb-diff-title" style="font-size:.9rem;">Observability</span>
+            </div>
+            <div class="lb-diff-stat" id="lbObsStat">—</div>
+            <p class="lb-diff-desc">Standard <code>pg_stat</code> views plus an Active Session History sampler give live visibility into sessions, locks, and slow queries.</p>
+            <span class="lb-diff-cta">Open Live Query Dashboard &rarr;</span>
+        </a>
+
+    </div>
+    </section>
+</div>
+
+<!-- Guided tour overlay (backdrop + floating card are siblings so card clicks don't close it) -->
+<div class="lb-tour-overlay" id="lbTourOverlay"></div>
+<div class="lb-tour-card" id="lbTourCard" style="display:none;"></div>
+
+<style>
+.lb-diff-card { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+.lb-diff-card:hover { transform: translateY(-2px); border-color: var(--accent-primary, #00A972); }
+.lb-diff-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.lb-diff-title { font-weight:600; font-size:1rem; color: var(--text-primary); }
+.lb-diff-stat { font-size:1.6rem; font-weight:700; color: var(--text-primary); line-height:1.1; margin-bottom:8px; min-height:1.6rem; }
+.lb-diff-desc { font-size:.85rem; color: var(--text-secondary); margin:0 0 12px; line-height:1.45; }
+.lb-diff-cta { font-size:.8rem; font-weight:600; color: var(--accent-primary, #00A972); }
+/* "Essentials" cards are visually secondary: smaller stat + tighter copy */
+.lb-ess-card .lb-diff-stat { font-size:1.15rem; }
+.lb-ess-card .lb-diff-desc { font-size:.8rem; }
+
+/* Autoscaling gauge */
+.lb-gauge-track { height:10px; border-radius:6px; background:rgba(127,127,140,0.18); overflow:hidden; }
+.lb-gauge-fill { height:100%; width:0; border-radius:6px; background:linear-gradient(90deg,#00A972,#00C77E); transition:width .5s ease; }
+.lb-state-badge { font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; background:rgba(127,127,140,0.18); color:var(--text-secondary); }
+.lb-state-badge.active { background:rgba(0,169,114,0.15); color:#00A972; }
+
+/* Trigger-fire demo */
+.lb-trig-btn { font-size:12px; font-weight:600; padding:5px 11px; border-radius:8px; border:1px solid var(--border-primary,#3334); background:transparent; color:var(--text-secondary); cursor:pointer; transition:all .12s ease; }
+.lb-trig-btn:hover { border-color:#FF6F00; color:#FF6F00; }
+.lb-trig-btn.active { background:#FF6F00; border-color:#FF6F00; color:#fff; }
+
+/* Tour */
+.lb-tour-btn { font-size:12px; font-weight:600; padding:6px 14px; border-radius:8px; border:1px solid #00A972; background:transparent; color:#00A972; cursor:pointer; white-space:nowrap; }
+.lb-tour-btn:hover { background:#00A972; color:#fff; }
+.lb-tour-sec { scroll-margin-top: 84px; border-radius: 12px; }
+/* Transparent full-screen click-catcher — the dimming is cast by the highlighted section itself. */
+.lb-tour-overlay { position:fixed; inset:0; background:transparent; z-index:9998; display:none; }
+.lb-tour-overlay.open { display:block; }
+.lb-tour-card { position:fixed; z-index:10000; left:50%; bottom:40px; transform:translateX(-50%); width:min(460px,92vw); background:var(--bg-card,#1c1c22); border:1px solid var(--border-primary,#3334); border-radius:12px; padding:20px 22px; box-shadow:0 12px 40px rgba(0,0,0,0.55); }
+.lb-tour-step-num { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#00A972; }
+.lb-tour-title { font-size:1.05rem; font-weight:700; color:var(--text-primary); margin:4px 0 8px; }
+.lb-tour-body { font-size:.86rem; color:var(--text-secondary); line-height:1.5; margin:0 0 16px; }
+.lb-tour-actions { display:flex; align-items:center; gap:8px; }
+.lb-tour-actions .spacer { flex:1; }
+.lb-tour-actions button { font-size:13px; font-weight:600; padding:7px 16px; border-radius:8px; cursor:pointer; border:1px solid var(--border-primary,#3334); background:transparent; color:var(--text-secondary); }
+.lb-tour-actions button.primary { background:#00A972; border-color:#00A972; color:#fff; }
+/* Cutout spotlight: raise the section above the click-catcher and let its box-shadow
+   dim everything else, so the highlighted area is at full brightness and clearly "lifted". */
+.lb-tour-highlight {
+    position: relative;
+    z-index: 9999;
+    background: var(--bg-primary, #0e0e12);
+    border-radius: 12px;
+    box-shadow: 0 0 0 3px #00A972, 0 0 0 100vmax rgba(0,0,0,0.74);
+    transition: box-shadow .25s ease;
+}
+
+/* Parallel Universes */
+.lb-pu-prod { display:inline-block; font-size:.82rem; font-weight:600; padding:8px 14px; border-radius:8px; background:rgba(0,188,212,0.12); color:var(--text-primary); }
+.lb-pu-branches { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:12px; }
+.lb-pu-branch { border:1px solid var(--border-primary,#3334); border-radius:10px; padding:12px 14px; background:var(--bg-tertiary,rgba(255,255,255,0.02)); }
+.lb-pu-name { font-weight:600; font-size:.85rem; color:var(--text-primary); margin-bottom:6px; display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.lb-pu-body { font-size:.8rem; color:var(--text-secondary); line-height:1.6; }
+.lb-pu-state { font-size:10px; font-weight:700; padding:1px 7px; border-radius:9px; text-transform:uppercase; letter-spacing:.04em; }
+.lb-pu-state.provisioning, .lb-pu-state.running { background:rgba(230,167,0,0.15); color:#E6A700; }
+.lb-pu-state.done { background:rgba(0,169,114,0.15); color:#00A972; }
+.lb-pu-state.error { background:rgba(204,34,17,0.15); color:#CC2211; }
+.lb-delta-up { color:#00A972; font-weight:600; }
+.lb-delta-down { color:#CC2211; font-weight:600; }
+
+/* "Under the hood" live console */
+.lb-console { margin-top:14px; border:1px solid var(--border-primary,#3334); border-radius:8px; background:#0b0b0f; overflow:hidden; }
+.lb-console-head { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text-secondary); background:rgba(255,255,255,0.03); user-select:none; }
+.lb-console-head .lb-caret { transition:transform .15s ease; transform:rotate(90deg); }
+.lb-console.collapsed .lb-console-head .lb-caret { transform:rotate(0deg); }
+.lb-console.collapsed .lb-console-body { display:none; }
+.lb-console-body { max-height:280px; overflow:auto; padding:10px 12px; font-family:var(--font-mono,monospace); font-size:11.5px; line-height:1.5; }
+.lb-c-row { margin-bottom:8px; }
+.lb-c-time { color:#5a5a66; margin-right:8px; }
+.lb-c-kind { font-weight:700; margin-right:6px; display:inline-block; min-width:30px; }
+.lb-c-api .lb-c-kind { color:#00BCD4; }
+.lb-c-sql .lb-c-kind { color:#00C77E; }
+.lb-c-result .lb-c-kind { color:#9B9BA7; }
+.lb-c-probe .lb-c-kind { color:#E6A700; }
+.lb-c-info .lb-c-kind { color:#1B7FE3; }
+.lb-c-endpoint .lb-c-kind { color:#8B7DF6; }
+.lb-c-endpoint .lb-c-label { color:#b9b2ef; font-weight:600; }
+.lb-c-label { color:var(--text-primary); }
+.lb-c-code { display:block; white-space:pre-wrap; word-break:break-word; color:#b9d9c8; background:rgba(0,169,114,0.06); border-left:2px solid #00A97288; padding:6px 10px; margin-top:5px; border-radius:4px; }
+/* Autoscaling events stand out from the routine probes */
+.lb-c-scale { background:rgba(0,199,126,0.13); border-left:3px solid #00C77E; border-radius:6px; padding:6px 10px; margin:8px 0; }
+.lb-c-scale .lb-c-kind { color:#00C77E; }
+.lb-c-scale .lb-c-label { color:#00C77E; font-weight:700; }
+.lb-scale-callout { margin-top:12px; border:1px solid rgba(0,199,126,0.4); background:rgba(0,199,126,0.10); border-radius:8px; padding:10px 14px; font-size:.85rem; color:var(--text-primary); }
+.lb-scale-callout .lb-sc-title { font-weight:700; color:#00C77E; }
+.lb-scale-callout .lb-sc-doc { display:block; margin-top:4px; font-size:.75rem; opacity:.7; }
+.lb-2e-json { font-family:var(--font-mono,monospace); font-size:12px; line-height:1.7; margin-top:8px; word-break:break-word; }
+
+/* Demo branch cleanup bar */
+.lb-branchbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:.82rem; color:var(--text-secondary); background:rgba(0,188,212,0.07); border:1px solid rgba(0,188,212,0.25); border-radius:8px; padding:8px 14px; margin-top:12px; }
+.lb-branchbar .lb-cleanup-btn { font-size:12px; font-weight:600; padding:4px 12px; border-radius:7px; border:1px solid var(--border-primary,#3334); background:transparent; color:var(--text-secondary); cursor:pointer; }
+.lb-branchbar .lb-cleanup-btn:hover { border-color:#CC2211; color:#CC2211; }
+</style>
+
+<script>
+(function () {
+    function fmt(n) {
+        if (n === null || n === undefined) return '—';
+        if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return String(n);
+    }
+    function set(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+
+    function load() {
+        fetch('/api/lakebase/overview').then(function (r) { return r.json(); }).then(function (d) {
+            // Autoscaling
+            var a = d.autoscaling || {};
+            var cu = (a.min_cu != null && a.max_cu != null) ? (a.min_cu + '–' + a.max_cu) : (a.estimated_cu != null ? '~' + a.estimated_cu : '—');
+            set('lbCu', cu);
+            set('lbCuSub', a.endpoint_state ? ('Endpoint: ' + a.endpoint_state) : 'Autoscaling');
+            var autoStat = (a.min_cu != null && a.max_cu != null) ? (a.min_cu + '–' + a.max_cu + ' CU') : ((a.estimated_cu != null ? '~' + a.estimated_cu + ' CU' : 'Autoscaling'));
+            if (a.scale_to_zero) autoStat += ' · scales to zero';
+            set('lbAutoStat', autoStat);
+
+            // Live autoscaling gauge
+            var estCu = (a.estimated_cu != null) ? a.estimated_cu : (a.min_cu != null ? a.min_cu : null);
+            var maxCu = (a.max_cu != null && a.max_cu > 0) ? a.max_cu : 8;
+            var minCu = (a.min_cu != null) ? a.min_cu : 0;
+            // Seed the idle allocated-CU value + headroom labels on the load card.
+            var lbBtn = document.getElementById('lbLoadBtn');
+            var idle = !lbBtn || !lbBtn.disabled;
+            var curCu = (a.current_cu != null) ? a.current_cu : minCu;
+            if (idle) set('lbLoadCu', curCu != null ? curCu : '—');
+            set('lbGaugeMin', 'min ' + minCu + ' CU');
+            set('lbGaugeMax', 'max ' + maxCu + ' CU');
+            var fill = document.getElementById('lbGaugeFill');
+            if (fill && idle && curCu != null && maxCu) {
+                fill.style.width = Math.max(6, Math.min(100, (curCu / maxCu) * 100)) + '%';
+            }
+
+            // Branches
+            var b = d.branches || {};
+            set('lbBranches', b.open != null ? b.open : '—');
+            set('lbBranchStat', b.open != null ? (b.open + ' branch' + (b.open === 1 ? '' : 'es') + ' open now') : 'Ready');
+
+            // Sessions / observability
+            var s = d.sessions || {};
+            set('lbSessions', s.active != null ? s.active : '—');
+            if (s.waiting != null) set('lbSessionsSub', s.waiting + ' waiting · ' + (s.total || 0) + ' total');
+            set('lbObsStat', s.active != null ? (s.active + ' active · ' + (s.waiting || 0) + ' waiting') : 'Live');
+
+            // OLTP volume + trigger
+            var o = d.oltp || {};
+            set('lbVolume', o.work_orders != null ? fmt(o.work_orders) : '—');
+            var trig = o.sla_trigger_installed ? 'trg_sla_risk active' : 'trigger n/a';
+            set('lbOltpStat', trig);
+
+            // Memory
+            var m = d.memory || {};
+            set('lbMemStat', m.conversations != null ? (fmt(m.conversations) + ' conversations') : '—');
+
+            // Pool
+            var p = d.pool || {};
+            set('lbPoolStat', (p.available != null) ? (p.available + '/' + (p.max_size || '?') + ' free') : 'Managed pool');
+        }).catch(function () { /* leave dashes on error */ });
+    }
+    load();
+    setInterval(load, 30000);  // refresh every 30s (matches app polling conventions)
+})();
+</script>
+
+<script>
+// ── Shared: "under the hood" live console ───────────────────────────────────
+function lbEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+var LB_KIND_LABEL = { api: 'API', sql: 'SQL', result: '&rarr;', probe: 'CU', info: 'i', scale: 'SCALE', endpoint: '&#8674;' };
+function lbRenderConsole(container, steps) {
+    if (!container) return;
+    var body = container.querySelector('.lb-console-body');
+    var cnt = container.querySelector('.lb-c-count');
+    if (cnt) cnt.textContent = (steps && steps.length) ? ('(' + steps.length + ')') : '';
+    if (!body) return;
+    var html = '';
+    for (var i = 0; i < (steps || []).length; i++) {
+        var s = steps[i];
+        var code = s.code ? '<code class="lb-c-code">' + lbEsc(s.code) + '</code>' : '';
+        html += '<div class="lb-c-row lb-c-' + s.kind + '"><span class="lb-c-time">' + lbEsc(s.t) + '</span>' +
+            '<span class="lb-c-kind">' + (LB_KIND_LABEL[s.kind] || s.kind) + '</span>' +
+            '<span class="lb-c-label">' + lbEsc(s.label) + '</span>' + code + '</div>';
+    }
+    body.innerHTML = html;
+    body.scrollTop = body.scrollHeight;
+}
+// Collapsible console headers (delegated)
+document.addEventListener('click', function (e) {
+    var head = e.target.closest ? e.target.closest('.lb-console-head') : null;
+    if (head && head.parentElement) head.parentElement.classList.toggle('collapsed');
+});
+
+// ── Demo branch cleanup bar ─────────────────────────────────────────────────
+(function () {
+    var countEl = document.getElementById('lbBranchCount');
+    var btn = document.getElementById('lbCleanupBtn');
+    var msg = document.getElementById('lbCleanupMsg');
+    function refresh() {
+        fetch('/api/lakebase/overview').then(function (r) { return r.json(); }).then(function (d) {
+            var b = d.branches || {};
+            if (countEl) countEl.textContent = (b.open != null) ? b.open : '—';
+        }).catch(function () {});
+    }
+    window.lbRefreshBranchCount = refresh;
+    if (btn) btn.addEventListener('click', function () {
+        btn.disabled = true; msg.textContent = 'Cleaning up…';
+        fetch('/api/whatif/cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+            .then(function (r) { return r.json(); }).then(function (d) {
+                msg.textContent = d.message || ('Deleted ' + ((d.deleted || []).length) + ' branch(es)');
+                btn.disabled = false; refresh();
+            }).catch(function (e) { msg.textContent = 'Failed: ' + e.message; btn.disabled = false; });
+    });
+    refresh();
+    setInterval(refresh, 30000);
+})();
+
+// ── "Watch the SLA trigger fire" demo ──────────────────────────────────────
+(function () {
+    var scoreEl = document.getElementById('lbTrigScore');
+    var msgEl = document.getElementById('lbTrigMsg');
+    var btns = document.querySelectorAll('.lb-trig-btn');
+    if (!scoreEl || !btns.length) return;
+
+    function color(score) {
+        if (score == null) return 'var(--text-secondary)';
+        if (score >= 90) return '#CC2211';
+        if (score >= 70) return '#FF6F00';
+        if (score >= 40) return '#E6A700';
+        return '#00A972';
+    }
+    function fire(hours, btn) {
+        for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i] === btn);
+        scoreEl.textContent = '…';
+        scoreEl.style.color = 'var(--text-secondary)';
+        msgEl.textContent = 'Writing to the row… the trigger is computing the score…';
+        fetch('/api/lakebase/trigger-demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hours: hours })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            lbRenderConsole(document.getElementById('lbTrigConsole'), d.steps || []);
+            if (d.error) { scoreEl.textContent = '—'; msgEl.textContent = 'Error: ' + d.error; return; }
+            scoreEl.textContent = d.after_score;
+            scoreEl.style.color = color(d.after_score);
+            var deadlineTxt = hours < 0 ? 'already past due' : ('due in ~' + hours + 'h');
+            var note = d.trigger_enabled ? '' : ' (the trigger is currently disabled, so the score did not change).';
+            msgEl.innerHTML = 'WO #' + d.work_order_id + ' deadline set to <strong>' + deadlineTxt +
+                '</strong> → the database trigger computed <strong>sla_risk_score = ' + d.after_score +
+                '</strong> at write time. Change rolled back, production untouched.' + note;
+        }).catch(function (e) { scoreEl.textContent = '—'; msgEl.textContent = 'Request failed: ' + e.message; });
+    }
+    for (var i = 0; i < btns.length; i++) {
+        (function (b) { b.addEventListener('click', function () { fire(parseFloat(b.getAttribute('data-hours')), b); }); })(btns[i]);
+    }
+})();
+
+// ── 🌐 One row, two engines (lakehouse-native) ──────────────────────────────
+(function () {
+    var btn = document.getElementById('lb2eBtn');
+    if (!btn) return;
+    var resultEl = document.getElementById('lb2eResult');
+    var consoleEl = document.getElementById('lb2eConsole');
+    function renderRow(id, obj) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var html = '';
+        for (var k in obj) { html += '<div><span style="opacity:.6;">' + lbEsc(k) + ':</span> <strong>' + lbEsc(obj[k]) + '</strong></div>'; }
+        el.innerHTML = html;
+    }
+    btn.addEventListener('click', function () {
+        btn.disabled = true; btn.textContent = 'Querying…';
+        lbRenderConsole(consoleEl, [{ kind: 'info', label: 'Reading the same work order from both engines…', t: '' }]);
+        fetch('/api/lakebase/two-engines', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+            .then(function (r) { return r.json(); }).then(function (d) {
+                btn.disabled = false; btn.textContent = 'Query both engines';
+                lbRenderConsole(consoleEl, d.steps || []);
+                if (d.error && !d.oltp) { return; }
+                resultEl.style.display = '';
+                renderRow('lb2eOltp', d.oltp || {});
+                renderRow('lb2eLake', d.lakehouse || {});
+                document.getElementById('lb2eOltpMs').textContent = 'psycopg · native PG wire · ' + (d.oltp_endpoint || 'Lakebase') + (d.oltp_ms != null ? ' · ' + d.oltp_ms + ' ms' : '');
+                document.getElementById('lb2eLakeMs').textContent = 'Statement Execution API · ' + (d.wh_endpoint || 'UC federation') + (d.lakehouse_ms != null ? ' · ' + d.lakehouse_ms + ' ms' : '');
+                var m = document.getElementById('lb2eMatch');
+                m.innerHTML = d.match
+                    ? '<span style="color:#00C77E;font-weight:700;">✓ Identical row #' + d.work_order_id + ' from both engines</span> — one governed copy, no ETL, no data movement. Governed by Unity Catalog.'
+                    : '<span style="opacity:.8;">Returned work order #' + d.work_order_id + ' from both engines.</span>';
+            }).catch(function (e) { btn.disabled = false; btn.textContent = 'Query both engines'; lbRenderConsole(consoleEl, [{ kind: 'result', label: 'Failed: ' + e.message, t: '' }]); });
+    });
+})();
+
+// ── 🅱 Instant Undo (point-in-time time travel) ─────────────────────────────
+(function () {
+    var btn = document.getElementById('lbUndoBtn');
+    if (!btn) return;
+    var countEl = document.getElementById('lbUndoCount');
+    var phasesEl = document.getElementById('lbUndoPhases');
+    var msgEl = document.getElementById('lbUndoMsg');
+    var poll = null, baselineShown = false, afterShown = false;
+    var ORDER = ['branching', 'activating', 'deleting', 'recovering'];
+    var LABELS = {
+        branching: 'Forking production (instant copy-on-write)…',
+        activating: 'Activating the branch compute endpoint…',
+        deleting: 'Deleting orders on the branch…',
+        recovering: 'Branching from a point in time (before the delete)…'
+    };
+    function fmt(n) { return (n == null) ? '—' : Number(n).toLocaleString(); }
+    function animateTo(target, color) {
+        if (target == null || isNaN(target)) return;
+        var start = parseInt((countEl.textContent || '0').replace(/[^0-9-]/g, '')) || 0;
+        var steps = 24, i = 0;
+        countEl.style.color = color || 'var(--text-primary)';
+        clearInterval(countEl._anim);
+        countEl._anim = setInterval(function () {
+            i++;
+            countEl.textContent = Math.round(start + (target - start) * (i / steps)).toLocaleString();
+            if (i >= steps) { clearInterval(countEl._anim); countEl.textContent = Number(target).toLocaleString(); }
+        }, 28);
+    }
+    function setPhases(active) {
+        var ai = (active === 'complete') ? ORDER.length : ORDER.indexOf(active);
+        phasesEl.innerHTML = ORDER.map(function (p) {
+            var idx = ORDER.indexOf(p);
+            var done = idx < ai, cur = idx === ai;
+            var mark = done ? '&#10003;' : (cur ? '&#9656;' : '&#183;');
+            var col = done ? '#00A972' : (cur ? 'var(--text-primary)' : 'var(--text-secondary)');
+            return '<div style="color:' + col + ';">' + mark + ' ' + LABELS[p] + '</div>';
+        }).join('');
+    }
+    function finish() { btn.disabled = false; btn.innerHTML = '&#8630; Run Instant Undo'; }
+    function check() {
+        fetch('/api/lakebase/undo/status').then(function (r) { return r.json(); }).then(function (s) {
+            lbRenderConsole(document.getElementById('lbUndoConsole'), s.steps || []);
+            if (s.phase && LABELS[s.phase]) setPhases(s.phase);
+            if (s.baseline != null && !baselineShown) { baselineShown = true; animateTo(s.baseline); }
+            if (s.after_delete != null && !afterShown) { afterShown = true; animateTo(s.after_delete, '#CC2211'); }
+            if (s.phase === 'complete') {
+                clearInterval(poll); setPhases('complete');
+                var res = s.result || {};
+                animateTo(res.recovered, '#00A972');
+                var totalCtx = (res.total_rows != null) ? (' (of ' + fmt(res.total_rows) + ' total rows)') : '';
+                msgEl.innerHTML = 'Deleted all <strong>' + fmt(res.deleted) + '</strong> open orders' + totalCtx +
+                    ', then time-traveled the database back to <strong>' + res.t0 + '</strong> — all <strong>' +
+                    fmt(res.recovered) + '</strong> recovered' + (res.restored_ok ? ' &#10003;' : '') +
+                    '. Point-in-time branch; production never touched.';
+                if (res.w_branch) msgEl.innerHTML += '<br><span style="opacity:.72;">Branches left running (find them in Databricks): <code>' + res.w_branch + '</code> · <code>' + res.r_branch + '</code></span>';
+                if (window.lbRefreshBranchCount) window.lbRefreshBranchCount();
+                finish();
+            } else if (s.phase === 'error') {
+                clearInterval(poll); msgEl.textContent = 'Error: ' + (s.error || 'unknown'); finish();
+            }
+        }).catch(function () {});
+    }
+    function run() {
+        btn.disabled = true; btn.textContent = 'Running…'; msgEl.textContent = '';
+        baselineShown = false; afterShown = false;
+        countEl.textContent = '—'; countEl.style.color = 'var(--text-secondary)';
+        fetch('/api/lakebase/undo/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunk: 50000 }) })
+            .then(function (r) { return r.json(); }).then(function (d) {
+                if (d.error) { finish(); msgEl.textContent = 'Error: ' + d.error; return; }
+                poll = setInterval(check, 1500); check();
+            }).catch(function (e) { finish(); msgEl.textContent = 'Failed: ' + e.message; });
+    }
+    btn.addEventListener('click', run);
+})();
+
+// ── 🅳 Parallel Universes ────────────────────────────────────────────────────
+(function () {
+    var btn = document.getElementById('lbPuBtn');
+    if (!btn) return;
+    var tree = document.getElementById('lbPuTree');
+    var poll = null;
+    function fmt(n) { return (n == null) ? '—' : Number(n).toLocaleString(); }
+    function delta(diff, higherBetter) {
+        if (diff == null || diff === 0) return '';
+        var good = higherBetter ? diff > 0 : diff < 0;
+        var arrow = diff > 0 ? '&#9650;' : '&#9660;';
+        var sign = diff > 0 ? '+' : '';
+        return ' <span class="' + (good ? 'lb-delta-up' : 'lb-delta-down') + '">' + arrow + sign + (Math.round(diff * 10) / 10) + '</span>';
+    }
+    function render(s) {
+        var b = s.baseline || {};
+        var html = '<div class="lb-pu-prod">&#9670; PRODUCTION (baseline) — SLA ' +
+            (b.compliance_pct != null ? b.compliance_pct + '%' : '—') + ' · ' + fmt(b.sla_breached) +
+            ' breached · ' + fmt(b.open_orders) + ' open</div>';
+        html += '<div class="lb-pu-branches">';
+        (s.branches || []).forEach(function (u) {
+            var body;
+            if (u.state === 'done') {
+                var kp = u.kpis || {};
+                var od = (b.open_orders != null && kp.open_orders != null) ? (kp.open_orders - b.open_orders) : null;
+                body = '<div style="font-size:1.5rem;font-weight:800;color:var(--text-primary);line-height:1;">' + fmt(u.changes_total) + '</div>' +
+                    '<div style="font-size:11px;opacity:.6;margin:2px 0 8px;">rows rewritten on this branch</div>' +
+                    fmt(kp.open_orders) + ' open orders' + delta(od, false);
+            } else if (u.state === 'error') {
+                body = '<span style="color:#CC2211;">' + (u.error || 'error') + '</span>';
+            } else {
+                body = '<span class="loading-spinner sm"></span> ' + u.state + '…';
+            }
+            html += '<div class="lb-pu-branch"><div class="lb-pu-name">' + u.name +
+                ' <span class="lb-pu-state ' + u.state + '">' + u.state + '</span></div>' +
+                '<div class="lb-pu-body">' + body + '</div>' +
+                (u.branch_id ? '<div style="font-size:10px;opacity:.5;margin-top:6px;font-family:monospace;word-break:break-all;">' + u.branch_id + '</div>' : '') +
+                '</div>';
+        });
+        html += '</div>';
+        tree.innerHTML = html;
+    }
+    function check() {
+        fetch('/api/lakebase/universes/status').then(function (r) { return r.json(); }).then(function (s) {
+            render(s);
+            lbRenderConsole(document.getElementById('lbPuConsole'), s.steps || []);
+            if (s.phase === 'complete' || s.phase === 'error') {
+                clearInterval(poll); btn.disabled = false; btn.innerHTML = '&#9109; Fork 3 universes';
+                if (window.lbRefreshBranchCount) window.lbRefreshBranchCount();
+            }
+        }).catch(function () {});
+    }
+    function run() {
+        btn.disabled = true; btn.textContent = 'Forking…';
+        tree.innerHTML = '<div style="opacity:.6;font-size:.85rem;"><span class="loading-spinner sm"></span> Forking production into 3 branches…</div>';
+        fetch('/api/lakebase/universes/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d.error) { btn.disabled = false; btn.innerHTML = '&#9109; Fork 3 universes'; tree.innerHTML = '<span style="color:#CC2211;">' + d.error + '</span>'; return; }
+            poll = setInterval(check, 2000); check();
+        }).catch(function (e) { btn.disabled = false; btn.innerHTML = '&#9109; Fork 3 universes'; tree.innerHTML = 'Failed: ' + e.message; });
+    }
+    btn.addEventListener('click', run);
+})();
+
+// ── 🅲 Autoscale Under Fire (sustained load + real CU probe) ─────────────────
+(function () {
+    var btn = document.getElementById('lbLoadBtn');
+    if (!btn) return;
+    var LABEL = '&#9889; Fire ramping load (~90s)';
+    var qpsEl = document.getElementById('lbLoadQps');
+    var latEl = document.getElementById('lbLoadLat');
+    var totEl = document.getElementById('lbLoadTotal');
+    var cuEl = document.getElementById('lbLoadCu');
+    var fillEl = document.getElementById('lbGaugeFill');
+    var msgEl = document.getElementById('lbLoadMsg');
+    var consoleEl = document.getElementById('lbLoadConsole');
+    var poll = null;
+    function num(n) { return (n == null) ? '—' : Number(n).toLocaleString(); }
+    function upd(s) {
+        qpsEl.textContent = (s.qps != null) ? num(s.qps) : '…';
+        latEl.textContent = (s.avg_latency_ms != null) ? s.avg_latency_ms : '…';
+        totEl.textContent = (s.queries != null) ? num(s.queries) : '…';
+        if (s.cu_now != null && cuEl) {
+            cuEl.textContent = s.cu_now;
+            var mx = s.max_cu || 4;
+            if (fillEl) fillEl.style.width = Math.max(6, Math.min(100, (s.cu_now / mx) * 100)) + '%';
+            if (s.cu_now > 1) cuEl.style.color = '#00C77E';
+        }
+        if (s.running) {
+            msgEl.innerHTML = 'Offered load: <strong>' + (s.workers_now != null ? s.workers_now : '—') +
+                '</strong> workers · CU <strong>' + (s.cu_now != null ? s.cu_now : '—') + '</strong> · ' +
+                num(s.qps) + ' q/s · ' + (s.avg_latency_ms != null ? s.avg_latency_ms : '—') + ' ms';
+        }
+        // Prominent call-out for the most recent Databricks autoscaling event.
+        var sc = document.getElementById('lbScaleCallout');
+        if (sc) {
+            if (s.last_scale) {
+                var e = s.last_scale;
+                sc.style.display = '';
+                sc.innerHTML = '<span class="lb-sc-title">' + (e.up ? '⬆' : '⬇') + ' Databricks autoscaled ' +
+                    e.from + ' → ' + e.to + ' CU</span> — ' + lbEsc(e.reason) +
+                    '<span class="lb-sc-doc">Lakebase autoscaling monitors CPU load, memory &amp; working-set size and adjusts CUs in-range with no connection interruption (Databricks docs).</span>';
+            } else {
+                sc.style.display = 'none';
+            }
+        }
+        lbRenderConsole(consoleEl, s.steps || []);
+    }
+    function check() {
+        fetch('/api/lakebase/load/status').then(function (r) { return r.json(); }).then(function (s) {
+            upd(s);
+            if (!s.running && s.elapsed) {
+                clearInterval(poll); btn.disabled = false; btn.innerHTML = LABEL;
+                var start = s.cu_start || 1, peak = s.cu_peak || s.cu_now || 1, mx = s.max_cu || 8;
+                var nev = (s.scale_events || []).length;
+                var msg;
+                if (peak > start) {
+                    msg = 'Databricks <strong>autoscaled ' + start + ' → ' + peak + ' CU</strong> across ' + nev +
+                        ' scale event' + (nev === 1 ? '' : 's') + ' as load ramped — peak throughput <strong>' +
+                        num(s.peak_qps) + ' q/s</strong>. Compute scales back toward 1 CU when idle.';
+                } else if (peak >= mx) {
+                    msg = 'Already at max <strong>~' + peak + ' CU</strong> (warm from a recent run). For the full 1 → ' + mx +
+                        ' CU climb, wait a few minutes for it to scale back to idle, then fire again.';
+                } else {
+                    msg = 'Compute held at <strong>~' + peak + ' CU</strong> (this load fit within the current compute).';
+                }
+                msgEl.innerHTML = 'Ran <strong>' + num(s.queries) + '</strong> queries in ' + s.elapsed + 's' + (s.errors ? (' · ' + s.errors + ' errors') : '') + '. ' + msg;
+            }
+        }).catch(function () {});
+    }
+    btn.addEventListener('click', function () {
+        btn.disabled = true; btn.textContent = 'Firing sustained load…'; msgEl.textContent = 'This runs ~2 min so the autoscaler has time to react. Watch QPS, latency, and the probed CU.';
+        qpsEl.textContent = '…'; latEl.textContent = '…'; totEl.textContent = '…';
+        fetch('/api/lakebase/load/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workers: 16, seconds: 90 }) })
+            .then(function (r) { return r.json(); }).then(function (d) {
+                if (d.error) { btn.disabled = false; btn.innerHTML = LABEL; msgEl.textContent = d.error; return; }
+                poll = setInterval(check, 2000); check();
+            }).catch(function (e) { btn.disabled = false; btn.innerHTML = LABEL; msgEl.textContent = 'Failed: ' + e.message; });
+    });
+})();
+
+// ── Guided Lakebase tour ────────────────────────────────────────────────────
+(function () {
+    var overlay = document.getElementById('lbTourOverlay');
+    var card = document.getElementById('lbTourCard');
+    var btn = document.getElementById('lbTourBtn');
+    if (!overlay || !card || !btn) return;
+
+    var steps = [
+        { sel: null, title: 'Welcome to the Lakebase wing', body: 'This page gathers the capabilities that make Lakebase more than "just Postgres." Four quick stops.' },
+        { sel: '#lbHeroSec', title: 'The Lakebase difference', body: 'Three things a self-managed Postgres can\'t give you: instant copy-on-write branching, serverless autoscaling, and native integration with the Databricks lakehouse.' },
+        { sel: '#lbLiveSec', title: 'See it live', body: 'Drive it yourself — time-travel a database to a point in time, fork production into parallel branches, watch compute autoscale under load, and read one governed row from both the OLTP and analytics engines. Production is never touched.' },
+        { sel: '#lbEssSec', title: 'Managed Postgres essentials', body: 'The Postgres you already know — triggers, agent memory, pooling, observability — delivered fully managed and governed. Standard capabilities, zero ops.' },
+        { sel: null, title: 'Go deeper', body: 'Open What-If to branch production and compare KPIs, or Lakebase Admin for live query observability. The nav\'s LAKEBASE group has it all.' }
+    ];
+    var i = 0;
+
+    function clearHighlight() {
+        var hl = document.querySelectorAll('.lb-tour-highlight');
+        for (var k = 0; k < hl.length; k++) hl[k].classList.remove('lb-tour-highlight');
+    }
+    function render() {
+        var s = steps[i];
+        clearHighlight();
+        if (s.sel) {
+            var target = document.querySelector(s.sel);
+            if (target) { target.classList.add('lb-tour-highlight'); target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        card.innerHTML = '<div class="lb-tour-step-num">Step ' + (i + 1) + ' of ' + steps.length + '</div>' +
+            '<div class="lb-tour-title">' + s.title + '</div>' +
+            '<div class="lb-tour-body">' + s.body + '</div>' +
+            '<div class="lb-tour-actions">' +
+            '<button type="button" id="lbTourExit">Exit</button><span class="spacer"></span>' +
+            (i > 0 ? '<button type="button" id="lbTourPrev">Back</button>' : '') +
+            '<button type="button" class="primary" id="lbTourNext">' + (i === steps.length - 1 ? 'Done' : 'Next') + '</button>' +
+            '</div>';
+        document.getElementById('lbTourNext').onclick = function () { if (i === steps.length - 1) close(); else { i++; render(); } };
+        document.getElementById('lbTourExit').onclick = close;
+        var prev = document.getElementById('lbTourPrev');
+        if (prev) prev.onclick = function () { i--; render(); };
+    }
+    function open() { i = 0; overlay.classList.add('open'); card.style.display = 'block'; render(); }
+    function close() { overlay.classList.remove('open'); card.style.display = 'none'; clearHighlight(); }
+
+    btn.addEventListener('click', open);
+    overlay.addEventListener('click', close);
+})();
+</script>
+{% endblock %}

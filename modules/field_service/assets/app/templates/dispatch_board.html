@@ -1,0 +1,1302 @@
+{% extends "base.html" %}
+{% block title %}Dispatch Board{% endblock %}
+{% block page_title %}Dispatch Board{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Dispatch Board</h1>
+                <p class="subtitle" style="text-align:left; margin-bottom:24px;">Real-time dispatch command center — prioritize, assign, and track field operations.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                <button class="dsp-action-btn dsp-action-primary" onclick="openCreateWO()">+ New Work Order</button>
+                <button class="dsp-action-btn dsp-action-smart" onclick="smartAssign()">&#x1F9E0; Smart Assign</button>
+                <div class="powered-by" style="margin:0;">
+                    <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                    <span>Powered by <strong>Databricks Lakebase</strong></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Smart Assign Results Panel -->
+        <div id="smartAssignResults" style="display:none;"></div>
+
+        <div id="toastMsg" class="dsp-toast" style="display:none;"></div>
+
+        <!-- Create Work Order Slide-Out Panel -->
+        <div id="createWoPanel" class="dsp-slideout" style="display:none;">
+            <div class="dsp-slideout-backdrop" onclick="closeCreateWO()"></div>
+            <div class="dsp-slideout-content">
+                <div class="dsp-slideout-header">
+                    <h2>Create Work Order</h2>
+                    <button class="dsp-slideout-close" onclick="closeCreateWO()">&times;</button>
+                </div>
+                <form id="createWoForm" onsubmit="submitCreateWO(event)">
+                    <div class="dsp-form-group">
+                        <label class="dsp-form-label">Customer</label>
+                        <input type="text" id="woCustomerSearch" class="dsp-form-input" placeholder="Search by name, phone, or email..." autocomplete="off" oninput="searchCustomers(this.value)">
+                        <div id="customerResults" class="dsp-customer-results"></div>
+                        <input type="hidden" id="woCustomerId" required>
+                        <div id="selectedCustomer" class="dsp-selected-customer" style="display:none;"></div>
+                    </div>
+                    <div class="dsp-form-row">
+                        <div class="dsp-form-group">
+                            <label class="dsp-form-label">Category</label>
+                            <select id="woCategory" class="dsp-form-input" onchange="loadSubcategories()">
+                                <option value="repair">Repair</option>
+                                <option value="install">Install</option>
+                                <option value="maintenance">Maintenance</option>
+                                <option value="upgrade">Upgrade</option>
+                                <option value="disconnect">Disconnect</option>
+                            </select>
+                        </div>
+                        <div class="dsp-form-group">
+                            <label class="dsp-form-label">Subcategory</label>
+                            <select id="woSubcategory" class="dsp-form-input"></select>
+                        </div>
+                    </div>
+                    <div class="dsp-form-group">
+                        <label class="dsp-form-label">Priority</label>
+                        <select id="woPriority" class="dsp-form-input">
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="emergency">Emergency</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="dsp-form-group">
+                        <label class="dsp-form-label">Title</label>
+                        <input type="text" id="woTitle" class="dsp-form-input" placeholder="Auto-generated if blank">
+                    </div>
+                    <div class="dsp-form-group">
+                        <label class="dsp-form-label">Description</label>
+                        <textarea id="woDescription" class="dsp-form-input" rows="3" placeholder="Describe the issue..."></textarea>
+                    </div>
+                    <div class="dsp-form-actions">
+                        <button type="button" class="dsp-action-btn" onclick="closeCreateWO()">Cancel</button>
+                        <button type="submit" class="dsp-action-btn dsp-action-primary">Create Work Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Assign Tech Modal -->
+        <div id="assignModal" class="dsp-modal" style="display:none;">
+            <div class="dsp-modal-backdrop" onclick="closeAssignModal()"></div>
+            <div class="dsp-modal-content">
+                <div class="dsp-modal-header">
+                    <h2 id="assignModalTitle">Assign Technician</h2>
+                    <button class="dsp-slideout-close" onclick="closeAssignModal()">&times;</button>
+                </div>
+                <div id="assignModalSkill" class="dsp-modal-skill"></div>
+                <div id="assignTechList" class="dsp-tech-list">
+                    <div class="dsp-empty">Loading technicians...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Escalation Strip -->
+        <div id="escalationStrip" class="dsp-escalation" style="display:none;">
+            <div class="dsp-escalation-header">
+                <span class="dsp-escalation-icon">&#9888;</span>
+                <span class="dsp-escalation-title">ESCALATIONS</span>
+                <span class="dsp-escalation-count" id="escalationCount">0</span>
+            </div>
+            <div class="dsp-escalation-list" id="escalationList"></div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="dsp-cards" id="summaryCards">
+            <div class="dsp-card">
+                <div class="dsp-card-label">OPEN</div>
+                <div class="dsp-card-value" id="countOpen">--</div>
+            </div>
+            <div class="dsp-card">
+                <div class="dsp-card-label">ASSIGNED</div>
+                <div class="dsp-card-value" id="countAssigned">--</div>
+            </div>
+            <div class="dsp-card">
+                <div class="dsp-card-label">IN PROGRESS</div>
+                <div class="dsp-card-value" id="countInProgress">--</div>
+            </div>
+            <div class="dsp-card dsp-card-success">
+                <div class="dsp-card-label">COMPLETED TODAY</div>
+                <div class="dsp-card-value" id="countCompleted">--</div>
+            </div>
+            <div class="dsp-card dsp-card-warning">
+                <div class="dsp-card-label">SLA AT RISK</div>
+                <div class="dsp-card-value" id="countSlaRisk">--</div>
+            </div>
+            <div class="dsp-card dsp-card-danger">
+                <div class="dsp-card-label">SLA BREACHED</div>
+                <div class="dsp-card-value" id="countSlaBreach">--</div>
+            </div>
+            <div class="dsp-card dsp-card-compliance">
+                <div class="dsp-card-label">SLA COMPLIANCE</div>
+                <div class="dsp-card-value" id="countSlaCompliance">--%</div>
+            </div>
+        </div>
+
+        <!-- Filters Row -->
+        <div class="dsp-filters">
+            <div class="dsp-filter-group">
+                <label class="dsp-filter-label">REGION</label>
+                <div class="dsp-filter-chips" id="regionChips">
+                    <button class="dsp-chip dsp-chip-active" data-region="" onclick="setFilter('region','',this)">All</button>
+                </div>
+            </div>
+            <div class="dsp-filter-group">
+                <label class="dsp-filter-label">CATEGORY</label>
+                <div class="dsp-filter-chips" id="categoryChips">
+                    <button class="dsp-chip dsp-chip-active" data-category="" onclick="setFilter('category','',this)">All</button>
+                </div>
+            </div>
+            <button onclick="refreshAll()" class="dsp-refresh-btn">Refresh</button>
+        </div>
+
+        <!-- Two-column layout: Queue + Roster -->
+        <div class="dsp-main-grid">
+            <!-- Urgent Queue -->
+            <div class="dsp-section dsp-queue-section">
+                <div class="dsp-section-header">
+                    <h2>Urgent Queue</h2>
+                    <span class="dsp-queue-count" id="queueCount">0 items</span>
+                </div>
+                <div class="dsp-table-wrap">
+                    <table class="dsp-table" id="queueTable">
+                        <thead>
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th>WO</th>
+                                <th>Priority</th>
+                                <th>Category</th>
+                                <th>Customer</th>
+                                <th>Region</th>
+                                <th>Technician</th>
+                                <th>Status</th>
+                                <th>Window</th>
+                                <th>SLA</th>
+                                <th style="width:120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queueBody">
+                            <tr><td colspan="11" class="dsp-empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Technician Roster -->
+            <div class="dsp-section dsp-roster-section">
+                <div class="dsp-section-header">
+                    <h2>Technician Roster</h2>
+                    <div class="dsp-roster-legend">
+                        <span class="dsp-legend-dot" style="background:var(--lcars-ice)"></span> Available
+                        <span class="dsp-legend-dot" style="background:var(--lcars-sunflower)"></span> En Route
+                        <span class="dsp-legend-dot" style="background:var(--lcars-butterscotch)"></span> On Site
+                        <span class="dsp-legend-dot" style="background:var(--lcars-gray)"></span> Off Duty
+                    </div>
+                </div>
+                <div id="rosterList" class="dsp-roster-list">
+                    <div class="dsp-empty">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Breakdown Charts (Category + Region) -->
+        <div class="dsp-breakdown-row">
+            <div class="dsp-section dsp-section-half">
+                <h2>By Category</h2>
+                <div id="categoryBreakdown" class="dsp-breakdown"></div>
+            </div>
+            <div class="dsp-section dsp-section-half">
+                <h2>By Region</h2>
+                <div id="regionBreakdown" class="dsp-breakdown"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let _activeFilters = { region: '', category: '' };
+
+        function refreshAll() {
+            loadSummary();
+            loadUrgentQueue();
+            loadRoster();
+        }
+
+        /* ── Summary Cards ── */
+        function loadSummary() {
+            fetch('/api/dispatch/summary')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+                    const wo = data.work_orders || {};
+                    document.getElementById('countOpen').textContent = wo.open || 0;
+                    document.getElementById('countAssigned').textContent = wo.assigned || 0;
+                    document.getElementById('countInProgress').textContent = wo.in_progress || 0;
+                    document.getElementById('countCompleted').textContent = data.today?.completed || 0;
+                    document.getElementById('countSlaRisk').textContent = data.sla?.at_risk || 0;
+                    document.getElementById('countSlaBreach').textContent = data.sla?.breached || 0;
+
+                    const pct = data.today?.sla_compliance_pct;
+                    const compEl = document.getElementById('countSlaCompliance');
+                    compEl.textContent = pct != null ? pct + '%' : '--';
+                    compEl.className = 'dsp-card-value' + (pct != null ? (pct >= 90 ? ' dsp-val-good' : pct >= 75 ? ' dsp-val-warn' : ' dsp-val-bad') : '');
+
+                    // Build filter chips from breakdown data
+                    buildFilterChips('regionChips', 'region', data.by_region || {});
+                    buildFilterChips('categoryChips', 'category', data.by_category || {});
+
+                    // Breakdown bars
+                    renderBreakdown('categoryBreakdown', data.by_category || {}, 'category');
+                    renderBreakdown('regionBreakdown', data.by_region || {}, 'region');
+                });
+        }
+
+        /* ── Filter Chips ── */
+        function buildFilterChips(containerId, filterType, data) {
+            const container = document.getElementById(containerId);
+            const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+            let html = `<button class="dsp-chip ${_activeFilters[filterType] === '' ? 'dsp-chip-active' : ''}" onclick="setFilter('${filterType}','',this)">All</button>`;
+            entries.forEach(([label, count]) => {
+                const active = _activeFilters[filterType] === label ? 'dsp-chip-active' : '';
+                html += `<button class="dsp-chip ${active}" onclick="setFilter('${filterType}','${label}',this)">${label} <span class="dsp-chip-count">${count}</span></button>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function setFilter(type, value, btn) {
+            _activeFilters[type] = value;
+            // Update chip active state
+            const parent = btn.parentElement;
+            parent.querySelectorAll('.dsp-chip').forEach(c => c.classList.remove('dsp-chip-active'));
+            btn.classList.add('dsp-chip-active');
+            loadUrgentQueue();
+        }
+
+        /* ── Breakdown Bars (clickable) ── */
+        function renderBreakdown(containerId, data, filterType) {
+            const container = document.getElementById(containerId);
+            const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+            const max = entries.length > 0 ? entries[0][1] : 1;
+            container.innerHTML = entries.map(([label, count]) => {
+                const pct = Math.round((count / max) * 100);
+                const active = _activeFilters[filterType] === label ? 'dsp-bar-active' : '';
+                return `<div class="dsp-bar-row ${active}" onclick="clickBreakdown('${filterType}','${label}')">
+                    <span class="dsp-bar-label">${label}</span>
+                    <div class="dsp-bar-track">
+                        <div class="dsp-bar-fill" style="width:${pct}%"></div>
+                    </div>
+                    <span class="dsp-bar-value">${count}</span>
+                </div>`;
+            }).join('');
+        }
+
+        function clickBreakdown(filterType, value) {
+            // Toggle: if already active, clear the filter
+            if (_activeFilters[filterType] === value) {
+                _activeFilters[filterType] = '';
+            } else {
+                _activeFilters[filterType] = value;
+            }
+            // Refresh everything to update chips + bars + queue
+            loadSummary();
+            loadUrgentQueue();
+        }
+
+        /* ── Urgent Queue ── */
+        function loadUrgentQueue() {
+            let params = [];
+            if (_activeFilters.region) params.push('region=' + encodeURIComponent(_activeFilters.region));
+            if (_activeFilters.category) params.push('category=' + encodeURIComponent(_activeFilters.category));
+            const qs = params.length ? '?' + params.join('&') : '';
+
+            fetch('/api/dispatch/urgent-queue' + qs)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+                    const orders = data.orders || [];
+                    const tbody = document.getElementById('queueBody');
+                    document.getElementById('queueCount').textContent = orders.length + ' items';
+
+                    // Escalations: emergency/critical or breached
+                    const escalations = orders.filter(o => o.priority === 'emergency' || o.priority === 'critical' || o.sla_status === 'breached');
+                    const strip = document.getElementById('escalationStrip');
+                    if (escalations.length > 0) {
+                        strip.style.display = 'block';
+                        document.getElementById('escalationCount').textContent = escalations.length;
+                        document.getElementById('escalationList').innerHTML = escalations.slice(0, 5).map(o => {
+                            const slaText = formatSla(o);
+                            return `<div class="dsp-escalation-item">
+                                <span class="badge priority-${o.priority}">${o.priority}</span>
+                                <strong>WO-${o.work_order_id}</strong>
+                                <span class="dsp-esc-customer">${o.customer_name || ''}</span>
+                                <span class="dsp-esc-sla ${o.sla_status === 'breached' ? 'dsp-sla-breached' : 'dsp-sla-risk'}">${slaText}</span>
+                            </div>`;
+                        }).join('');
+                    } else {
+                        strip.style.display = 'none';
+                    }
+
+                    if (orders.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="11" class="dsp-empty">No work orders match current filters</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = orders.map(o => {
+                        const slaText = formatSla(o);
+                        const slaClass = o.sla_status === 'breached' ? 'dsp-sla-breached' : o.sla_status === 'at_risk' ? 'dsp-sla-risk' : 'dsp-sla-ok';
+                        const isUnassigned = !o.tech_name;
+                        const assignBtn = isUnassigned
+                            ? `<button class="dsp-inline-btn dsp-btn-assign" onclick="event.stopPropagation();openAssignModal(${o.work_order_id})">Assign</button>`
+                            : `<button class="dsp-inline-btn dsp-btn-reassign" onclick="event.stopPropagation();openAssignModal(${o.work_order_id})">Reassign</button>`;
+                        const actions = `<div class="dsp-inline-actions">
+                            ${assignBtn}
+                            <button class="dsp-inline-btn dsp-btn-escalate" onclick="event.stopPropagation();escalateWO(${o.work_order_id})" title="Escalate">&#9888;</button>
+                            <button class="dsp-inline-btn dsp-btn-complete" onclick="event.stopPropagation();completeWO(${o.work_order_id})" title="Complete">&#10003;</button>
+                        </div>`;
+                        // Appointment window display
+                        let windowHtml = '--';
+                        if (o.appointment_window_start && o.appointment_window_end) {
+                            try {
+                                const ws = new Date(o.appointment_window_start);
+                                const we = new Date(o.appointment_window_end);
+                                const fmt = d => d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+                                const now = Date.now();
+                                const windowClass = we.getTime() < now ? 'dsp-window-expired' :
+                                    we.getTime() < now + 3600000 ? 'dsp-window-urgent' : 'dsp-window-ok';
+                                windowHtml = `<span class="${windowClass}">${fmt(ws)}-${fmt(we)}</span>`;
+                                if (o.estimated_duration_min) windowHtml += `<br><span style="font-size:10px;color:var(--text-muted,#6B6B78);">${o.estimated_duration_min}min</span>`;
+                            } catch(e) {}
+                        }
+                        // Service order badge
+                        const soBadge = o.service_order_number
+                            ? `<span style="font-size:10px;color:#7C3AED;margin-left:4px;">${o.service_order_number}</span>`
+                            : '';
+                        return `<tr class="dsp-queue-row" onclick="toggleDetail(this)">
+                            <td class="dsp-expand-cell">&#9654;</td>
+                            <td><strong>WO-${o.work_order_id}</strong>${soBadge}</td>
+                            <td><span class="badge priority-${o.priority}">${o.priority}</span></td>
+                            <td>${o.category || ''}</td>
+                            <td>${o.customer_name || ''}</td>
+                            <td>${o.region || ''}</td>
+                            <td>${o.tech_name || '<span class="dsp-unassigned">Unassigned</span>'}</td>
+                            <td><span class="badge status-${o.status}">${o.status}</span></td>
+                            <td>${windowHtml}</td>
+                            <td><span class="${slaClass}">${slaText}</span></td>
+                            <td>${actions}</td>
+                        </tr>
+                        <tr class="dsp-detail-row" style="display:none;">
+                            <td colspan="11">
+                                <div class="dsp-detail-content">
+                                    <div class="dsp-detail-grid">
+                                        <div><span class="dsp-detail-label">Issue</span><br>${o.reported_issue || 'N/A'}</div>
+                                        <div><span class="dsp-detail-label">Address</span><br>${o.address || 'N/A'}</div>
+                                        <div><span class="dsp-detail-label">Created</span><br>${o.created_at ? new Date(o.created_at).toLocaleString() : 'N/A'}</div>
+                                        <div><span class="dsp-detail-label">SLA Deadline</span><br>${o.sla_due_at ? new Date(o.sla_due_at).toLocaleString() : 'N/A'}</div>
+                                        <div><span class="dsp-detail-label">Appt Window</span><br>${o.appointment_window_start ? new Date(o.appointment_window_start).toLocaleString().slice(0,-3) + ' - ' + new Date(o.appointment_window_end).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'None'}</div>
+                                        <div><span class="dsp-detail-label">Service Order</span><br>${o.service_order_number || 'N/A'}</div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+                });
+        }
+
+        function formatSla(o) {
+            if (!o.minutes_remaining && o.minutes_remaining !== 0) return '--';
+            const mins = Math.round(o.minutes_remaining);
+            if (mins < 0) {
+                const absMins = Math.abs(mins);
+                if (absMins >= 60) return `BREACHED ${Math.floor(absMins/60)}h ${absMins%60}m ago`;
+                return `BREACHED ${absMins}m ago`;
+            }
+            if (mins >= 60) return `${Math.floor(mins/60)}h ${mins%60}m`;
+            return `${mins}m`;
+        }
+
+        function toggleDetail(row) {
+            const detailRow = row.nextElementSibling;
+            const arrow = row.querySelector('.dsp-expand-cell');
+            if (detailRow.style.display === 'none') {
+                detailRow.style.display = 'table-row';
+                arrow.innerHTML = '&#9660;';
+            } else {
+                detailRow.style.display = 'none';
+                arrow.innerHTML = '&#9654;';
+            }
+        }
+
+        /* ── Technician Roster ── */
+        function loadRoster() {
+            let params = [];
+            if (_activeFilters.region) params.push('region=' + encodeURIComponent(_activeFilters.region));
+            const qs = params.length ? '?' + params.join('&') : '';
+
+            fetch('/api/dispatch/technician-roster' + qs)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+                    const techs = data.technicians || [];
+                    const container = document.getElementById('rosterList');
+
+                    if (techs.length === 0) {
+                        container.innerHTML = '<div class="dsp-empty">No technicians found</div>';
+                        return;
+                    }
+
+                    container.innerHTML = techs.map(t => {
+                        const statusColor = t.status === 'available' ? 'var(--lcars-ice)'
+                            : t.status === 'en_route' ? 'var(--lcars-sunflower)'
+                            : t.status === 'on_site' ? 'var(--lcars-butterscotch)'
+                            : 'var(--lcars-gray)';
+                        const currentWo = t.current_wo
+                            ? `<span class="dsp-roster-wo">${t.current_wo}</span>`
+                            : '<span class="dsp-roster-idle">Idle</span>';
+                        return `<div class="dsp-roster-card">
+                            <div class="dsp-roster-status" style="background:${statusColor}"></div>
+                            <div class="dsp-roster-info">
+                                <div class="dsp-roster-name">${t.name}</div>
+                                <div class="dsp-roster-meta">
+                                    ${t.region || ''} &middot; ${t.status.replace('_', ' ')}
+                                </div>
+                            </div>
+                            <div class="dsp-roster-stats">
+                                <div class="dsp-roster-current">${currentWo}</div>
+                                <div class="dsp-roster-completed">${t.completed_today || 0} done today</div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                });
+        }
+
+        /* ── Toast Notification ── */
+        function showToast(msg, type='success') {
+            const el = document.getElementById('toastMsg');
+            el.textContent = msg;
+            el.className = 'dsp-toast dsp-toast-' + type;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 4000);
+        }
+
+        /* ── Create Work Order ── */
+        const SUBCATEGORIES = {
+            repair: ['no_service','intermittent','slow_speed','fiber_cut','equipment_failure','noise_on_line','line_damage'],
+            install: ['fiber_install','ont_setup','router_install','copper_install','satellite_install','fixed_wireless_install'],
+            maintenance: ['firmware_update','line_test','preventive'],
+            upgrade: ['speed_upgrade','equipment_upgrade','service_tier_change'],
+            disconnect: ['service_disconnect']
+        };
+
+        function openCreateWO() {
+            document.getElementById('createWoPanel').style.display = 'flex';
+            document.getElementById('createWoForm').reset();
+            document.getElementById('woCustomerId').value = '';
+            document.getElementById('selectedCustomer').style.display = 'none';
+            document.getElementById('customerResults').innerHTML = '';
+            loadSubcategories();
+        }
+        function closeCreateWO() {
+            document.getElementById('createWoPanel').style.display = 'none';
+        }
+
+        function loadSubcategories() {
+            const cat = document.getElementById('woCategory').value;
+            const sel = document.getElementById('woSubcategory');
+            const subs = SUBCATEGORIES[cat] || [];
+            sel.innerHTML = subs.map(s => `<option value="${s}">${s.replace(/_/g,' ')}</option>`).join('');
+        }
+
+        let _customerSearchTimeout;
+        function searchCustomers(q) {
+            clearTimeout(_customerSearchTimeout);
+            if (q.length < 2) { document.getElementById('customerResults').innerHTML = ''; return; }
+            _customerSearchTimeout = setTimeout(() => {
+                fetch('/api/customers/search?q=' + encodeURIComponent(q))
+                    .then(r => r.json())
+                    .then(data => {
+                        const el = document.getElementById('customerResults');
+                        if (!data.length) { el.innerHTML = '<div class="dsp-cr-empty">No customers found</div>'; return; }
+                        el.innerHTML = data.map(c => `<div class="dsp-cr-item" onclick="selectCustomer(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+                            <strong>${c.name}</strong>
+                            <span class="dsp-cr-meta">${c.phone || ''} &middot; ${c.region} &middot; ${c.service_type || ''}</span>
+                            <span class="dsp-cr-addr">${c.address || ''}</span>
+                        </div>`).join('');
+                    });
+            }, 300);
+        }
+
+        function selectCustomer(c) {
+            document.getElementById('woCustomerId').value = c.id;
+            document.getElementById('woCustomerSearch').value = c.name;
+            document.getElementById('customerResults').innerHTML = '';
+            const sel = document.getElementById('selectedCustomer');
+            sel.innerHTML = `<strong>${c.name}</strong> &middot; ${c.region} &middot; ${c.phone || ''}<br><span style="color:var(--text-muted);font-size:11px;">${c.address || ''}</span>`;
+            sel.style.display = 'block';
+        }
+
+        function submitCreateWO(e) {
+            e.preventDefault();
+            const custId = document.getElementById('woCustomerId').value;
+            if (!custId) { showToast('Please select a customer', 'error'); return; }
+
+            const body = {
+                customer_id: parseInt(custId),
+                category: document.getElementById('woCategory').value,
+                subcategory: document.getElementById('woSubcategory').value,
+                priority: document.getElementById('woPriority').value,
+                title: document.getElementById('woTitle').value,
+                description: document.getElementById('woDescription').value,
+            };
+
+            fetch('/api/dispatch/create-work-order', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+            }).then(r => r.json()).then(data => {
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast(`Work Order ${data.number} created successfully`);
+                closeCreateWO();
+                refreshAll();
+            });
+        }
+
+        /* ── Assign Tech Modal ── */
+        let _assignWoId = null;
+        function openAssignModal(woId) {
+            _assignWoId = woId;
+            document.getElementById('assignModal').style.display = 'flex';
+            document.getElementById('assignModalTitle').textContent = `Assign Technician — WO-${woId}`;
+            document.getElementById('assignTechList').innerHTML = '<div class="dsp-empty">Loading technicians...</div>';
+
+            fetch('/api/dispatch/available-techs-with-skills?wo_id=' + woId)
+                .then(r => r.json())
+                .then(techs => {
+                    const skill = techs.length > 0 ? techs[0].required_skill : null;
+                    document.getElementById('assignModalSkill').innerHTML = skill
+                        ? `Required skill: <strong>${skill}</strong>`
+                        : '<span style="color:var(--text-muted)">No specific skill required</span>';
+
+                    if (!techs.length) {
+                        document.getElementById('assignTechList').innerHTML = '<div class="dsp-empty">No available technicians in this region</div>';
+                        return;
+                    }
+
+                    document.getElementById('assignTechList').innerHTML = techs.map(t => {
+                        const matchIcon = t.skill_match === 'expert' ? '<span class="dsp-skill-badge dsp-skill-expert">&#10003; Expert</span>'
+                            : t.skill_match === 'intermediate' ? '<span class="dsp-skill-badge dsp-skill-inter">&#10003; Intermediate</span>'
+                            : t.skill_match === 'basic' ? '<span class="dsp-skill-badge dsp-skill-basic">&#9888; Basic</span>'
+                            : '<span class="dsp-skill-badge dsp-skill-none">&#10007; No match</span>';
+                        const stars = t.rating ? '&#9733; ' + t.rating.toFixed(1) : '';
+                        return `<div class="dsp-tech-card" onclick="assignTech(${t.id})">
+                            <div class="dsp-tech-info">
+                                <div class="dsp-tech-name">${t.name}</div>
+                                <div class="dsp-tech-meta">${t.region} &middot; ${t.cert || ''} ${stars ? '&middot; ' + stars : ''}</div>
+                            </div>
+                            <div class="dsp-tech-skill">${matchIcon}</div>
+                        </div>`;
+                    }).join('');
+                });
+        }
+        function closeAssignModal() {
+            document.getElementById('assignModal').style.display = 'none';
+            _assignWoId = null;
+        }
+
+        function assignTech(techId) {
+            if (!_assignWoId) return;
+            fetch('/api/map/reassign', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: _assignWoId, technician_id: techId})
+            }).then(r => r.json()).then(data => {
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast(`WO-${_assignWoId} assigned successfully`);
+                closeAssignModal();
+                refreshAll();
+            });
+        }
+
+        /* ── Inline Actions ── */
+        function escalateWO(woId) {
+            fetch('/api/map/escalate', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: woId})
+            }).then(r => r.json()).then(data => {
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast(`WO-${woId} escalated to critical`);
+                refreshAll();
+            });
+        }
+
+        function completeWO(woId) {
+            fetch('/api/map/close', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: woId})
+            }).then(r => r.json()).then(data => {
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                showToast(`WO-${woId} completed`);
+                refreshAll();
+            });
+        }
+
+        /* ── Smart Assign (intelligent scoring) ── */
+        function smartAssign() {
+            showToast('Running intelligent dispatch scoring...', 'info');
+            var btn = document.querySelector('.dsp-action-smart');
+            if (btn) { btn.disabled = true; btn.textContent = 'Scoring...'; }
+            fetch('/api/dispatch/smart-assign?limit=500', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+            }).then(r => r.json()).then(data => {
+                if (btn) { btn.disabled = false; btn.textContent = '\u{1F9E0} Smart Assign'; }
+                if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+                var msg = 'Smart Assign: ' + data.assigned + ' assigned, ' +
+                    data.skipped + ' skipped. Avg distance: ' +
+                    (data.avg_distance_km || 0).toFixed(1) + ' km, Avg score: ' +
+                    (data.avg_score || 0).toFixed(1) + '/100. ' +
+                    data.techs_used + ' techs utilized.';
+                showToast(msg, 'success');
+                showSmartAssignResults(data);
+                refreshAll();
+            }).catch(function(e) {
+                if (btn) { btn.disabled = false; btn.textContent = '\u{1F9E0} Smart Assign'; }
+                showToast('Smart assign failed: ' + e, 'error');
+            });
+        }
+
+        function showSmartAssignResults(data) {
+            var el = document.getElementById('smartAssignResults');
+            if (!el) return;
+            el.style.display = 'block';
+            el.innerHTML = '<div class="dsp-smart-results">' +
+                '<div class="dsp-smart-header">Optimization Results</div>' +
+                '<div class="dsp-smart-stats">' +
+                    '<div class="dsp-smart-stat"><div class="dsp-smart-stat-val">' + data.assigned + '</div><div class="dsp-smart-stat-lbl">Assigned</div></div>' +
+                    '<div class="dsp-smart-stat"><div class="dsp-smart-stat-val">' + (data.avg_distance_km || 0).toFixed(1) + ' km</div><div class="dsp-smart-stat-lbl">Avg Distance</div></div>' +
+                    '<div class="dsp-smart-stat"><div class="dsp-smart-stat-val">' + (data.avg_score || 0).toFixed(1) + '</div><div class="dsp-smart-stat-lbl">Avg Score</div></div>' +
+                    '<div class="dsp-smart-stat"><div class="dsp-smart-stat-val">' + data.techs_used + '</div><div class="dsp-smart-stat-lbl">Techs Used</div></div>' +
+                    '<div class="dsp-smart-stat"><div class="dsp-smart-stat-val">' + data.scored_pairs + '</div><div class="dsp-smart-stat-lbl">Pairs Scored</div></div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        /* ── Auto-refresh ── */
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshAll();
+            loadSubcategories();
+            setInterval(loadSummary, 30000);
+            setInterval(loadUrgentQueue, 20000);
+            setInterval(loadRoster, 30000);
+        });
+    </script>
+
+    <style>
+        /* ── Escalation Strip ── */
+        .dsp-escalation {
+            background: rgba(255, 59, 48, 0.08);
+            border: 1px solid rgba(255, 59, 48, 0.3);
+            border-left: 4px solid var(--lcars-mars);
+            border-radius: 0 6px 6px 0;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+        }
+        .dsp-escalation-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .dsp-escalation-icon { font-size: 18px; color: var(--lcars-mars); }
+        .dsp-escalation-title {
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: var(--lcars-mars);
+        }
+        .dsp-escalation-count {
+            background: var(--lcars-mars);
+            color: #fff;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .dsp-escalation-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+        .dsp-esc-customer { color: var(--text-muted); flex: 1; }
+        .dsp-esc-sla { font-weight: bold; font-size: 12px; font-family: 'Arial Narrow', Arial, sans-serif; }
+
+        /* ── Summary Cards ── */
+        .dsp-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .dsp-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--lcars-violet);
+            border-radius: 0 6px 6px 0;
+            padding: 14px;
+            text-align: center;
+        }
+        .dsp-card-success { border-left-color: var(--lcars-ice); }
+        .dsp-card-warning { border-left-color: var(--lcars-sunflower); }
+        .dsp-card-danger { border-left-color: var(--lcars-mars); }
+        .dsp-card-compliance { border-left-color: var(--lcars-sky); }
+        .dsp-card-label {
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .dsp-card-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+        .dsp-val-good { color: var(--lcars-ice); }
+        .dsp-val-warn { color: var(--lcars-sunflower); }
+        .dsp-val-bad { color: var(--lcars-mars); }
+
+        /* ── Filter Chips ── */
+        .dsp-filters {
+            display: flex;
+            align-items: flex-end;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .dsp-filter-group { flex: 1; min-width: 200px; }
+        .dsp-filter-label {
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            display: block;
+            margin-bottom: 6px;
+        }
+        .dsp-filter-chips {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .dsp-chip {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 4px 12px;
+            border-radius: 14px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+        .dsp-chip:hover { border-color: var(--accent-secondary); color: var(--text-primary); }
+        .dsp-chip-active {
+            background: var(--accent-secondary);
+            color: var(--bg-primary);
+            border-color: var(--accent-secondary);
+        }
+        .dsp-chip-count {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+        .dsp-refresh-btn {
+            background: var(--accent-secondary);
+            color: var(--bg-primary);
+            border: none;
+            padding: 6px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .dsp-refresh-btn:hover { opacity: 0.85; }
+
+        /* ── Main Grid ── */
+        .dsp-main-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .dsp-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+        }
+        .dsp-section h2 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin: 0;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+        }
+        .dsp-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .dsp-queue-count {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .dsp-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 20px;
+        }
+
+        /* ── Urgent Queue Table ── */
+        .dsp-table-wrap { overflow-x: auto; }
+        .dsp-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .dsp-table th {
+            background: var(--bg-primary);
+            color: var(--text-muted);
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+        }
+        .dsp-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+        .dsp-queue-row { cursor: pointer; }
+        .dsp-queue-row:hover td { background: rgba(187, 134, 252, 0.05); }
+        .dsp-expand-cell {
+            font-size: 10px;
+            color: var(--text-muted);
+            width: 20px;
+            text-align: center;
+        }
+        .dsp-unassigned { color: var(--lcars-mars); font-style: italic; font-size: 11px; }
+        .dsp-sla-breached { color: var(--lcars-mars); font-weight: bold; font-size: 11px; }
+        .dsp-sla-risk { color: var(--lcars-sunflower); font-weight: bold; font-size: 11px; }
+        .dsp-sla-ok { color: var(--text-muted); font-size: 11px; }
+
+        /* ── Appointment Window Status ── */
+        .dsp-window-expired { color: var(--lcars-mars, #FF4444); font-weight: 600; font-size: 11px; }
+        .dsp-window-urgent { color: var(--lcars-sunflower, #FFAB2E); font-weight: 600; font-size: 11px; }
+        .dsp-window-ok { color: var(--text-secondary, #A0A0B0); font-size: 11px; }
+
+        /* ── Detail Row ── */
+        .dsp-detail-row td {
+            padding: 0 10px 12px 40px;
+            background: var(--bg-primary);
+        }
+        .dsp-detail-content {
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+        .dsp-detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            font-size: 12px;
+        }
+        .dsp-detail-label {
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+
+        /* ── Technician Roster ── */
+        .dsp-roster-section {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .dsp-roster-legend {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        .dsp-legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        .dsp-roster-list { display: flex; flex-direction: column; gap: 6px; }
+        .dsp-roster-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+        .dsp-roster-status {
+            width: 8px;
+            height: 36px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+        .dsp-roster-info { flex: 1; min-width: 0; }
+        .dsp-roster-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .dsp-roster-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: capitalize;
+        }
+        .dsp-roster-stats { text-align: right; flex-shrink: 0; }
+        .dsp-roster-wo {
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--accent-secondary);
+        }
+        .dsp-roster-idle {
+            font-size: 12px;
+            color: var(--lcars-ice);
+        }
+        .dsp-roster-completed {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        /* ── Breakdown Bars ── */
+        .dsp-breakdown-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .dsp-breakdown { }
+        .dsp-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .dsp-bar-row:hover { background: rgba(187, 134, 252, 0.05); }
+        .dsp-bar-active { background: rgba(187, 134, 252, 0.1); }
+        .dsp-bar-label {
+            width: 100px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: capitalize;
+        }
+        .dsp-bar-track {
+            flex: 1;
+            height: 8px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .dsp-bar-fill {
+            height: 100%;
+            background: var(--lcars-violet);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        .dsp-bar-value {
+            width: 36px;
+            text-align: right;
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-block;
+            padding: 2px 7px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            letter-spacing: 0.5px;
+        }
+        .priority-emergency { background: var(--lcars-mars); color: #fff; }
+        .priority-high { background: var(--lcars-sunflower); color: #000; }
+        .priority-medium { background: var(--lcars-butterscotch); color: #000; }
+        .priority-low { background: var(--lcars-gray); color: #000; }
+        .status-open { background: var(--lcars-violet); color: #fff; }
+        .status-assigned { background: var(--lcars-sky); color: #000; }
+        .status-en_route { background: var(--lcars-sunflower); color: #000; }
+        .status-in_progress { background: var(--lcars-butterscotch); color: #000; }
+        .status-completed { background: var(--lcars-ice); color: #000; }
+        .status-cancelled { background: var(--lcars-gray); color: #000; }
+
+        /* ── Action Bar Buttons ── */
+        .dsp-action-btn {
+            padding: 8px 18px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-family: inherit;
+            transition: all 0.15s ease;
+        }
+        .dsp-action-btn:hover { opacity: 0.85; }
+        .dsp-action-primary {
+            background: var(--accent-secondary);
+            color: #fff;
+            border-color: var(--accent-secondary);
+        }
+        .dsp-action-smart {
+            background: linear-gradient(135deg, #7C3AED, #2563EB);
+            color: #fff;
+            border-color: #7C3AED;
+            font-weight: 600;
+        }
+        .dsp-action-smart:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        /* ── Smart Assign Results ── */
+        .dsp-smart-results {
+            background: var(--bg-secondary, #1B1B1F);
+            border: 1px solid var(--border-primary, #3A3A42);
+            border-left: 4px solid #7C3AED;
+            border-radius: 0 8px 8px 0;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+        .dsp-smart-header {
+            font-size: 14px;
+            font-weight: 700;
+            color: #A78BFA;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+        .dsp-smart-stats {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+        .dsp-smart-stat {
+            text-align: center;
+        }
+        .dsp-smart-stat-val {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary, #E8E8ED);
+        }
+        .dsp-smart-stat-lbl {
+            font-size: 11px;
+            color: var(--text-muted, #6B6B78);
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        /* ── Toast ── */
+        .dsp-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            z-index: 10000;
+            animation: dsp-slideIn 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .dsp-toast-success { background: var(--accent-success, #00875A); color: #fff; }
+        .dsp-toast-error { background: var(--error, #CC2211); color: #fff; }
+        .dsp-toast-info { background: var(--accent-secondary); color: #fff; }
+        @keyframes dsp-slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ── Inline Row Actions ── */
+        .dsp-inline-actions { display: flex; gap: 4px; align-items: center; }
+        .dsp-inline-btn {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            transition: opacity 0.15s;
+        }
+        .dsp-inline-btn:hover { opacity: 0.8; }
+        .dsp-btn-assign { background: var(--accent-secondary); color: #fff; }
+        .dsp-btn-reassign { background: var(--lcars-sky, #2563EB); color: #fff; }
+        .dsp-btn-escalate { background: var(--lcars-sunflower); color: #000; font-size: 12px; padding: 2px 6px; }
+        .dsp-btn-complete { background: var(--accent-success, #00875A); color: #fff; font-size: 12px; padding: 2px 6px; }
+
+        /* ── Slide-Out Panel ── */
+        .dsp-slideout {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9000; display: flex; justify-content: flex-end;
+        }
+        .dsp-slideout-backdrop {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+        }
+        .dsp-slideout-content {
+            position: relative; width: 480px; max-width: 90vw;
+            background: var(--bg-primary); padding: 24px;
+            overflow-y: auto; box-shadow: -4px 0 20px rgba(0,0,0,0.2);
+            animation: dsp-slideRight 0.25s ease;
+        }
+        @keyframes dsp-slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        .dsp-slideout-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px;
+        }
+        .dsp-slideout-header h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
+        .dsp-slideout-close {
+            background: none; border: none; font-size: 24px;
+            color: var(--text-muted); cursor: pointer;
+        }
+
+        /* ── Form Fields ── */
+        .dsp-form-group { margin-bottom: 16px; position: relative; }
+        .dsp-form-label {
+            display: block; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 1px; color: var(--text-muted); margin-bottom: 4px;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+        }
+        .dsp-form-input {
+            width: 100%; padding: 8px 12px; border-radius: 4px;
+            border: 1px solid var(--border-color); background: var(--bg-input, var(--bg-secondary));
+            color: var(--text-primary); font-size: 13px; font-family: inherit;
+            box-sizing: border-box;
+        }
+        .dsp-form-input:focus { outline: none; border-color: var(--accent-secondary); }
+        .dsp-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .dsp-form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+        /* ── Customer Search Results ── */
+        .dsp-customer-results {
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: var(--bg-card, var(--bg-secondary));
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 4px 4px;
+            max-height: 200px; overflow-y: auto; z-index: 100;
+        }
+        .dsp-cr-item {
+            padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+        }
+        .dsp-cr-item:hover { background: var(--bg-hover); }
+        .dsp-cr-meta { display: block; color: var(--text-muted); font-size: 11px; }
+        .dsp-cr-addr { display: block; color: var(--text-muted); font-size: 10px; margin-top: 2px; }
+        .dsp-cr-empty { padding: 12px; color: var(--text-muted); text-align: center; font-size: 12px; }
+        .dsp-selected-customer {
+            padding: 8px 12px; background: rgba(0,135,90,0.08);
+            border: 1px solid rgba(0,135,90,0.2); border-radius: 4px;
+            font-size: 12px; margin-top: 8px;
+        }
+
+        /* ── Assign Modal ── */
+        .dsp-modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9500; display: flex; align-items: center; justify-content: center;
+        }
+        .dsp-modal-backdrop {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+        }
+        .dsp-modal-content {
+            position: relative; width: 500px; max-width: 90vw; max-height: 80vh;
+            background: var(--bg-primary); border-radius: 8px; padding: 24px;
+            overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            animation: dsp-fadeIn 0.2s ease;
+        }
+        @keyframes dsp-fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .dsp-modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 12px;
+        }
+        .dsp-modal-header h2 { margin: 0; font-size: 16px; color: var(--text-primary); }
+        .dsp-modal-skill {
+            font-size: 12px; color: var(--text-secondary);
+            margin-bottom: 16px; padding: 8px 12px;
+            background: var(--bg-secondary); border-radius: 4px;
+        }
+
+        /* ── Tech List in Modal ── */
+        .dsp-tech-list { display: flex; flex-direction: column; gap: 6px; }
+        .dsp-tech-card {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 14px; background: var(--bg-secondary);
+            border: 1px solid var(--border-color); border-radius: 6px;
+            cursor: pointer; transition: all 0.15s ease;
+        }
+        .dsp-tech-card:hover {
+            border-color: var(--accent-secondary);
+            background: rgba(187, 134, 252, 0.05);
+        }
+        .dsp-tech-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .dsp-tech-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+        /* ── Skill Match Badges ── */
+        .dsp-skill-badge {
+            font-size: 10px; font-weight: bold; padding: 3px 8px;
+            border-radius: 10px; text-transform: uppercase;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            letter-spacing: 0.5px;
+        }
+        .dsp-skill-expert { background: rgba(0,135,90,0.15); color: var(--accent-success, #00875A); }
+        .dsp-skill-inter { background: rgba(0,135,90,0.1); color: var(--accent-success, #00875A); }
+        .dsp-skill-basic { background: rgba(217,119,6,0.15); color: var(--lcars-sunflower); }
+        .dsp-skill-none { background: rgba(255,54,33,0.1); color: var(--error, #CC2211); }
+
+        /* ── Responsive ── */
+        @media (max-width: 1024px) {
+            .dsp-main-grid { grid-template-columns: 1fr; }
+            .dsp-roster-section { max-height: 400px; }
+        }
+        @media (max-width: 768px) {
+            .dsp-cards { grid-template-columns: repeat(2, 1fr); }
+            .dsp-breakdown-row { grid-template-columns: 1fr; }
+            .dsp-slideout-content { width: 100%; max-width: 100vw; }
+        }
+    </style>
+{% endblock %}

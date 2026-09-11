@@ -1,0 +1,1879 @@
+{% extends "base.html" %}
+{% block title %}Fleet Health{% endblock %}
+{% block page_title %}Fleet Health & Predictive Maintenance{% endblock %}
+
+{% block content %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .source-badge {
+            display:inline-flex;align-items:center;gap:4px;
+            padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;
+            letter-spacing:0.3px;text-transform:uppercase;vertical-align:middle;
+            margin-left:8px;
+        }
+        .source-badge-uc {
+            background:rgba(255,106,0,0.12);color:#FF6A00;border:1px solid rgba(255,106,0,0.25);
+        }
+        .source-badge-pg {
+            background:rgba(0,169,114,0.12);color:#00A972;border:1px solid rgba(0,169,114,0.25);
+        }
+        .source-badge-ai {
+            background:rgba(147,51,234,0.12);color:#9333EA;border:1px solid rgba(147,51,234,0.25);
+        }
+        .source-badge-iceberg {
+            background:rgba(0,191,165,0.12);color:#00BFA5;border:1px solid rgba(0,191,165,0.25);
+        }
+        .source-badge-ml {
+            background:rgba(1,148,226,0.12);color:#0194E2;border:1px solid rgba(1,148,226,0.25);
+        }
+        .source-badge img { height:12px;width:12px;opacity:0.85; }
+        .section-loading {
+            display:flex;align-items:center;justify-content:center;gap:8px;
+            padding:40px 20px;color:var(--text-muted);font-size:13px;
+        }
+        .fleet-value-chip {
+            display:inline-flex;align-items:center;gap:6px;
+            padding:4px 10px;border-radius:14px;font-size:11px;font-weight:600;
+            background:rgba(0,169,114,0.10);color:#00A972;border:1px solid rgba(0,169,114,0.22);
+        }
+        .fp-badge {
+            display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;
+            letter-spacing:0.4px;text-transform:uppercase;
+            background:rgba(0,169,114,0.15);color:#00A972;border:1px solid rgba(0,169,114,0.35);
+        }
+        .pending-ai {
+            font-size:11px;font-style:italic;color:var(--text-muted);
+        }
+        .fleet-row { cursor:pointer;transition:background 0.15s; }
+        .fleet-row:hover { background:var(--bg-tertiary,#2A2A32) !important; }
+        /* Detail drawer */
+        .fleet-drawer-overlay {
+            display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:2000;
+        }
+        .fleet-drawer {
+            position:fixed;top:0;right:0;height:100%;width:520px;max-width:92vw;z-index:2001;
+            background:var(--bg-primary,#16161A);border-left:1px solid var(--border-primary,#3A3A42);
+            box-shadow:-8px 0 28px rgba(0,0,0,0.45);transform:translateX(100%);
+            transition:transform 0.25s ease;overflow-y:auto;
+        }
+        .fleet-drawer.open { transform:translateX(0); }
+        .fleet-drawer-header {
+            display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+            padding:18px 20px;border-bottom:1px solid var(--border-primary,#2A2A32);
+            position:sticky;top:0;background:var(--bg-primary,#16161A);z-index:1;
+        }
+        .fleet-drawer-close {
+            background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:22px;line-height:1;
+        }
+        .fleet-drawer-close:hover { color:var(--text-primary); }
+        .fleet-drawer-body { padding:18px 20px; }
+        .fleet-spec-grid {
+            display:grid;grid-template-columns:repeat(2,1fr);gap:10px 18px;margin:12px 0;
+        }
+        .fleet-spec-label { font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.3px; }
+        .fleet-spec-value { font-size:14px;font-weight:600;color:var(--text-primary); }
+        .sparkline-row { display:flex;align-items:center;gap:10px;margin:8px 0; }
+        .sparkline-label { font-size:11px;color:var(--text-secondary);width:96px;flex-shrink:0; }
+        .sparkline-val { font-size:12px;font-weight:600;width:54px;text-align:right;flex-shrink:0; }
+
+        /* ── Risk-tier filter chips ─────────────────────────────── */
+        .risk-chip-row { display:flex;gap:10px;flex-wrap:wrap;margin-top:16px; }
+        .risk-chip {
+            display:flex;align-items:center;gap:8px;cursor:pointer;
+            padding:8px 14px;border-radius:10px;background:var(--bg-secondary);
+            border:1px solid var(--border-primary);transition:all 0.15s;
+        }
+        .risk-chip:hover { border-color:var(--text-secondary); }
+        .risk-chip.active { background:var(--bg-tertiary); }
+        .risk-chip-dot { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+        .risk-chip-label { font-size:12px;font-weight:600;color:var(--text-primary); }
+        .risk-chip-count { font-size:18px;font-weight:700;line-height:1; }
+
+        /* ── Action Center cards ────────────────────────────────── */
+        .action-grid {
+            display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;
+        }
+        .action-card {
+            background:var(--bg-secondary);border:1px solid var(--border-primary);
+            border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;
+            border-left:4px solid var(--text-muted);
+        }
+        .action-card.tier-CRITICAL { border-left-color:#FF4444; }
+        .action-card.tier-HIGH { border-left-color:#FF6A00; }
+        .action-card-head { display:flex;justify-content:space-between;align-items:flex-start;gap:8px; }
+        .action-card-veh { font-size:14px;font-weight:700;color:var(--text-primary);line-height:1.3; }
+        .action-card-id { font-size:11px;color:var(--text-muted);margin-top:2px; }
+        .action-card-meta { display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary); }
+        .action-card-meta-row { display:flex;justify-content:space-between;gap:8px; }
+        .action-strand {
+            font-size:11px;color:#FFAB2E;background:rgba(255,171,46,0.1);
+            border:1px solid rgba(255,171,46,0.25);border-radius:6px;padding:4px 8px;
+        }
+        .action-card-buttons { display:flex;gap:8px;margin-top:4px; }
+        .action-btn {
+            flex:1;padding:8px 10px;border-radius:6px;font-size:12px;font-weight:600;
+            cursor:pointer;border:1px solid var(--border-primary);text-align:center;transition:all 0.15s;
+        }
+        .action-btn-detail { background:var(--bg-tertiary);color:var(--text-primary); }
+        .action-btn-detail:hover { border-color:var(--text-secondary); }
+        .action-btn-remediate { background:var(--accent-primary);color:#fff;border-color:var(--accent-primary); }
+        .action-btn-remediate:hover { opacity:0.9; }
+        .action-empty {
+            grid-column:1/-1;text-align:center;padding:40px 20px;color:var(--status-completed,#00A972);
+            font-size:14px;font-weight:600;
+        }
+
+        /* ── Remediation modal ──────────────────────────────────── */
+        .remed-overlay {
+            display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2100;
+            align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px;
+        }
+        .remed-overlay.open { display:flex; }
+        .remed-modal {
+            width:560px;max-width:96vw;background:var(--bg-primary,#16161A);
+            border:1px solid var(--border-primary);border-radius:12px;
+            box-shadow:0 20px 60px rgba(0,0,0,0.5);overflow:hidden;
+        }
+        .remed-header {
+            display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+            padding:18px 20px;border-bottom:1px solid var(--border-primary);
+        }
+        .remed-body { padding:18px 20px;max-height:70vh;overflow-y:auto; }
+        .remed-section-title {
+            font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;
+            color:var(--text-secondary);margin:16px 0 8px;
+        }
+        .remed-plan {
+            background:rgba(147,51,234,0.08);border:1px solid rgba(147,51,234,0.22);
+            border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.5;color:var(--text-primary);
+            white-space:pre-wrap;
+        }
+        .remed-preview-item {
+            display:flex;align-items:flex-start;gap:8px;padding:7px 0;
+            border-bottom:1px solid var(--border-primary);font-size:13px;color:var(--text-primary);
+        }
+        .remed-preview-icon { color:var(--accent-primary);flex-shrink:0;font-weight:700; }
+        /* Drillable preview items (native <details>) */
+        .remed-drill { border-bottom:1px solid var(--border-primary); }
+        .remed-drill > summary {
+            display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13px;
+            color:var(--text-primary);cursor:pointer;list-style:none;
+        }
+        .remed-drill > summary::-webkit-details-marker { display:none; }
+        .remed-drill > summary .remed-caret { color:var(--accent-primary);font-weight:700;transition:transform .15s; }
+        .remed-drill[open] > summary .remed-caret { transform:rotate(90deg); }
+        .remed-drill .remed-detail { padding:6px 0 12px 22px; }
+        .remed-cost-table { width:100%;border-collapse:collapse;font-size:12px;margin:4px 0; }
+        .remed-cost-table td, .remed-cost-table th { padding:4px 8px;text-align:left;border-bottom:1px solid var(--border-primary); }
+        .remed-cost-table td.num, .remed-cost-table th.num { text-align:right;font-variant-numeric:tabular-nums; }
+        .remed-chargeback {
+            margin-top:10px;padding:10px 12px;border-radius:8px;
+            background:rgba(255,54,33,0.08);border:1px solid rgba(255,54,33,0.25);
+            font-size:13px;color:var(--text-primary);display:flex;justify-content:space-between;align-items:center;
+        }
+        .remed-chargeback strong { font-size:16px;color:var(--accent-primary); }
+        .remed-footer {
+            display:flex;justify-content:flex-end;gap:10px;
+            padding:16px 20px;border-top:1px solid var(--border-primary);
+        }
+        .remed-result-line {
+            display:flex;align-items:flex-start;gap:8px;padding:7px 0;font-size:13px;color:var(--text-primary);
+        }
+        .remed-ok-icon { color:var(--status-completed,#00A972);font-weight:700;flex-shrink:0; }
+
+        /* ── Toast ──────────────────────────────────────────────── */
+        .fleet-toast {
+            position:fixed;bottom:24px;right:24px;z-index:2200;
+            min-width:280px;max-width:420px;padding:14px 18px;border-radius:10px;
+            background:var(--bg-secondary);border:1px solid var(--border-primary);
+            box-shadow:0 12px 40px rgba(0,0,0,0.45);font-size:13px;color:var(--text-primary);
+            transform:translateY(20px);opacity:0;transition:all 0.25s;pointer-events:none;
+            border-left:4px solid var(--status-completed,#00A972);
+        }
+        .fleet-toast.show { transform:translateY(0);opacity:1; }
+        .fleet-toast.err { border-left-color:var(--status-breached,#FF4444); }
+
+        /* ── Tab navigation ─────────────────────────────────────── */
+        .fleet-tabs {
+            display:flex;gap:4px;flex-wrap:wrap;margin:20px 0 0;
+            border-bottom:1px solid var(--border-primary,#2A2A32);
+        }
+        .fleet-tab {
+            position:relative;padding:10px 18px;cursor:pointer;
+            background:none;border:none;font-size:13px;font-weight:600;
+            color:var(--text-secondary);font-family:inherit;
+            border-bottom:2px solid transparent;margin-bottom:-1px;transition:color 0.15s;
+        }
+        .fleet-tab:hover { color:var(--text-primary); }
+        .fleet-tab.active {
+            color:var(--accent-primary,#1B7FE3);
+            border-bottom-color:var(--accent-primary,#1B7FE3);
+        }
+        .tab-panel { display:none; }
+        .tab-panel.active { display:block; }
+
+        /* ── Planner constraint form ─────────────────────────────── */
+        .planner-form {
+            display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px 18px;
+            background:var(--bg-secondary);border:1px solid var(--border-primary);
+            border-radius:10px;padding:18px;margin-top:16px;
+        }
+        .planner-field { display:flex;flex-direction:column;gap:6px; }
+        .planner-field label {
+            font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px;
+            color:var(--text-secondary);
+        }
+        .planner-field input[type=number] {
+            padding:7px 10px;border:1px solid var(--border);border-radius:6px;
+            background:var(--bg-primary,#16161A);color:var(--text-primary);font-size:13px;font-family:inherit;
+        }
+        .planner-risk-row { display:flex;gap:16px;flex-wrap:wrap; }
+        .planner-risk-row label {
+            display:flex;align-items:center;gap:6px;cursor:pointer;
+            font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text-primary);
+        }
+        .planner-actions {
+            display:flex;align-items:flex-end;justify-content:flex-start;gap:10px;
+        }
+        .planner-btn {
+            padding:9px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;
+            border:1px solid var(--accent-primary);background:var(--accent-primary);color:#fff;transition:opacity 0.15s;
+        }
+        .planner-btn:hover { opacity:0.9; }
+        .planner-btn:disabled { opacity:0.5;cursor:not-allowed; }
+        .planner-tiles {
+            display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:18px;
+        }
+        .planner-exec-note { font-size:12px;color:var(--text-secondary);margin:0 0 0 4px; }
+    </style>
+
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Fleet Health & Predictive Maintenance</h1>
+                <p class="subtitle page-description dbx-only">Telemetry-driven vehicle health scoring, ML failure prediction, and AI-interpreted diagnostic trouble codes &mdash; an operational action center where predictions drive one-click remediation. Lakebase operational data fused with the Managed Iceberg pipeline.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                    <span class="fleet-value-chip">Unplanned downtime &#8595; up to 50%</span>
+                    <span class="fleet-value-chip">Alerts ~2,000 mi before failure</span>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+                <button onclick="loadAll()" style="padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">Refresh</button>
+                <span id="fleetLastUpdate" style="font-size:11px;color:var(--text-muted);"></span>
+            </div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="analytics-kpis" id="fleetKpis" style="margin-top:16px;">
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Total Vehicles</div>
+                <div class="analytics-kpi-value" id="kpiTotal">--</div>
+                <div class="analytics-kpi-sub">Across the fleet</div>
+            </div>
+            <div class="analytics-kpi analytics-kpi-danger">
+                <div class="analytics-kpi-label">Needs Maintenance</div>
+                <div class="analytics-kpi-value" id="kpiNeeds">--</div>
+                <div class="analytics-kpi-sub" id="kpiNeedsPct">High + Critical risk</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Avg Health Score</div>
+                <div class="analytics-kpi-value" id="kpiHealth">--</div>
+                <div class="analytics-kpi-sub">Fleet-wide</div>
+            </div>
+            <div class="analytics-kpi analytics-kpi-warn">
+                <div class="analytics-kpi-label">Vehicles In Shop</div>
+                <div class="analytics-kpi-value" id="kpiInShop">--</div>
+                <div class="analytics-kpi-sub">Currently servicing</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">DTC False-Alarm Rate</div>
+                <div class="analytics-kpi-value" id="kpiFalseAlarm">--</div>
+                <div class="analytics-kpi-sub" id="kpiFalseAlarmSub">AI-filtered codes</div>
+            </div>
+        </div>
+
+        <!-- Tab navigation -->
+        <div class="fleet-tabs" id="fleetTabs">
+            <button class="fleet-tab active" data-tab="action" onclick="showTab('action')">Action Center</button>
+            <button class="fleet-tab" data-tab="map" onclick="showTab('map')">Fleet Map</button>
+            <button class="fleet-tab" data-tab="reliability" onclick="showTab('reliability')">Reliability</button>
+            <button class="fleet-tab" data-tab="diagnostics" onclick="showTab('diagnostics')">Diagnostics</button>
+            <button class="fleet-tab" data-tab="explorer" onclick="showTab('explorer')">Explorer</button>
+            <button class="fleet-tab" data-tab="planner" onclick="showTab('planner')">Planner</button>
+            <button class="fleet-tab" data-tab="cost" onclick="showTab('cost')">Cost &amp; Fuel</button>
+        </div>
+
+        <!-- ── TAB: Action Center ─────────────────────────────────── -->
+        <div class="tab-panel active" id="panel-action">
+            <!-- Risk-tier filter chips -->
+            <div class="risk-chip-row" id="riskChips">
+                <div class="risk-chip" data-risk="CRITICAL" onclick="chipFilter('CRITICAL')">
+                    <span class="risk-chip-dot" style="background:#FF4444;"></span>
+                    <span class="risk-chip-count" id="chipCritical" style="color:#FF4444;">--</span>
+                    <span class="risk-chip-label">Critical</span>
+                </div>
+                <div class="risk-chip" data-risk="HIGH" onclick="chipFilter('HIGH')">
+                    <span class="risk-chip-dot" style="background:#FF6A00;"></span>
+                    <span class="risk-chip-count" id="chipHigh" style="color:#FF6A00;">--</span>
+                    <span class="risk-chip-label">High</span>
+                </div>
+                <div class="risk-chip" data-risk="MEDIUM" onclick="chipFilter('MEDIUM')">
+                    <span class="risk-chip-dot" style="background:#FFAB2E;"></span>
+                    <span class="risk-chip-count" id="chipMedium" style="color:#FFAB2E;">--</span>
+                    <span class="risk-chip-label">Medium</span>
+                </div>
+                <div class="risk-chip" data-risk="LOW" onclick="chipFilter('LOW')">
+                    <span class="risk-chip-dot" style="background:#00A972;"></span>
+                    <span class="risk-chip-count" id="chipLow" style="color:#00A972;">--</span>
+                    <span class="risk-chip-label">Low</span>
+                </div>
+            </div>
+
+            <!-- PREDICTIVE MAINTENANCE ACTION CENTER (centerpiece) -->
+            <div class="dash-section" style="margin-top:20px;">
+                <div class="dash-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                    <span>Predictive Maintenance Action Center <span class="source-badge source-badge-pg">Lakebase</span> <span class="source-badge source-badge-ml">MLflow</span></span>
+                    <span id="actionQueueCount" style="font-size:12px;color:var(--text-secondary);"></span>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin:0 0 14px;">A live triage queue of the highest-risk active vehicles. Each prediction is a decision waiting to happen &mdash; review the AI remediation plan and execute real fleet actions (schedule service, ground the vehicle, reassign stranded jobs, reserve parts) in one click.</p>
+                <div class="action-grid" id="actionGrid">
+                    <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading action queue...</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── TAB: Fleet Map ─────────────────────────────────────── -->
+        <div class="tab-panel" id="panel-map">
+        <!-- Map + Regional Summary -->
+        <div class="analytics-charts-row" style="margin-top:20px;">
+            <div class="analytics-chart-card" style="flex:2;">
+                <div class="analytics-chart-title">Fleet Health Map <span class="source-badge source-badge-pg">Lakebase</span></div>
+                <div id="fleetMap" style="height:420px;border-radius:8px;overflow:hidden;"></div>
+                <div style="display:flex;gap:16px;padding:8px 4px 0;font-size:11px;color:var(--text-muted);flex-wrap:wrap;">
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF4444;margin-right:4px;"></span>Critical</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF6A00;margin-right:4px;"></span>High</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFAB2E;margin-right:4px;"></span>Medium</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#00A972;margin-right:4px;"></span>Low</span>
+                </div>
+            </div>
+            <div class="analytics-chart-card" style="flex:1;">
+                <div class="analytics-chart-title">Fleet Health by Region <span class="source-badge source-badge-pg">Lakebase</span></div>
+                <div style="font-size:11px;color:var(--text-muted);margin:-6px 0 6px;">Click a region to drill into its vehicles below.</div>
+                <div id="regionalFleet" style="min-height:400px;max-height:460px;overflow-y:auto;">
+                    <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading...</span></div>
+                </div>
+            </div>
+        </div>
+        </div><!-- /panel-map -->
+
+        <!-- ── TAB: Reliability ───────────────────────────────────── -->
+        <div class="tab-panel" id="panel-reliability">
+        <!-- Vehicle Model Reliability (Iceberg) -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header">
+                <span>Vehicle Model Reliability <span class="source-badge source-badge-iceberg">Iceberg</span> <span class="source-badge source-badge-uc">SQL Warehouse</span></span>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">Make/model reliability aggregated from the <strong>Managed Iceberg</strong> gold telemetry medallion via the SQL warehouse &mdash; the asset-reliability roll-up fleet managers use for replacement &amp; purchasing decisions (which models break down most). Click a row to drill into that model below. Analytical lakehouse query, separate from the operational Lakebase views.</p>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="modelRelTable">
+                    <thead>
+                        <tr>
+                            <th>Make / Model</th>
+                            <th>Vehicles</th>
+                            <th>Avg Health</th>
+                            <th>At-Risk %</th>
+                            <th>Needs Maint.</th>
+                            <th>Avg Mileage</th>
+                            <th>Avg Engine Temp</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modelRelBody">
+                        <tr><td colspan="7" class="section-loading"><span class="loading-spinner sm"></span><span>Loading reliability analytics...</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        </div><!-- /panel-reliability -->
+
+        <!-- ── TAB: Explorer ──────────────────────────────────────── -->
+        <div class="tab-panel" id="panel-explorer">
+        <!-- Vehicle Explorer (drill-down) -->
+        <div class="dash-section" id="vehicleExplorer" style="margin-top:20px;">
+            <div class="dash-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <span>Vehicle Explorer <span class="source-badge source-badge-pg">Lakebase</span> <span class="source-badge source-badge-ml">MLflow</span></span>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <select id="filterRegion" onchange="loadVehicles(true)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+                        <option value="">All Regions</option>
+                    </select>
+                    <select id="filterRisk" onchange="loadVehicles(true)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+                        <option value="">All Risk</option>
+                        <option value="CRITICAL">Critical</option>
+                        <option value="HIGH">High</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="LOW">Low</option>
+                    </select>
+                    <select id="filterStatus" onchange="loadVehicles(true)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="in_shop">In Shop</option>
+                        <option value="retired">Retired</option>
+                    </select>
+                    <input id="filterSearch" type="text" placeholder="Search make/model/id" oninput="debouncedVehicles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;width:170px;">
+                </div>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">Focused drill-down (defaults to Critical + High risk). Click a row for full vehicle detail, telemetry trends, and diagnostic codes.</p>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="vehicleTable">
+                    <thead>
+                        <tr>
+                            <th>Vehicle</th>
+                            <th>Region</th>
+                            <th>Risk</th>
+                            <th>Health</th>
+                            <th>Odometer</th>
+                            <th>Predicted Failure</th>
+                            <th>Assigned Tech</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vehicleBody">
+                        <tr><td colspan="8" class="section-loading"><span class="loading-spinner sm"></span><span>Loading vehicles...</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="vehiclePager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:12px;color:var(--text-secondary);">
+                <span id="vehicleCount"></span>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button id="vehPrev" onclick="vehiclePage(-1)" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">Prev</button>
+                    <span id="vehPageLabel"></span>
+                    <button id="vehNext" onclick="vehiclePage(1)" style="padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">Next</button>
+                </div>
+            </div>
+        </div>
+        </div><!-- /panel-explorer -->
+
+        <!-- ── TAB: Diagnostics ───────────────────────────────────── -->
+        <div class="tab-panel" id="panel-diagnostics">
+        <!-- DTC Codes — AI interpreted (data-trust panel) -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <span>Diagnostic Trouble Codes &mdash; AI Interpreted <span class="source-badge source-badge-ai">AI Functions</span></span>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;cursor:pointer;">
+                        <input id="filterFP" type="checkbox" onchange="loadDtc()"> Only false positives
+                    </label>
+                    <select id="dtcSort" onchange="loadDtc()" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);font-size:12px;">
+                        <option value="reported_at">Newest first</option>
+                        <option value="severity">By AI severity</option>
+                    </select>
+                </div>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">Raw OBD-II codes are interpreted by an AI step that grades real severity and flags false positives (e.g. a P0455 loose fuel cap) so dispatchers don&rsquo;t roll a truck for nothing.</p>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="dtcTable">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Vehicle</th>
+                            <th>Region</th>
+                            <th>Raw Description</th>
+                            <th>Raw Sev</th>
+                            <th>AI Severity</th>
+                            <th>AI Explanation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dtcBody">
+                        <tr><td colspan="7" class="section-loading"><span class="loading-spinner sm"></span><span>Loading DTC codes...</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        </div><!-- /panel-diagnostics -->
+
+        <!-- ── TAB: Planner ───────────────────────────────────────── -->
+        <div class="tab-panel" id="panel-planner">
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header">
+                <span>Fleet Maintenance Planner <span class="source-badge source-badge-pg">Lakebase</span> <span class="source-badge source-badge-ai">AI Functions</span></span>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 4px;">Set your decision criteria below, then let the planner triage the whole fleet at once &mdash; it picks which vehicles to repair within budget, which to retire, and which to defer, then explains its reasoning. Execute the plan to apply every action in the live system in one click.</p>
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 0;"><strong>Operator constraints</strong> &mdash; the planner only considers vehicles that meet these gates and works within the daily budget.</p>
+
+            <!-- Constraint form -->
+            <div class="planner-form">
+                <div class="planner-field">
+                    <label for="plDailyBudget">Daily maintenance budget ($)</label>
+                    <input type="number" id="plDailyBudget" value="25000" min="0" step="1000">
+                </div>
+                <div class="planner-field">
+                    <label for="plMinYears">Min years in service</label>
+                    <input type="number" id="plMinYears" value="0" min="0" step="1">
+                </div>
+                <div class="planner-field">
+                    <label for="plMinOdometer">Min mileage (km)</label>
+                    <input type="number" id="plMinOdometer" value="0" min="0" step="10000">
+                </div>
+                <div class="planner-field">
+                    <label>Risk levels</label>
+                    <div class="planner-risk-row">
+                        <label><input type="checkbox" id="plRiskCritical" checked> Critical</label>
+                        <label><input type="checkbox" id="plRiskHigh" checked> High</label>
+                    </div>
+                </div>
+                <div class="planner-field">
+                    <label for="plMaxGround">Max vehicles grounded per region</label>
+                    <input type="number" id="plMaxGround" value="5" min="0" step="1">
+                </div>
+                <div class="planner-field">
+                    <label for="plRetireAge">Retire if age &ge; (years)</label>
+                    <input type="number" id="plRetireAge" value="8" min="0" step="1">
+                </div>
+                <div class="planner-field">
+                    <label for="plRetireMileage">Retire if mileage &ge; (km)</label>
+                    <input type="number" id="plRetireMileage" value="240000" min="0" step="10000">
+                </div>
+                <div class="planner-field">
+                    <label for="plRetireCostPct">Retire if repair &gt; (% of residual)</label>
+                    <input type="number" id="plRetireCostPct" value="40" min="0" step="5">
+                </div>
+                <div class="planner-field planner-actions">
+                    <button class="planner-btn" id="plGenerateBtn" onclick="generatePlan()">Generate Plan</button>
+                </div>
+            </div>
+
+            <!-- Results -->
+            <div id="plannerResults" style="margin-top:4px;"></div>
+        </div>
+        </div><!-- /panel-planner -->
+
+        <!-- ── TAB: Cost & Fuel ───────────────────────────────────────── -->
+        <div class="tab-panel" id="panel-cost">
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <span>
+                    Fuel &amp; Running-Cost Intelligence
+                    <span class="source-badge source-badge-iceberg">Iceberg</span>
+                    <span class="source-badge source-badge-uc">SQL Warehouse</span>
+                </span>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 4px;">Fuel-card data (previously stranded in Google Sheets / AppSheet) is now on the lakehouse — declining fuel economy is a leading mechanical-failure signal that the standard health score misses.</p>
+            <p style="font-size:11px;color:var(--text-muted);margin:0 0 16px;">
+                <span class="source-badge source-badge-iceberg" style="margin-left:0;margin-right:4px;">Iceberg</span>
+                Ingested via Auto Loader &rarr; Managed Iceberg
+            </p>
+
+            <!-- KPI row -->
+            <div class="analytics-kpis" id="costKpis">
+                <div class="analytics-kpi">
+                    <div class="analytics-kpi-label">Fuel Spend (60d)</div>
+                    <div class="analytics-kpi-value" id="costKpiFuel">--</div>
+                    <div class="analytics-kpi-sub">Fleet-wide fuel cards</div>
+                </div>
+                <div class="analytics-kpi">
+                    <div class="analytics-kpi-label">Annual Running Cost</div>
+                    <div class="analytics-kpi-value" id="costKpiAnnual">--</div>
+                    <div class="analytics-kpi-sub">Fuel + maintenance</div>
+                </div>
+                <div class="analytics-kpi analytics-kpi-warn">
+                    <div class="analytics-kpi-label">Fuel-Economy Anomalies</div>
+                    <div class="analytics-kpi-value" id="costKpiAnomalies">--</div>
+                    <div class="analytics-kpi-sub">Declining efficiency</div>
+                </div>
+                <div class="analytics-kpi">
+                    <div class="analytics-kpi-label">Avg Efficiency</div>
+                    <div class="analytics-kpi-value" id="costKpiEfficiency">--</div>
+                    <div class="analytics-kpi-sub">Fleet km/L</div>
+                </div>
+                <div class="analytics-kpi">
+                    <div class="analytics-kpi-label">Avg Fuel Cost/km</div>
+                    <div class="analytics-kpi-value" id="costKpiCostPerKm">--</div>
+                    <div class="analytics-kpi-sub">Fuel card avg</div>
+                </div>
+            </div>
+
+            <!-- Fuel-Economy Anomalies section -->
+            <div style="margin-top:28px;">
+                <div class="dash-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                    <span>Fuel-Economy Anomalies &mdash; Leading Failure Signal <span class="source-badge source-badge-ml">MLflow</span></span>
+                </div>
+                <p id="fuelAnomaliesSubtitle" style="font-size:12px;color:var(--text-secondary);margin:4px 0 12px;">&nbsp;</p>
+                <div style="overflow-x:auto;">
+                    <div id="fuelAnomalies">
+                        <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading fuel anomalies...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cost by Region section -->
+            <div style="margin-top:28px;">
+                <div class="dash-section-header">
+                    <span>Cost by Region <span class="source-badge source-badge-iceberg">Iceberg</span></span>
+                </div>
+                <div style="overflow-x:auto;margin-top:12px;">
+                    <div id="costByRegion">
+                        <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading regional costs...</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Costliest Vehicles section -->
+            <div style="margin-top:28px;">
+                <div class="dash-section-header">
+                    <span>Costliest Vehicles to Run <span class="source-badge source-badge-iceberg">Iceberg</span></span>
+                </div>
+                <div style="overflow-x:auto;margin-top:12px;">
+                    <div id="topCostVehicles">
+                        <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading costliest vehicles...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div><!-- /panel-cost -->
+    </div>
+
+    <!-- Detail drawer -->
+    <div class="fleet-drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+    <div class="fleet-drawer" id="fleetDrawer">
+        <div class="fleet-drawer-header">
+            <div>
+                <div id="drawerTitle" style="font-size:18px;font-weight:700;color:var(--text-primary);">Vehicle</div>
+                <div id="drawerSubtitle" style="font-size:12px;color:var(--text-secondary);"></div>
+            </div>
+            <button class="fleet-drawer-close" onclick="closeDrawer()">&times;</button>
+        </div>
+        <div class="fleet-drawer-body" id="drawerBody">
+            <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading...</span></div>
+        </div>
+    </div>
+
+    <!-- Remediation modal -->
+    <div class="remed-overlay" id="remedOverlay" onclick="if(event.target===this)closeRemediation()">
+        <div class="remed-modal" role="dialog" aria-modal="true">
+            <div class="remed-header">
+                <div>
+                    <div id="remedTitle" style="font-size:17px;font-weight:700;color:var(--text-primary);">Review &amp; Remediate</div>
+                    <div id="remedSubtitle" style="font-size:12px;color:var(--text-secondary);margin-top:2px;"></div>
+                </div>
+                <button class="fleet-drawer-close" onclick="closeRemediation()">&times;</button>
+            </div>
+            <div class="remed-body" id="remedBody">
+                <div class="section-loading"><span class="loading-spinner sm"></span><span>Building remediation plan...</span></div>
+            </div>
+            <div class="remed-footer" id="remedFooter">
+                <button class="action-btn action-btn-detail" style="flex:0 0 auto;" onclick="closeRemediation()">Cancel</button>
+                <button id="remedExecBtn" class="action-btn action-btn-remediate" style="flex:0 0 auto;" onclick="executeRemediation()" disabled>Execute Remediation</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="fleet-toast" id="fleetToast"></div>
+
+    <script>
+        function esc(s) { var d=document.createElement('div'); d.textContent=(s==null?'':s); return d.innerHTML; }
+
+        var RISK_COLORS = {
+            CRITICAL: '#FF4444', HIGH: '#FF6A00', MEDIUM: '#FFAB2E', LOW: '#00A972'
+        };
+
+        // ── Toast helper ──────────────────────────────────────────────
+        var _toastTimer = null;
+        function showToast(msg, isErr) {
+            var el = document.getElementById('fleetToast');
+            el.innerHTML = msg;
+            el.className = 'fleet-toast show' + (isErr ? ' err' : '');
+            clearTimeout(_toastTimer);
+            _toastTimer = setTimeout(function() { el.className = 'fleet-toast' + (isErr ? ' err' : ''); }, 5000);
+        }
+
+        function riskBadge(level) {
+            var c = RISK_COLORS[level] || 'var(--text-muted)';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid ' + c + ';color:' + c + ';">' + (level || 'unknown') + '</span>';
+        }
+
+        function healthBar(score) {
+            if (score === null || score === undefined) return '--';
+            var pct = Math.min(Math.max(score, 0), 100);
+            var color = pct >= 80 ? 'var(--status-completed)' : pct >= 60 ? 'var(--status-at-risk)' : 'var(--status-breached)';
+            return '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<div style="flex:1;height:6px;background:var(--bg-secondary);border-radius:3px;min-width:60px;">' +
+                '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;"></div></div>' +
+                '<span style="font-size:12px;font-weight:600;color:' + color + ';">' + Math.round(pct) + '</span></div>';
+        }
+
+        function fmtKm(km) {
+            if (km === null || km === undefined) return '--';
+            return Math.round(km).toLocaleString() + ' km';
+        }
+
+        function sevBadge(sev, raw) {
+            if (!sev) return '<span class="pending-ai">Pending AI review</span>';
+            var colors = { critical:'var(--status-breached)', high:'var(--status-at-risk)', medium:'var(--status-open)', low:'var(--status-completed)' };
+            var c = colors[sev] || 'var(--text-muted)';
+            var arrow = (raw && raw !== sev) ? '<span style="color:var(--text-muted);font-size:10px;margin-right:4px;">' + esc(raw) + ' &rarr;</span>' : '';
+            return arrow + '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid ' + c + ';color:' + c + ';">' + esc(sev) + '</span>';
+        }
+
+        // ── Summary (KPIs + risk chips + regional) ────────────────────
+        var _regionLookup = {};
+        function loadSummary() {
+            fetch('/api/fleet/summary')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    var k = data.kpis || {};
+                    document.getElementById('kpiTotal').textContent = (k.total_vehicles != null ? k.total_vehicles.toLocaleString() : '--');
+                    document.getElementById('kpiNeeds').textContent = (k.needs_maintenance != null ? k.needs_maintenance.toLocaleString() : '--');
+                    document.getElementById('kpiNeedsPct').textContent = (k.needs_maintenance_pct != null ? k.needs_maintenance_pct + '% of fleet' : 'High + Critical risk');
+                    document.getElementById('kpiHealth').textContent = (k.avg_health_score != null ? k.avg_health_score : '--');
+                    document.getElementById('kpiInShop').textContent = (k.in_shop != null ? k.in_shop.toLocaleString() : '--');
+                    document.getElementById('kpiFalseAlarm').textContent = (k.dtc_false_alarm_rate != null ? k.dtc_false_alarm_rate + '%' : '—');
+                    document.getElementById('kpiFalseAlarmSub').textContent = (k.dtc_interpreted_count ? (k.dtc_false_positive_count + ' of ' + k.dtc_interpreted_count + ' AI-flagged') : 'Awaiting AI review');
+
+                    var regions = data.regions || [];
+
+                    // Risk-tier chip counts (summed across regions)
+                    var tot = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0 };
+                    regions.forEach(function(r) {
+                        tot.CRITICAL += (r.critical || 0);
+                        tot.HIGH += (r.high_risk || 0);
+                        tot.MEDIUM += (r.medium_risk || 0);
+                        tot.LOW += (r.low_risk || 0);
+                    });
+                    document.getElementById('chipCritical').textContent = tot.CRITICAL.toLocaleString();
+                    document.getElementById('chipHigh').textContent = tot.HIGH.toLocaleString();
+                    document.getElementById('chipMedium').textContent = tot.MEDIUM.toLocaleString();
+                    document.getElementById('chipLow').textContent = tot.LOW.toLocaleString();
+
+                    // Region filter dropdown (populate once)
+                    var regSel = document.getElementById('filterRegion');
+                    if (regSel && regSel.options.length <= 1) {
+                        regions.forEach(function(r) {
+                            if (!r.region_code) return;
+                            _regionLookup[r.region_code] = r.region_name || r.region_code;
+                            var opt = document.createElement('option');
+                            opt.value = r.region_code;
+                            opt.textContent = r.region_name || r.region_code;
+                            regSel.appendChild(opt);
+                        });
+                    }
+
+                    var regEl = document.getElementById('regionalFleet');
+                    if (regions.length === 0) {
+                        regEl.innerHTML = '<div style="color:var(--text-muted);padding:20px;">No fleet health data available.</div>';
+                    } else {
+                        regEl.innerHTML = regions.map(function(r) {
+                            return '<div class="fleet-row" style="padding:10px 6px;border-bottom:1px solid var(--border);border-radius:6px;" onclick="regionFilter(\'' + esc(r.region_code) + '\')">' +
+                                '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
+                                    '<strong>' + esc(r.region_name || r.region_code) + '</strong>' +
+                                    '<span style="font-size:12px;color:var(--text-secondary);">' + (r.total_vehicles || 0) + ' vehicles</span>' +
+                                '</div>' +
+                                healthBar(r.avg_health_score) +
+                                '<div style="display:flex;gap:10px;margin-top:6px;font-size:11px;flex-wrap:wrap;">' +
+                                    '<span style="color:#FF4444;font-weight:600;">' + (r.critical || 0) + ' crit</span>' +
+                                    '<span style="color:#FF6A00;">' + (r.high_risk || 0) + ' high</span>' +
+                                    '<span style="color:#FFAB2E;">' + (r.medium_risk || 0) + ' med</span>' +
+                                    '<span style="color:#00A972;">' + (r.low_risk || 0) + ' low</span>' +
+                                    '<span style="color:var(--text-secondary);">' + (r.in_shop || 0) + ' in shop</span>' +
+                                '</div>' +
+                            '</div>';
+                        }).join('');
+                    }
+                    document.getElementById('fleetLastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+                })
+                .catch(function() {});
+        }
+
+        // ── Risk chip / region / model filter affordances ─────────────
+        function setActiveChip(risk) {
+            document.querySelectorAll('#riskChips .risk-chip').forEach(function(c) {
+                c.classList.toggle('active', c.getAttribute('data-risk') === risk);
+            });
+        }
+        function chipFilter(risk) {
+            document.getElementById('filterRisk').value = risk;
+            document.getElementById('filterStatus').value = '';
+            document.getElementById('filterSearch').value = '';
+            setActiveChip(risk);
+            showTab('explorer');
+            loadVehicles(true);
+        }
+        function regionFilter(regionCode) {
+            var sel = document.getElementById('filterRegion');
+            if (sel) sel.value = regionCode;
+            showTab('explorer');
+            loadVehicles(true);
+        }
+        function modelFilter(make, model) {
+            document.getElementById('filterSearch').value = ((make || '') + ' ' + (model || '')).trim();
+            document.getElementById('filterRisk').value = '';
+            setActiveChip(null);
+            showTab('explorer');
+            loadVehicles(true);
+        }
+
+        // ── Action Center queue ───────────────────────────────────────
+        function loadActionQueue() {
+            fetch('/api/fleet/action-queue')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var grid = document.getElementById('actionGrid');
+                    var queue = (data && data.queue) || [];
+                    document.getElementById('actionQueueCount').textContent = queue.length ? (queue.length + ' vehicles awaiting a decision') : '';
+                    if (queue.length === 0) {
+                        grid.innerHTML = '<div class="action-empty">&#10003; No vehicles need action &mdash; fleet is healthy.</div>';
+                        return;
+                    }
+                    grid.innerHTML = queue.map(function(v) {
+                        var label = esc(((v.model_year || '') + ' ' + (v.make || '') + ' ' + (v.model || '')).trim());
+                        var tier = (v.risk_category === 'CRITICAL' || v.risk_category === 'HIGH') ? v.risk_category : '';
+                        var jobs = (v.open_jobs != null) ? v.open_jobs : 0;
+                        var strand = jobs > 0
+                            ? '<div class="action-strand">Grounding strands ' + jobs + ' open job' + (jobs === 1 ? '' : 's') + ' assigned to ' + esc(v.tech_name || 'this tech') + '</div>'
+                            : '';
+                        var vid = esc(v.vehicle_id);
+                        return '<div class="action-card tier-' + esc(v.risk_category || '') + '">' +
+                            '<div class="action-card-head">' +
+                                '<div><div class="action-card-veh">' + (label || vid) + '</div>' +
+                                    '<div class="action-card-id">' + vid + '</div></div>' +
+                                riskBadge(v.risk_category) +
+                            '</div>' +
+                            healthBar(v.health_score) +
+                            '<div class="action-card-meta">' +
+                                '<div class="action-card-meta-row"><span>Predicted failure</span><strong style="color:var(--text-primary);">' + esc(v.predicted_failure_date || '--') + '</strong></div>' +
+                                '<div class="action-card-meta-row"><span>Region</span><span>' + esc(v.region_code || '--') + '</span></div>' +
+                                '<div class="action-card-meta-row"><span>Assigned tech</span><span>' + esc(v.tech_name || 'Unassigned') + '</span></div>' +
+                                '<div class="action-card-meta-row"><span>Top fault code</span><span>' + (v.top_dtc ? esc(v.top_dtc) : '<span style="color:var(--text-muted);">none</span>') + '</span></div>' +
+                            '</div>' +
+                            strand +
+                            '<div class="action-card-buttons">' +
+                                '<div class="action-btn action-btn-detail" onclick="openDrawer(\'' + vid + '\')">Details</div>' +
+                                '<div class="action-btn action-btn-remediate" onclick="openRemediation(\'' + vid + '\',\'' + (label || vid) + '\')">Review &amp; Remediate</div>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('actionGrid').innerHTML = '<div class="section-loading" style="color:var(--status-breached);">Failed to load the action queue.</div>';
+                });
+        }
+
+        // ── Remediation modal ─────────────────────────────────────────
+        var _remedVehicleId = null;
+        function openRemediation(vehicleId, label) {
+            _remedVehicleId = vehicleId;
+            document.getElementById('remedOverlay').classList.add('open');
+            document.getElementById('remedTitle').textContent = 'Review & Remediate';
+            document.getElementById('remedSubtitle').textContent = (label && label !== vehicleId) ? (label + ' · ' + vehicleId) : vehicleId;
+            document.getElementById('remedBody').innerHTML = '<div class="section-loading"><span class="loading-spinner sm"></span><span>Building remediation plan...</span></div>';
+            document.getElementById('remedFooter').style.display = 'flex';
+            var btn = document.getElementById('remedExecBtn');
+            btn.disabled = true;
+            btn.textContent = 'Execute Remediation';
+
+            fetch('/api/fleet/remediation-plan/' + encodeURIComponent(vehicleId))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) {
+                        document.getElementById('remedBody').innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">' + esc(data.error) + '</div>';
+                        return;
+                    }
+                    renderRemediationPlan(data);
+                    btn.disabled = false;
+                })
+                .catch(function() {
+                    document.getElementById('remedBody').innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">Failed to build remediation plan.</div>';
+                });
+        }
+
+        function renderRemediationPlan(data) {
+            var p = data.preview || {};
+            var planText = data.plan ? esc(data.plan) : '<em style="color:var(--text-muted);">AI plan unavailable &mdash; proceeding with standard remediation.</em>';
+
+            var html = '';
+            html += '<div class="remed-section-title">AI-Recommended Plan <span class="source-badge source-badge-ai" style="margin-left:6px;">AI Functions</span></div>';
+            html += '<div class="remed-plan">' + planText + '</div>';
+
+            html += '<div class="remed-section-title">What "Execute" Will Do</div>';
+
+            function money(n) { return '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 0}); }
+            function plainItem(t) {
+                return '<div class="remed-preview-item"><span class="remed-preview-icon">&#9656;</span><span>' + t + '</span></div>';
+            }
+            function drillItem(label, detailHtml) {
+                return '<details class="remed-drill"><summary><span class="remed-caret">&#9656;</span><span>' + label +
+                       '</span></summary><div class="remed-detail">' + detailHtml + '</div></details>';
+            }
+
+            html += plainItem('Create a maintenance work order for this vehicle');
+            if (p.will_ground_vehicle !== false) {
+                html += plainItem('Ground the vehicle (status &rarr; <strong>in shop</strong>)');
+            }
+
+            // Reassign — drill into the actual jobs
+            var jobs = p.jobs || [];
+            var reassign = (p.open_jobs_to_reassign != null) ? p.open_jobs_to_reassign : jobs.length;
+            var reassignLabel = 'Reassign the technician&rsquo;s <strong>' + reassign + '</strong> open job' + (reassign === 1 ? '' : 's') + ' to available techs';
+            if (jobs.length) {
+                var jobsHtml = '<table class="remed-cost-table"><thead><tr><th>Work Order</th><th>Title</th><th>Priority</th></tr></thead><tbody>' +
+                    jobs.map(function(j) {
+                        return '<tr><td>' + esc(j.work_order_number) + '</td><td>' + esc(j.title || '--') + '</td><td>' + esc(j.priority || '--') + '</td></tr>';
+                    }).join('') + '</tbody></table>';
+                html += drillItem(reassignLabel, jobsHtml);
+            } else {
+                html += plainItem(reassignLabel + ' <span style="color:var(--text-muted);">(none open)</span>');
+            }
+
+            // Parts — drill into the costed parts list
+            var parts = p.parts || [];
+            if (parts.length) {
+                var partsLabel = 'Order <strong>' + parts.length + '</strong> part' + (parts.length === 1 ? '' : 's') +
+                    ' &mdash; <strong>' + money(p.parts_total) + '</strong> parts';
+                var partsHtml = '<table class="remed-cost-table"><thead><tr><th>Part</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead><tbody>' +
+                    parts.map(function(pt) {
+                        return '<tr><td>' + esc(pt.part) + '</td><td class="num">' + esc(pt.qty) + '</td><td class="num">' + money(pt.unit_cost) + '</td><td class="num">' + money(pt.line_total) + '</td></tr>';
+                    }).join('') +
+                    '<tr><td colspan="3"><strong>Parts subtotal</strong></td><td class="num"><strong>' + money(p.parts_total) + '</strong></td></tr>' +
+                    '<tr><td colspan="3">Labor (' + esc(p.labor_hours) + ' h @ $120/h)</td><td class="num">' + money(p.labor_total) + '</td></tr>' +
+                    '</tbody></table>';
+                html += drillItem(partsLabel, partsHtml);
+            }
+
+            // DTCs — drill into the codes
+            var dtcs = p.dtcs || [];
+            if (dtcs.length) {
+                var dtcLabel = 'Resolve / track <strong>' + dtcs.length + '</strong> active diagnostic code' + (dtcs.length === 1 ? '' : 's');
+                var dtcHtml = '<table class="remed-cost-table"><thead><tr><th>Code</th><th>Severity</th><th>Description</th></tr></thead><tbody>' +
+                    dtcs.map(function(d) {
+                        var fp = d.is_false_positive ? ' <span style="color:var(--text-muted);font-size:10px;">(false positive)</span>' : '';
+                        return '<tr><td><strong>' + esc(d.code) + '</strong>' + fp + '</td><td>' + esc(d.severity || '--') + '</td><td>' + esc(d.description || '--') + '</td></tr>';
+                    }).join('') + '</tbody></table>';
+                html += drillItem(dtcLabel, dtcHtml);
+            }
+
+            if (p.predicted_failure_date) {
+                html += plainItem('Predicted failure date on record: <strong>' + esc(p.predicted_failure_date) + '</strong>');
+            }
+
+            // Chargeback banner
+            if (p.chargeback_total != null) {
+                html += '<div class="remed-chargeback"><span>Estimated chargeback to <strong style="color:var(--text-primary);font-size:13px;">' +
+                    esc(p.chargeback_region || 'region') + '</strong> team &mdash; parts ' + money(p.parts_total) + ' + labor ' + money(p.labor_total) +
+                    '</span><strong>' + money(p.chargeback_total) + '</strong></div>';
+            }
+
+            document.getElementById('remedBody').innerHTML = html;
+        }
+
+        function executeRemediation() {
+            if (!_remedVehicleId) return;
+            var btn = document.getElementById('remedExecBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner sm"></span> Executing...';
+
+            fetch('/api/fleet/remediate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vehicle_id: _remedVehicleId, actions: ['schedule', 'reassign', 'parts'] })
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error || !data.success) {
+                        document.getElementById('remedBody').innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">' + esc(data.error || 'Remediation failed.') + '</div>';
+                        btn.disabled = false;
+                        btn.textContent = 'Retry';
+                        showToast('Remediation failed: ' + esc(data.error || 'unknown error'), true);
+                        return;
+                    }
+                    renderRemediationResult(data.summary || {});
+                    showToast('&#10003; Remediation executed &mdash; vehicle grounded and jobs reassigned.', false);
+                    // Refresh queue + KPIs; the vehicle should drop out (now in_shop)
+                    loadActionQueue();
+                    loadSummary();
+                    // Only refresh the map if it's already been initialized (its tab
+                    // was opened) — initializing it while hidden breaks Leaflet sizing.
+                    if (_map) loadMap();
+                    if (_loadedTabs.explorer) loadVehicles(true);
+                })
+                .catch(function() {
+                    document.getElementById('remedBody').innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">Remediation request failed.</div>';
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    showToast('Remediation request failed.', true);
+                });
+        }
+
+        function renderRemediationResult(summary) {
+            var actions = summary.actions || [];
+            var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--status-completed,#00A972);font-weight:700;font-size:14px;">&#10003; Remediation complete</div>';
+            html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Vehicle ' + esc(summary.vehicle_id || _remedVehicleId) + ' &mdash; the following changes were applied in the live system:</div>';
+
+            actions.forEach(function(a) {
+                if (a.type === 'schedule_service') {
+                    html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span>Work order <strong>' + esc(a.work_order_number || '--') + '</strong> created' + (a.vehicle_grounded ? ' &mdash; vehicle grounded (in shop)' : '') + '</span></div>';
+                } else if (a.type === 'reassign_workload') {
+                    var cnt = (a.count != null) ? a.count : ((a.reassigned || []).length);
+                    html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span><strong>' + cnt + '</strong> job' + (cnt === 1 ? '' : 's') + ' reassigned' + (a.unassigned_remaining ? ' (' + a.unassigned_remaining + ' still unassigned)' : '') + '</span></div>';
+                    (a.reassigned || []).forEach(function(rj) {
+                        html += '<div style="font-size:12px;color:var(--text-secondary);margin:2px 0 2px 24px;">' + esc(rj.work_order_number || '--') + ' &rarr; ' + esc(rj.to || 'available tech') + '</div>';
+                    });
+                } else if (a.type === 'reserve_parts') {
+                    var pcount = (a.parts || []).length || ((a.reserved != null) ? a.reserved : 0);
+                    html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span><strong>' + pcount + '</strong> part' + (pcount === 1 ? '' : 's') + ' ordered &mdash; parts $' + Number(a.parts_total || 0).toLocaleString() + '</span></div>';
+                    (a.parts || []).forEach(function(pt) {
+                        html += '<div style="font-size:12px;color:var(--text-secondary);margin:2px 0 2px 24px;">' + esc(pt.part) + ' x' + esc(pt.qty) + ' &mdash; $' + Number(pt.line_total || 0).toLocaleString() + '</div>';
+                    });
+                    if (a.chargeback_total != null) {
+                        html += '<div style="font-size:12px;margin:4px 0 2px 24px;color:var(--accent-primary);font-weight:700;">Chargeback: $' + Number(a.chargeback_total).toLocaleString() + ' (parts + ' + esc(a.labor_hours) + 'h labor)</div>';
+                    }
+                } else {
+                    html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span>' + esc(a.type || 'action') + ' completed</span></div>';
+                }
+            });
+
+            document.getElementById('remedBody').innerHTML = html;
+            // Swap footer to a single Close button
+            document.getElementById('remedFooter').innerHTML =
+                '<button class="action-btn action-btn-remediate" style="flex:0 0 auto;" onclick="closeRemediation()">Done</button>';
+        }
+
+        function closeRemediation() {
+            document.getElementById('remedOverlay').classList.remove('open');
+            _remedVehicleId = null;
+            // Restore footer buttons for next open
+            document.getElementById('remedFooter').innerHTML =
+                '<button class="action-btn action-btn-detail" style="flex:0 0 auto;" onclick="closeRemediation()">Cancel</button>' +
+                '<button id="remedExecBtn" class="action-btn action-btn-remediate" style="flex:0 0 auto;" onclick="executeRemediation()" disabled>Execute Remediation</button>';
+        }
+
+        // ── Vehicles list (drill-down, paginated) ─────────────────────
+        var _vehLimit = 50;
+        var _vehOffset = 0;
+        var _vehTotal = 0;
+        var _defaultRiskApplied = false;
+
+        function loadVehicles(resetPage) {
+            if (resetPage) _vehOffset = 0;
+            var region = document.getElementById('filterRegion').value;
+            var risk = document.getElementById('filterRisk').value;
+            var status = document.getElementById('filterStatus').value;
+            var search = document.getElementById('filterSearch').value;
+            var url = '/api/fleet/vehicles?limit=' + _vehLimit + '&offset=' + _vehOffset;
+            if (region) url += '&region=' + encodeURIComponent(region);
+            if (risk) url += '&risk_category=' + encodeURIComponent(risk);
+            if (status) url += '&status=' + encodeURIComponent(status);
+            if (search) url += '&search=' + encodeURIComponent(search);
+            setActiveChip(risk || null);
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var body = document.getElementById('vehicleBody');
+                    var rows = (data.vehicles) || [];
+                    _vehTotal = (data.total != null) ? data.total : rows.length;
+                    if (rows.length === 0) {
+                        body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No vehicles match the current filters.</td></tr>';
+                    } else {
+                        body.innerHTML = rows.map(function(v) {
+                            var label = esc(((v.model_year || '') + ' ' + (v.make || '') + ' ' + (v.model || '')).trim());
+                            return '<tr class="fleet-row" onclick="openDrawer(\'' + esc(v.vehicle_id) + '\')">' +
+                                '<td><strong>' + label + '</strong><div style="font-size:11px;color:var(--text-muted);">' + esc(v.vehicle_id) + '</div></td>' +
+                                '<td>' + esc(v.region_code || '--') + '</td>' +
+                                '<td>' + riskBadge(v.risk_category) + '</td>' +
+                                '<td>' + healthBar(v.health_score) + '</td>' +
+                                '<td>' + fmtKm(v.odometer_km) + '</td>' +
+                                '<td>' + esc(v.predicted_failure_date || '--') + '</td>' +
+                                '<td>' + esc(v.tech_name || 'Unassigned') + '</td>' +
+                                '<td>' + esc(v.status || '--') + '</td>' +
+                            '</tr>';
+                        }).join('');
+                    }
+                    updateVehiclePager(rows.length);
+                })
+                .catch(function() {
+                    document.getElementById('vehicleBody').innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--status-breached);">Failed to load vehicles.</td></tr>';
+                });
+        }
+
+        function updateVehiclePager(shownCount) {
+            var start = _vehTotal === 0 ? 0 : _vehOffset + 1;
+            var end = _vehOffset + shownCount;
+            document.getElementById('vehicleCount').textContent = _vehTotal
+                ? ('Showing ' + start + '–' + end + ' of ' + _vehTotal.toLocaleString())
+                : '';
+            var page = Math.floor(_vehOffset / _vehLimit) + 1;
+            var pages = Math.max(1, Math.ceil(_vehTotal / _vehLimit));
+            document.getElementById('vehPageLabel').textContent = 'Page ' + page + ' of ' + pages;
+            document.getElementById('vehPrev').disabled = _vehOffset <= 0;
+            document.getElementById('vehNext').disabled = (_vehOffset + _vehLimit) >= _vehTotal;
+        }
+
+        function vehiclePage(dir) {
+            var next = _vehOffset + dir * _vehLimit;
+            if (next < 0) next = 0;
+            if (next >= _vehTotal) return;
+            _vehOffset = next;
+            loadVehicles(false);
+        }
+
+        var _searchTimer = null;
+        function debouncedVehicles() {
+            clearTimeout(_searchTimer);
+            _searchTimer = setTimeout(function() { loadVehicles(true); }, 350);
+        }
+
+        // ── DTC codes ─────────────────────────────────────────────────
+        function loadDtc() {
+            var sort = document.getElementById('dtcSort').value;
+            var fp = document.getElementById('filterFP').checked;
+            var url = '/api/fleet/dtc-codes?limit=200&sort=' + encodeURIComponent(sort);
+            if (fp) url += '&false_positives=true';
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var body = document.getElementById('dtcBody');
+                    var rows = (data.dtc_codes) || [];
+                    if (rows.length === 0) {
+                        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No active DTC codes.</td></tr>';
+                        return;
+                    }
+                    body.innerHTML = rows.map(function(d) {
+                        var fpCell = '';
+                        if (d.ai_interpreted_at == null) {
+                            fpCell = '';
+                        } else if (d.is_false_positive) {
+                            fpCell = ' <span class="fp-badge">False Positive</span>';
+                        }
+                        var expl = d.ai_explanation ? esc(d.ai_explanation) : '<span class="pending-ai">Pending AI review</span>';
+                        return '<tr>' +
+                            '<td><strong>' + esc(d.code) + '</strong>' + fpCell + '</td>' +
+                            '<td>' + esc(((d.make || '') + ' ' + (d.model || '')).trim()) + '<div style="font-size:11px;color:var(--text-muted);">' + esc(d.vehicle_id) + '</div></td>' +
+                            '<td>' + esc(d.region_code || '--') + '</td>' +
+                            '<td style="max-width:220px;">' + esc(d.raw_description || '--') + '</td>' +
+                            '<td>' + esc(d.raw_severity || '--') + '</td>' +
+                            '<td>' + sevBadge(d.ai_severity, d.raw_severity) + '</td>' +
+                            '<td style="max-width:300px;font-size:12px;">' + expl + '</td>' +
+                        '</tr>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('dtcBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-breached);">Failed to load DTC codes.</td></tr>';
+                });
+        }
+
+        // ── Map ───────────────────────────────────────────────────────
+        var _map = null, _markers = null;
+        function ensureMap() {
+            if (_map) return;
+            var light = document.documentElement.getAttribute('data-theme') === 'dbx-light';
+            _map = L.map('fleetMap', { zoomControl: true, attributionControl: false }).setView([39.5, -98.35], 4);
+            L.tileLayer(light
+                ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(_map);
+            _markers = L.layerGroup().addTo(_map);
+        }
+
+        function loadMap() {
+            fetch('/api/fleet/map')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    ensureMap();
+                    _markers.clearLayers();
+                    var vehicles = (data.vehicles) || [];
+                    vehicles.forEach(function(v) {
+                        if (v.latitude == null || v.longitude == null) return;
+                        var color = RISK_COLORS[v.risk_category] || '#888';
+                        var m = L.circleMarker([v.latitude, v.longitude], {
+                            radius: 5, color: color, fillColor: color, fillOpacity: 0.85, weight: 1
+                        });
+                        m.bindPopup('<strong>' + esc((v.make || '') + ' ' + (v.model || '')) + '</strong><br>' +
+                            esc(v.vehicle_id) + '<br>Risk: ' + esc(v.risk_category || '--') +
+                            '<br>Health: ' + (v.health_score != null ? Math.round(v.health_score) : '--') +
+                            '<br>Tech: ' + esc(v.tech_name || 'Unassigned'));
+                        m.on('click', function() { openDrawer(v.vehicle_id); });
+                        _markers.addLayer(m);
+                    });
+                })
+                .catch(function() {});
+        }
+
+        // ── Detail drawer ─────────────────────────────────────────────
+        function openDrawer(vehicleId) {
+            document.getElementById('drawerOverlay').style.display = 'block';
+            document.getElementById('fleetDrawer').classList.add('open');
+            document.getElementById('drawerBody').innerHTML = '<div class="section-loading"><span class="loading-spinner sm"></span><span>Loading...</span></div>';
+            document.getElementById('drawerTitle').textContent = 'Vehicle';
+            document.getElementById('drawerSubtitle').textContent = vehicleId;
+            fetch('/api/fleet/vehicle/' + encodeURIComponent(vehicleId))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) {
+                        document.getElementById('drawerBody').innerHTML = '<div style="color:var(--status-breached);padding:20px;">' + esc(data.error) + '</div>';
+                        return;
+                    }
+                    renderDrawer(data);
+                })
+                .catch(function() {
+                    document.getElementById('drawerBody').innerHTML = '<div style="color:var(--status-breached);padding:20px;">Failed to load vehicle detail.</div>';
+                });
+        }
+
+        function closeDrawer() {
+            document.getElementById('drawerOverlay').style.display = 'none';
+            document.getElementById('fleetDrawer').classList.remove('open');
+        }
+
+        function spec(label, value) {
+            return '<div><div class="fleet-spec-label">' + esc(label) + '</div><div class="fleet-spec-value">' + esc(value) + '</div></div>';
+        }
+
+        // Tiny inline SVG sparkline from an array of numbers
+        function sparkline(values, color) {
+            var pts = (values || []).filter(function(x) { return x != null; });
+            if (pts.length < 2) return '<span style="font-size:11px;color:var(--text-muted);">no trend</span>';
+            var w = 120, h = 28, min = Math.min.apply(null, pts), max = Math.max.apply(null, pts);
+            var range = (max - min) || 1;
+            var step = w / (pts.length - 1);
+            var d = pts.map(function(v, i) {
+                var x = (i * step).toFixed(1);
+                var y = (h - ((v - min) / range) * (h - 4) - 2).toFixed(1);
+                return (i === 0 ? 'M' : 'L') + x + ',' + y;
+            }).join(' ');
+            return '<svg width="' + w + '" height="' + h + '" style="overflow:visible;"><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.5"/></svg>';
+        }
+
+        function renderDrawer(data) {
+            var v = data.vehicle || {};
+            var t = data.latest_telemetry;
+            var trend = data.trend || [];
+            document.getElementById('drawerTitle').textContent = ((v.model_year || '') + ' ' + (v.make || '') + ' ' + (v.model || '')).trim() || v.vehicle_id;
+            document.getElementById('drawerSubtitle').textContent = v.vehicle_id + (v.vin ? ' · VIN ' + v.vin : '');
+
+            var html = '';
+            // Header badges
+            html += '<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">' +
+                riskBadge(v.risk_category) +
+                '<div style="flex:1;min-width:160px;">' + healthBar(v.health_score) + '</div>' +
+                '<span style="font-size:11px;color:var(--text-secondary);">' + esc(v.status || '') + '</span>' +
+            '</div>';
+
+            // Inline remediate action from the drawer (active high/critical only)
+            if ((v.risk_category === 'CRITICAL' || v.risk_category === 'HIGH') && v.status === 'active') {
+                html += '<div style="margin-bottom:14px;"><div class="action-btn action-btn-remediate" style="display:inline-block;" onclick="closeDrawer();openRemediation(\'' + esc(v.vehicle_id) + '\',\'' + esc(((v.model_year || '') + ' ' + (v.make || '') + ' ' + (v.model || '')).trim()) + '\')">Review &amp; Remediate</div></div>';
+            }
+
+            // Specs
+            html += '<div class="fleet-spec-grid">' +
+                spec('Region', v.region_name || v.region_code || '--') +
+                spec('Assigned Tech', v.tech_name || 'Unassigned') +
+                spec('Odometer', fmtKm(v.odometer_km)) +
+                spec('Predicted Failure', v.predicted_failure_date || '--') +
+                spec('Last Service', v.last_service_date || '--') +
+                spec('Next Service Due', fmtKm(v.next_service_due_km)) +
+                spec('In Service Since', v.in_service_date || '--') +
+                spec('Health Profile', v.health_profile || '--') +
+            '</div>';
+
+            // Telemetry sparklines
+            html += '<h4 style="margin:18px 0 8px;font-size:13px;color:var(--text-primary);">30-Day Telemetry</h4>';
+            if (trend.length < 2) {
+                html += '<div style="font-size:12px;color:var(--text-muted);">No recent telemetry.</div>';
+            } else {
+                html += sparkRow('Engine Temp', trend.map(function(x){return x.engine_temp_c;}), '#FF6A00', t ? (t.engine_temp_c != null ? Math.round(t.engine_temp_c) + '°C' : '--') : '--');
+                html += sparkRow('Oil Life', trend.map(function(x){return x.oil_life_pct;}), '#0194E2', t ? (t.oil_life_pct != null ? Math.round(t.oil_life_pct) + '%' : '--') : '--');
+                html += sparkRow('Battery', trend.map(function(x){return x.battery_voltage;}), '#00A972', t ? (t.battery_voltage != null ? t.battery_voltage.toFixed(1) + 'V' : '--') : '--');
+                html += sparkRow('Health', trend.map(function(x){return x.health_score;}), '#9333EA', t ? (t.health_score != null ? Math.round(t.health_score) : '--') : '--');
+            }
+
+            // Active DTCs
+            var dtc = data.dtc_codes || [];
+            html += '<h4 style="margin:18px 0 8px;font-size:13px;color:var(--text-primary);">Active Diagnostic Codes (' + dtc.length + ')</h4>';
+            if (dtc.length === 0) {
+                html += '<div style="font-size:12px;color:var(--text-muted);">No active codes.</div>';
+            } else {
+                html += dtc.map(function(d) {
+                    var fp = (d.ai_interpreted_at != null && d.is_false_positive) ? ' <span class="fp-badge">False Positive</span>' : '';
+                    var expl = d.ai_explanation ? esc(d.ai_explanation) : '<span class="pending-ai">Pending AI review</span>';
+                    return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+                        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+                            '<span><strong>' + esc(d.code) + '</strong>' + fp + '</span>' +
+                            sevBadge(d.ai_severity, d.raw_severity) +
+                        '</div>' +
+                        '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">' + esc(d.raw_description || '') + '</div>' +
+                        '<div style="font-size:12px;margin-top:4px;">' + expl + '</div>' +
+                    '</div>';
+                }).join('');
+            }
+
+            // Open work orders
+            var wos = data.work_orders || [];
+            if (wos.length > 0) {
+                html += '<h4 style="margin:18px 0 8px;font-size:13px;color:var(--text-primary);">Open Maintenance Work Orders (' + wos.length + ')</h4>';
+                html += wos.map(function(w) {
+                    return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">' +
+                        '<strong>' + esc(w.work_order_number || w.work_order_id) + '</strong> &mdash; ' + esc(w.title || '') +
+                        '<div style="font-size:11px;color:var(--text-secondary);">' + esc(w.priority || '') + ' · ' + esc(w.status || '') + '</div>' +
+                    '</div>';
+                }).join('');
+            }
+
+            // Maintenance history
+            var hist = data.maintenance_history || [];
+            html += '<h4 style="margin:18px 0 8px;font-size:13px;color:var(--text-primary);">Maintenance History</h4>';
+            if (hist.length === 0) {
+                html += '<div style="font-size:12px;color:var(--text-muted);">No service records.</div>';
+            } else {
+                html += hist.map(function(h) {
+                    var pred = h.was_predicted ? ' <span class="fp-badge" style="background:rgba(1,148,226,0.15);color:#0194E2;border-color:rgba(1,148,226,0.35);">Predicted</span>' : '';
+                    return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                        '<span>' + esc(h.service_type || 'Service') + pred + '<div style="font-size:11px;color:var(--text-secondary);">' + esc(h.service_date || '') + ' · ' + fmtKm(h.odometer_at_service) + '</div></span>' +
+                        '<span style="font-weight:600;">' + (h.cost != null ? '$' + Math.round(h.cost).toLocaleString() : '--') + '</span>' +
+                    '</div>';
+                }).join('');
+            }
+
+            // Cost & Fuel Economy (only when data.cost is present)
+            var cost = data.cost;
+            if (cost) {
+                html += '<h4 style="margin:18px 0 8px;font-size:13px;color:var(--text-primary);">Cost &amp; Fuel Economy</h4>';
+
+                // Efficiency now vs baseline with trend
+                var effNow = cost.recent_kmpl != null ? Number(cost.recent_kmpl).toFixed(2) + ' km/L' : '—';
+                var effBase = cost.older_kmpl != null ? Number(cost.older_kmpl).toFixed(2) + ' km/L' : '—';
+                var trendStyle = (cost.eff_trend_pct != null && cost.eff_trend_pct < 0) ? 'color:var(--status-breached);font-weight:700;' : 'color:var(--status-completed);font-weight:600;';
+                var trendTxt = cost.eff_trend_pct != null
+                    ? (cost.eff_trend_pct < 0 ? ('▼ ' + Math.abs(Number(cost.eff_trend_pct)).toFixed(1) + '%') : ('+' + Number(cost.eff_trend_pct).toFixed(1) + '%'))
+                    : '—';
+
+                html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                        '<span style="font-size:12px;color:var(--text-secondary);">Efficiency now vs baseline</span>' +
+                        '<span style="font-size:13px;font-weight:600;">' + esc(effNow) + ' <span style="color:var(--text-muted);font-weight:400;">vs</span> ' + esc(effBase) + ' &nbsp;<span style="' + trendStyle + '">' + esc(trendTxt) + '</span></span>' +
+                    '</div>' +
+                    (cost.fuel_anomaly ? '<div style="margin-top:4px;font-size:12px;color:#FFAB2E;font-weight:600;">⚠ Fuel economy declining</div>' : '') +
+                '</div>';
+
+                html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                    '<span style="color:var(--text-secondary);">Fuel spend (60d)</span>' +
+                    '<span style="font-weight:600;">' + (cost.fuel_cost_60d != null ? plMoney(cost.fuel_cost_60d) : '—') + '</span>' +
+                '</div>';
+
+                html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                    '<span style="color:var(--text-secondary);">Fuel $/km</span>' +
+                    '<span style="font-weight:600;">' + (cost.fuel_cost_per_km != null ? '$' + Number(cost.fuel_cost_per_km).toFixed(3) : '—') + '</span>' +
+                '</div>';
+
+                html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                    '<span style="color:var(--text-secondary);">External invoices</span>' +
+                    '<span style="font-weight:600;">' + (cost.external_invoices != null ? cost.external_invoices.toLocaleString() : '—') + '</span>' +
+                '</div>';
+
+                html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                    '<span style="color:var(--text-secondary);">Maintenance (365d)</span>' +
+                    '<span style="font-weight:600;">' + (cost.maint_cost_365d != null ? plMoney(cost.maint_cost_365d) : '—') + '</span>' +
+                '</div>';
+
+                html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;gap:8px;">' +
+                    '<span style="color:var(--text-secondary);">Annual running cost</span>' +
+                    '<span style="font-weight:600;">' + (cost.annual_running_cost != null ? plMoney(cost.annual_running_cost) : '—') + '</span>' +
+                '</div>';
+            }
+
+            document.getElementById('drawerBody').innerHTML = html;
+        }
+
+        function sparkRow(label, values, color, latest) {
+            return '<div class="sparkline-row">' +
+                '<span class="sparkline-label">' + esc(label) + '</span>' +
+                sparkline(values, color) +
+                '<span class="sparkline-val">' + esc(latest) + '</span>' +
+            '</div>';
+        }
+
+        // ── Vehicle model reliability (Iceberg gold via SQL warehouse) ──
+        function loadModelReliability() {
+            fetch('/api/fleet/reliability-by-model')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var rows = d.models || [];
+                    var body = document.getElementById('modelRelBody');
+                    if (!rows.length) {
+                        var msg = (d.available === false)
+                            ? 'Iceberg gold medallion not built yet &mdash; run the telemetry pipeline.'
+                            : 'No model reliability data.';
+                        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">' + msg + '</td></tr>';
+                        return;
+                    }
+                    body.innerHTML = rows.map(function(m) {
+                        var miles = (m.avg_odometer_km != null) ? Number(m.avg_odometer_km).toLocaleString() + ' km' : '--';
+                        return '<tr class="fleet-row" onclick="modelFilter(\'' + esc(m.make) + '\',\'' + esc(m.model) + '\')">' +
+                            '<td><strong>' + esc(((m.make || '') + ' ' + (m.model || '')).trim()) + '</strong></td>' +
+                            '<td>' + esc(m.vehicles) + '</td>' +
+                            '<td>' + healthBar(m.avg_health) + '</td>' +
+                            '<td>' + esc(m.at_risk_pct) + '%</td>' +
+                            '<td>' + esc(m.needs_maintenance) + '</td>' +
+                            '<td>' + miles + '</td>' +
+                            '<td>' + (m.avg_engine_temp_c != null ? esc(m.avg_engine_temp_c) + ' &deg;C' : '--') + '</td>' +
+                        '</tr>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('modelRelBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-breached);">Failed to load reliability analytics.</td></tr>';
+                });
+        }
+
+        // ── Fleet Maintenance Planner (AI decisions at scale) ─────────
+        var _plannerPlan = null;
+        function plMoney(n) { return '$' + Number(n || 0).toLocaleString(undefined, {maximumFractionDigits: 0}); }
+        function plNum(id) { var v = parseFloat(document.getElementById(id).value); return isNaN(v) ? 0 : v; }
+
+        function generatePlan() {
+            var risk_levels = [];
+            if (document.getElementById('plRiskCritical').checked) risk_levels.push('CRITICAL');
+            if (document.getElementById('plRiskHigh').checked) risk_levels.push('HIGH');
+
+            var body = {
+                daily_budget: plNum('plDailyBudget'),
+                min_service_years: plNum('plMinYears'),
+                min_odometer_km: plNum('plMinOdometer'),
+                risk_levels: risk_levels,
+                max_ground_per_region: plNum('plMaxGround'),
+                retire_age_years: plNum('plRetireAge'),
+                retire_mileage_km: plNum('plRetireMileage'),
+                retire_cost_pct: plNum('plRetireCostPct')
+            };
+
+            var btn = document.getElementById('plGenerateBtn');
+            btn.disabled = true;
+            var results = document.getElementById('plannerResults');
+            results.innerHTML = '<div class="section-loading"><span class="loading-spinner sm"></span><span>Triaging the fleet &mdash; the AI planner is scoring repair vs. retire vs. defer...</span></div>';
+
+            fetch('/api/fleet/planner', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    btn.disabled = false;
+                    if (data.error) {
+                        results.innerHTML = '<div style="color:var(--status-breached);padding:16px 0;">' + esc(data.error) + '</div>';
+                        return;
+                    }
+                    _plannerPlan = data;
+                    renderPlan(data);
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    results.innerHTML = '<div style="color:var(--status-breached);padding:16px 0;">Failed to generate the maintenance plan.</div>';
+                });
+        }
+
+        function plTile(label, value, sub) {
+            return '<div class="analytics-kpi">' +
+                '<div class="analytics-kpi-label">' + esc(label) + '</div>' +
+                '<div class="analytics-kpi-value">' + value + '</div>' +
+                '<div class="analytics-kpi-sub">' + (sub || '') + '</div>' +
+            '</div>';
+        }
+
+        function renderPlan(data) {
+            var s = data.summary || {};
+            var repair = data.repair || [];
+            var retire = data.retire || [];
+            var defer = data.defer || [];
+            var html = '';
+
+            // Summary tiles
+            html += '<div class="planner-tiles">';
+            html += plTile('Candidates', (s.candidates != null ? s.candidates.toLocaleString() : '--'), 'Met your constraints');
+            html += plTile('Repair', (s.repair_count != null ? s.repair_count.toLocaleString() : '--'), plMoney(s.repair_cost) + ' total');
+            html += plTile('Retire', (s.retire_count != null ? s.retire_count.toLocaleString() : '--'), 'Recommended');
+            html += plTile('Defer', (s.defer_count != null ? s.defer_count.toLocaleString() : '--'), 'Below the gate');
+            html += plTile('Budget Remaining', plMoney(s.budget_remaining), 'of ' + plMoney(s.budget));
+            html += plTile('Jobs Reassigned', (s.jobs_reassigned != null ? s.jobs_reassigned.toLocaleString() : '--'), 'Off grounded vehicles');
+            html += '</div>';
+
+            // AI rationale
+            var rationale = data.rationale ? esc(data.rationale)
+                : '<em style="color:var(--text-muted);">AI rationale unavailable &mdash; the plan was built from your constraints and the scoring engine.</em>';
+            html += '<div class="remed-section-title" style="margin-top:20px;">AI Rationale <span class="source-badge source-badge-ai" style="margin-left:6px;">AI Functions</span></div>';
+            html += '<div class="remed-plan">' + rationale + '</div>';
+
+            // Repair plan table
+            html += '<div class="remed-section-title" style="margin-top:20px;">Repair Plan &mdash; ' + repair.length + ' vehicle' + (repair.length === 1 ? '' : 's') + ' (within budget)</div>';
+            if (!repair.length) {
+                html += '<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">No vehicles selected for repair under these constraints.</div>';
+            } else {
+                html += '<div style="overflow-x:auto;"><table class="dispatch-table"><thead><tr>' +
+                    '<th>Vehicle</th><th>Region</th><th>Risk</th><th class="num" style="text-align:right;">Age</th>' +
+                    '<th class="num" style="text-align:right;">Mileage</th><th class="num" style="text-align:right;">Chargeback</th>' +
+                    '<th class="num" style="text-align:right;">Jobs Stranded</th>' +
+                    '</tr></thead><tbody>';
+                html += repair.map(function(v) {
+                    return '<tr>' +
+                        '<td><strong>' + esc(v.label || v.vehicle_id) + '</strong><div style="font-size:11px;color:var(--text-muted);">' + esc(v.vehicle_id) + '</div></td>' +
+                        '<td>' + esc(v.region_code || '--') + '</td>' +
+                        '<td>' + riskBadge(v.risk) + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.age != null ? esc(v.age) : '--') + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtKm(v.odometer_km) + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + plMoney(v.chargeback) + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.jobs_stranded != null ? esc(v.jobs_stranded) : 0) + '</td>' +
+                    '</tr>';
+                }).join('');
+                html += '</tbody></table></div>';
+            }
+
+            // Retire recommendations table
+            html += '<div class="remed-section-title" style="margin-top:20px;">Retire Recommendations &mdash; ' + retire.length + ' vehicle' + (retire.length === 1 ? '' : 's') + '</div>';
+            if (!retire.length) {
+                html += '<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">No vehicles flagged for retirement under these constraints.</div>';
+            } else {
+                html += '<div style="overflow-x:auto;"><table class="dispatch-table"><thead><tr>' +
+                    '<th>Vehicle</th><th class="num" style="text-align:right;">Age</th><th class="num" style="text-align:right;">Mileage</th>' +
+                    '<th class="num" style="text-align:right;">Repair $</th><th class="num" style="text-align:right;">Residual $</th><th>Reason</th>' +
+                    '</tr></thead><tbody>';
+                html += retire.map(function(v) {
+                    return '<tr>' +
+                        '<td><strong>' + esc(v.label || v.vehicle_id) + '</strong><div style="font-size:11px;color:var(--text-muted);">' + esc(v.vehicle_id) + '</div></td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.age != null ? esc(v.age) : '--') + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + fmtKm(v.odometer_km) + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + plMoney(v.chargeback) + '</td>' +
+                        '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + plMoney(v.residual_value) + '</td>' +
+                        '<td style="font-size:12px;">' + esc(v.reason || '--') + '</td>' +
+                    '</tr>';
+                }).join('');
+                html += '</tbody></table></div>';
+            }
+
+            // Deferred (collapsed)
+            var deferTotal = (data.defer_total != null) ? data.defer_total : defer.length;
+            html += '<details class="remed-drill" style="margin-top:20px;border-top:1px solid var(--border-primary);">' +
+                '<summary><span class="remed-caret">&#9656;</span><span>Deferred &mdash; <strong>' + deferTotal.toLocaleString() + '</strong> vehicle' + (deferTotal === 1 ? '' : 's') + ' not actioned this cycle</span></summary>' +
+                '<div class="remed-detail">';
+            if (!defer.length) {
+                html += '<div style="font-size:12px;color:var(--text-muted);">No deferred vehicles to sample.</div>';
+            } else {
+                html += defer.slice(0, 25).map(function(v) {
+                    return '<div style="font-size:12px;color:var(--text-secondary);padding:3px 0;">' +
+                        '<strong style="color:var(--text-primary);">' + esc(v.label || v.vehicle_id) + '</strong> &mdash; ' + esc(v.reason || '--') +
+                    '</div>';
+                }).join('');
+                if (defer.length > 25) {
+                    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">…and ' + (defer.length - 25).toLocaleString() + ' more.</div>';
+                }
+            }
+            html += '</div></details>';
+
+            // Execute bar
+            var execCount = repair.length + retire.length;
+            var execCost = (s.repair_cost != null) ? s.repair_cost : 0;
+            html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:22px;padding-top:16px;border-top:1px solid var(--border-primary);">' +
+                '<button class="planner-btn" id="plExecuteBtn" onclick="executePlan()"' + (execCount === 0 ? ' disabled' : '') + '>Execute Plan</button>' +
+                '<span class="planner-exec-note">Will remediate ' + repair.length + ' vehicle' + (repair.length === 1 ? '' : 's') + ' (~' + plMoney(execCost) + ') and retire ' + retire.length + '.</span>' +
+            '</div>' +
+            '<div id="plExecResult" style="margin-top:14px;"></div>';
+
+            document.getElementById('plannerResults').innerHTML = html;
+        }
+
+        function executePlan() {
+            if (!_plannerPlan) return;
+            var repairIds = (_plannerPlan.repair || []).map(function(v) { return v.vehicle_id; });
+            var retireIds = (_plannerPlan.retire || []).map(function(v) { return v.vehicle_id; });
+            if (!repairIds.length && !retireIds.length) return;
+
+            var btn = document.getElementById('plExecuteBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner sm"></span> Executing...';
+            var out = document.getElementById('plExecResult');
+            out.innerHTML = '<div class="section-loading"><span class="loading-spinner sm"></span><span>Applying the plan in the live system...</span></div>';
+
+            fetch('/api/fleet/planner/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repair: repairIds, retire: retireIds })
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error || !data.success) {
+                        out.innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">' + esc(data.error || 'Plan execution failed.') + '</div>';
+                        btn.disabled = false;
+                        btn.textContent = 'Retry';
+                        showToast('Plan execution failed: ' + esc(data.error || 'unknown error'), true);
+                        return;
+                    }
+                    renderPlanResult(data);
+                    showToast('&#10003; Plan executed &mdash; vehicles remediated and retired.', false);
+                    // Refresh header KPIs + Action Center queue so actioned vehicles drop out
+                    loadSummary();
+                    loadActionQueue();
+                })
+                .catch(function() {
+                    out.innerHTML = '<div style="color:var(--status-breached);padding:12px 0;">Plan execution request failed.</div>';
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    showToast('Plan execution request failed.', true);
+                });
+        }
+
+        function renderPlanResult(data) {
+            var repaired = data.repaired || [];
+            var retired = data.retired || [];
+            var failed = data.repair_failed || [];
+            var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--status-completed,#00A972);font-weight:700;font-size:14px;">&#10003; Plan executed</div>';
+            html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span><strong>' + repaired.length + '</strong> vehicle' + (repaired.length === 1 ? '' : 's') + ' remediated &mdash; total chargeback ' + plMoney(data.total_chargeback) + '</span></div>';
+            html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span><strong>' + (data.jobs_reassigned != null ? data.jobs_reassigned : 0) + '</strong> job' + (data.jobs_reassigned === 1 ? '' : 's') + ' reassigned off grounded vehicles</span></div>';
+            html += '<div class="remed-result-line"><span class="remed-ok-icon">&#10003;</span><span><strong>' + retired.length + '</strong> vehicle' + (retired.length === 1 ? '' : 's') + ' retired</span></div>';
+            if (failed.length) {
+                html += '<div class="remed-result-line" style="color:var(--status-breached);"><span style="flex-shrink:0;font-weight:700;">&times;</span><span><strong>' + failed.length + '</strong> repair' + (failed.length === 1 ? '' : 's') + ' failed:</span></div>';
+                html += failed.map(function(f) {
+                    return '<div style="font-size:12px;color:var(--text-secondary);margin:2px 0 2px 24px;">' + esc(f.vehicle_id) + ' &mdash; ' + esc(f.error || 'unknown error') + '</div>';
+                }).join('');
+            }
+            document.getElementById('plExecResult').innerHTML = html;
+            // The plan has been applied; prevent a duplicate execution.
+            _plannerPlan = null;
+        }
+
+        // ── Cost & Fuel tab ───────────────────────────────────────────
+        function loadCost() {
+            var summaryDone = false, anomalyDone = false;
+            var summaryData = null, anomalyData = null;
+
+            function renderCost() {
+                if (!summaryDone || !anomalyDone) return;
+
+                // KPI tiles
+                var t = (summaryData && summaryData.totals) || {};
+                document.getElementById('costKpiFuel').textContent = t.fuel_cost_60d != null ? plMoney(t.fuel_cost_60d) : '—';
+                document.getElementById('costKpiAnnual').textContent = t.annual_running_cost != null ? plMoney(t.annual_running_cost) : '—';
+                document.getElementById('costKpiAnomalies').textContent = t.fuel_anomalies != null ? t.fuel_anomalies.toLocaleString() : '—';
+                document.getElementById('costKpiEfficiency').textContent = t.avg_efficiency_kmpl != null ? (t.avg_efficiency_kmpl + ' km/L') : '—';
+                document.getElementById('costKpiCostPerKm').textContent = t.avg_fuel_cost_per_km != null ? ('$' + Number(t.avg_fuel_cost_per_km).toFixed(3)) : '—';
+
+                // Anomalies subtitle (full-population counts, not just the shown rows)
+                var aCount = (anomalyData && anomalyData.total_anomalies != null) ? anomalyData.total_anomalies
+                            : ((anomalyData && anomalyData.count != null) ? anomalyData.count : 0);
+                var aEarly = (anomalyData && anomalyData.early_warning_count != null) ? anomalyData.early_warning_count : 0;
+                document.getElementById('fuelAnomaliesSubtitle').textContent =
+                    aCount + ' vehicle' + (aCount === 1 ? '' : 's') + ' with declining fuel economy — ' +
+                    aEarly + ' are EARLY warnings (risk model still rates them LOW/MEDIUM)';
+
+                // Anomalies table
+                var anomEl = document.getElementById('fuelAnomalies');
+                var anomList = (anomalyData && anomalyData.anomalies) || [];
+                if (anomList.length === 0) {
+                    anomEl.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:16px 0;">No fuel-economy anomalies detected.</div>';
+                } else {
+                    var anomHtml = '<table class="dispatch-table"><thead><tr>' +
+                        '<th>Vehicle</th><th>Tech</th><th>Region</th><th>Risk</th>' +
+                        '<th style="text-align:right;">Now (km/L)</th>' +
+                        '<th style="text-align:right;">Baseline (km/L)</th>' +
+                        '<th style="text-align:right;">Trend</th>' +
+                        '<th style="text-align:right;">$/km</th>' +
+                        '<th></th>' +
+                        '</tr></thead><tbody>';
+                    anomHtml += anomList.map(function(a) {
+                        var trendStyle = (a.eff_trend_pct != null && a.eff_trend_pct < 0)
+                            ? 'color:var(--status-breached);font-weight:700;'
+                            : 'color:var(--status-completed);font-weight:700;';
+                        var trendTxt = a.eff_trend_pct != null
+                            ? ('▼ ' + Math.abs(Number(a.eff_trend_pct)).toFixed(1) + '%')
+                            : '—';
+                        if (a.eff_trend_pct != null && a.eff_trend_pct >= 0) trendTxt = '+' + Number(a.eff_trend_pct).toFixed(1) + '%';
+                        var earlyChip = a.early_warning
+                            ? '<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(255,171,46,0.15);color:#FFAB2E;border:1px solid rgba(255,171,46,0.35);">EARLY WARNING</span>'
+                            : '';
+                        return '<tr class="fleet-row" style="cursor:pointer;" onclick="openDrawer(\'' + esc(a.vehicle_id) + '\')">' +
+                            '<td><strong>' + esc(a.label || a.vehicle_id) + '</strong><div style="font-size:11px;color:var(--text-muted);">' + esc(a.vehicle_id) + '</div></td>' +
+                            '<td>' + esc(a.tech_name || '—') + '</td>' +
+                            '<td>' + esc(a.region_code || '—') + '</td>' +
+                            '<td>' + riskBadge(a.risk_category) + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (a.recent_kmpl != null ? Number(a.recent_kmpl).toFixed(2) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (a.older_kmpl != null ? Number(a.older_kmpl).toFixed(2) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;' + trendStyle + '">' + esc(trendTxt) + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (a.fuel_cost_per_km != null ? '$' + Number(a.fuel_cost_per_km).toFixed(3) : '—') + '</td>' +
+                            '<td>' + earlyChip + '</td>' +
+                        '</tr>';
+                    }).join('');
+                    anomHtml += '</tbody></table>';
+                    anomEl.innerHTML = anomHtml;
+                }
+
+                // Cost by Region table
+                var regionEl = document.getElementById('costByRegion');
+                var regions = (summaryData && summaryData.regions) || [];
+                if (regions.length === 0) {
+                    regionEl.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:16px 0;">No regional cost data available.</div>';
+                } else {
+                    var regHtml = '<table class="dispatch-table"><thead><tr>' +
+                        '<th>Region</th>' +
+                        '<th style="text-align:right;">Fuel (60d)</th>' +
+                        '<th style="text-align:right;">Annual Running Cost</th>' +
+                        '<th style="text-align:right;">Anomalies</th>' +
+                        '<th style="text-align:right;">Avg km/L</th>' +
+                        '</tr></thead><tbody>';
+                    regHtml += regions.map(function(r) {
+                        return '<tr>' +
+                            '<td><strong>' + esc(r.region_code || '—') + '</strong></td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.fuel_60d != null ? plMoney(r.fuel_60d) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.annual_running_cost != null ? plMoney(r.annual_running_cost) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.anomalies != null ? r.anomalies : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (r.avg_kmpl != null ? Number(r.avg_kmpl).toFixed(2) : '—') + '</td>' +
+                        '</tr>';
+                    }).join('');
+                    regHtml += '</tbody></table>';
+                    regionEl.innerHTML = regHtml;
+                }
+
+                // Costliest Vehicles table
+                var topEl = document.getElementById('topCostVehicles');
+                var topList = (summaryData && summaryData.top_cost_vehicles) || [];
+                if (topList.length === 0) {
+                    topEl.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:16px 0;">No vehicle cost data available.</div>';
+                } else {
+                    var topHtml = '<table class="dispatch-table"><thead><tr>' +
+                        '<th>Vehicle</th><th>Region</th><th>Risk</th>' +
+                        '<th style="text-align:right;">Annual Running Cost</th>' +
+                        '<th style="text-align:right;">$/km</th>' +
+                        '<th style="text-align:right;">Efficiency (km/L)</th>' +
+                        '<th style="text-align:right;">Trend</th>' +
+                        '<th></th>' +
+                        '</tr></thead><tbody>';
+                    topHtml += topList.map(function(v) {
+                        var trendStyle = (v.eff_trend_pct != null && v.eff_trend_pct < 0)
+                            ? 'color:var(--status-breached);font-weight:700;'
+                            : '';
+                        var trendTxt = v.eff_trend_pct != null
+                            ? (v.eff_trend_pct < 0 ? ('▼ ' + Math.abs(Number(v.eff_trend_pct)).toFixed(1) + '%') : ('+' + Number(v.eff_trend_pct).toFixed(1) + '%'))
+                            : '—';
+                        var anomChip = v.fuel_anomaly
+                            ? '<span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(255,171,46,0.10);color:#FFAB2E;border:1px solid rgba(255,171,46,0.25);">⚠ fuel</span>'
+                            : '';
+                        return '<tr class="fleet-row" style="cursor:pointer;" onclick="openDrawer(\'' + esc(v.vehicle_id) + '\')">' +
+                            '<td><strong>' + esc(v.label || v.vehicle_id) + '</strong><div style="font-size:11px;color:var(--text-muted);">' + esc(v.vehicle_id) + '</div></td>' +
+                            '<td>' + esc(v.region_code || '—') + '</td>' +
+                            '<td>' + riskBadge(v.risk_category) + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.annual_running_cost != null ? plMoney(v.annual_running_cost) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.fuel_cost_per_km != null ? '$' + Number(v.fuel_cost_per_km).toFixed(3) : '—') + '</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;">' + (v.efficiency_kmpl != null ? Number(v.efficiency_kmpl).toFixed(2) : '—') + ' km/L</td>' +
+                            '<td style="text-align:right;font-variant-numeric:tabular-nums;' + trendStyle + '">' + esc(trendTxt) + '</td>' +
+                            '<td>' + anomChip + '</td>' +
+                        '</tr>';
+                    }).join('');
+                    topHtml += '</tbody></table>';
+                    topEl.innerHTML = topHtml;
+                }
+            }
+
+            // Fetch cost-summary
+            fetch('/api/fleet/cost-summary')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    summaryData = data;
+                    summaryDone = true;
+                    renderCost();
+                })
+                .catch(function(err) {
+                    summaryDone = true;
+                    ['costKpiFuel','costKpiAnnual','costKpiAnomalies','costKpiEfficiency','costKpiCostPerKm'].forEach(function(id) {
+                        document.getElementById(id).textContent = '—';
+                    });
+                    document.getElementById('costByRegion').innerHTML = '<div style="color:var(--status-breached);font-size:13px;padding:12px 0;">Failed to load cost summary.</div>';
+                    document.getElementById('topCostVehicles').innerHTML = '<div style="color:var(--status-breached);font-size:13px;padding:12px 0;">Failed to load costliest vehicles.</div>';
+                    showToast('Failed to load fleet cost summary.', true);
+                    renderCost();
+                });
+
+            // Fetch fuel-anomalies in parallel
+            fetch('/api/fleet/fuel-anomalies')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    anomalyData = data;
+                    anomalyDone = true;
+                    renderCost();
+                })
+                .catch(function(err) {
+                    anomalyDone = true;
+                    document.getElementById('fuelAnomalies').innerHTML = '<div style="color:var(--status-breached);font-size:13px;padding:12px 0;">Failed to load fuel anomalies.</div>';
+                    showToast('Failed to load fuel-economy anomalies.', true);
+                    renderCost();
+                });
+        }
+
+        // ── Tab navigation + lazy loading ─────────────────────────────
+        var _loadedTabs = {};
+
+        function loadTab(name) {
+            if (name === 'map') {
+                // Map must initialize while visible (Leaflet sizing); ensureMap is
+                // called inside loadMap, so the container is already un-hidden here.
+                loadMap();
+            } else if (name === 'reliability') {
+                loadModelReliability();
+            } else if (name === 'diagnostics') {
+                loadDtc();
+            } else if (name === 'explorer') {
+                // Default the explorer to CRITICAL focus on first activation only
+                if (!_defaultRiskApplied) {
+                    document.getElementById('filterRisk').value = 'CRITICAL';
+                    _defaultRiskApplied = true;
+                }
+                loadVehicles(true);
+            } else if (name === 'cost') {
+                loadCost();
+            }
+            // 'action' is loaded on page load; nothing extra to fetch here.
+            // 'planner' is a POST that needs operator constraints — it loads on
+            // demand when the user clicks Generate Plan, so do nothing here.
+        }
+
+        function showTab(name) {
+            document.querySelectorAll('#fleetTabs .fleet-tab').forEach(function(b) {
+                b.classList.toggle('active', b.getAttribute('data-tab') === name);
+            });
+            document.querySelectorAll('.tab-panel').forEach(function(p) {
+                p.classList.toggle('active', p.id === 'panel-' + name);
+            });
+
+            // Lazy-load the tab's data the first time it's shown
+            if (!_loadedTabs[name]) {
+                _loadedTabs[name] = true;
+                loadTab(name);
+            }
+
+            // Leaflet renders broken if sized while hidden — fix size now that
+            // the panel is visible.
+            if (name === 'map') {
+                setTimeout(function() { if (_map) _map.invalidateSize(); }, 0);
+            }
+        }
+
+        // ── Load all (used by Refresh button + intervals) ─────────────
+        function loadAll() {
+            // Always-on header data
+            loadSummary();
+            // Default tab content
+            loadActionQueue();
+            // Refresh any other tabs that have already been opened
+            if (_loadedTabs.map) loadMap();
+            if (_loadedTabs.reliability) loadModelReliability();
+            if (_loadedTabs.diagnostics) loadDtc();
+            if (_loadedTabs.explorer) loadVehicles(true);
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { closeDrawer(); closeRemediation(); }
+        });
+
+        // Initial load: KPIs/header + the default Action Center tab only.
+        _loadedTabs.action = true;
+        loadSummary();
+        loadActionQueue();
+
+        setInterval(loadSummary, 60000);
+        setInterval(loadActionQueue, 60000);
+        setInterval(function() { if (_loadedTabs.map) loadMap(); }, 60000);
+    </script>
+{% endblock %}

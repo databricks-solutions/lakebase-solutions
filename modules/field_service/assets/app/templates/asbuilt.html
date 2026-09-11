@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}AsBuilt Architecture{% endblock %}
+{% block page_title %}AsBuilt · Data Intelligence Platform{% endblock %}
+
+{% block content %}
+{# The AsBuilt is a self-contained static bundle (IDEA base + overlay) served from
+   /static/asbuilt/. It owns its own <head>/CSS/JS, so it is embedded in an iframe
+   for clean isolation from the app's chrome. Overlay state is generated offline by
+   generate_overlay.py into static/asbuilt/asbuilt_state.json. #}
+<iframe src="/static/asbuilt/index.html"
+        title="AsBuilt · Databricks Data Intelligence Platform"
+        style="border:0; width:100%; height:calc(100vh - 52px); display:block; background:#0b0f14;"></iframe>
+{% endblock %}

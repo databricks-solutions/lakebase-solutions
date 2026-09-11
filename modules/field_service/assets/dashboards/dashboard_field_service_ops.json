@@ -1,0 +1,78 @@
+{
+  "pages": [
+    {
+      "name": "Overview",
+      "displayName": "Field Service Operations",
+      "layout": [
+        {
+          "widget": {
+            "name": "total_work_orders",
+            "queries": [{"name": "main_query", "query": {"datasetName": "wo_kpis", "fields": [{"name": "total", "expression": "`total`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "frame": {"showTitle": true, "title": "Total Work Orders"}, "widgetType": "counter", "encodings": {"value": {"fieldName": "total"}}}
+          },
+          "position": {"x": 0, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "open_orders",
+            "queries": [{"name": "main_query", "query": {"datasetName": "wo_kpis", "fields": [{"name": "open_count", "expression": "`open_count`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "frame": {"showTitle": true, "title": "Open / Assigned"}, "widgetType": "counter", "encodings": {"value": {"fieldName": "open_count"}}}
+          },
+          "position": {"x": 2, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "sla_breached",
+            "queries": [{"name": "main_query", "query": {"datasetName": "wo_kpis", "fields": [{"name": "breached", "expression": "`breached`"}], "disaggregated": true}}],
+            "spec": {"version": 2, "frame": {"showTitle": true, "title": "SLA Breached"}, "widgetType": "counter", "encodings": {"value": {"fieldName": "breached"}}}
+          },
+          "position": {"x": 4, "y": 0, "width": 2, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "wo_by_status",
+            "queries": [{"name": "main_query", "query": {"datasetName": "wo_status", "fields": [{"name": "status", "expression": "`status`"}, {"name": "count", "expression": "`count`"}], "disaggregated": true}}],
+            "spec": {"version": 3, "frame": {"showTitle": true, "title": "Work Orders by Status"}, "widgetType": "bar", "encodings": {"x": {"fieldName": "status", "scale": {"type": "categorical"}}, "y": {"fieldName": "count", "scale": {"type": "quantitative"}}}}
+          },
+          "position": {"x": 0, "y": 2, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "wo_by_region",
+            "queries": [{"name": "main_query", "query": {"datasetName": "wo_region", "fields": [{"name": "region_name", "expression": "`region_name`"}, {"name": "count", "expression": "`count`"}], "disaggregated": true}}],
+            "spec": {"version": 3, "frame": {"showTitle": true, "title": "Work Orders by Region"}, "widgetType": "bar", "encodings": {"x": {"fieldName": "region_name", "scale": {"type": "categorical"}}, "y": {"fieldName": "count", "scale": {"type": "quantitative"}}}}
+          },
+          "position": {"x": 3, "y": 2, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "tech_availability",
+            "queries": [{"name": "main_query", "query": {"datasetName": "tech_status", "fields": [{"name": "status", "expression": "`status`"}, {"name": "count", "expression": "`count`"}], "disaggregated": true}}],
+            "spec": {"version": 3, "frame": {"showTitle": true, "title": "Technician Availability"}, "widgetType": "bar", "encodings": {"x": {"fieldName": "status", "scale": {"type": "categorical"}}, "y": {"fieldName": "count", "scale": {"type": "quantitative"}}}}
+          },
+          "position": {"x": 0, "y": 6, "width": 3, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "network_health",
+            "queries": [{"name": "main_query", "query": {"datasetName": "node_health", "fields": [{"name": "health_status", "expression": "`health_status`"}, {"name": "node_count", "expression": "`node_count`"}], "disaggregated": true}}],
+            "spec": {"version": 3, "frame": {"showTitle": true, "title": "Network Node Health"}, "widgetType": "bar", "encodings": {"x": {"fieldName": "health_status", "scale": {"type": "categorical"}}, "y": {"fieldName": "node_count", "scale": {"type": "quantitative"}}}}
+          },
+          "position": {"x": 3, "y": 6, "width": 3, "height": 4}
+        }
+      ]
+    }
+  ],
+  "datasets": [
+    {"name": "wo_kpis", "displayName": "Work Order KPIs",
+     "queryLines": ["SELECT\n", "  COUNT(*) as total,\n", "  SUM(CASE WHEN status IN ('Open', 'Assigned') THEN 1 ELSE 0 END) as open_count,\n", "  SUM(CASE WHEN sla_met = false THEN 1 ELSE 0 END) as breached\n", "FROM `{catalog}`.`{schema}`.work_orders"]},
+    {"name": "wo_status", "displayName": "WO by Status",
+     "queryLines": ["SELECT status, COUNT(*) as count\n", "FROM `{catalog}`.`{schema}`.work_orders\n", "GROUP BY status ORDER BY count DESC"]},
+    {"name": "wo_region", "displayName": "WO by Region",
+     "queryLines": ["SELECT r.region_name, COUNT(*) as count\n", "FROM `{catalog}`.`{schema}`.work_orders w\n", "JOIN `{catalog}`.`{schema}`.service_regions r ON w.region_id = r.region_id\n", "GROUP BY r.region_name ORDER BY count DESC LIMIT 10"]},
+    {"name": "tech_status", "displayName": "Technician Status",
+     "queryLines": ["SELECT status, COUNT(*) as count\n", "FROM `{catalog}`.`{schema}`.technicians\n", "GROUP BY status ORDER BY count DESC"]},
+    {"name": "node_health", "displayName": "Network Node Health",
+     "queryLines": ["SELECT\n", "  CASE WHEN health_score >= 80 THEN 'Healthy' WHEN health_score >= 50 THEN 'Degraded' ELSE 'Critical' END as health_status,\n", "  COUNT(*) as node_count\n", "FROM `{pipeline_catalog}`.network_data.gold_daily_node_health\n", "WHERE measurement_date = (SELECT MAX(measurement_date) FROM `{pipeline_catalog}`.network_data.gold_daily_node_health)\n", "GROUP BY 1 ORDER BY node_count DESC"]}
+  ]
+}

@@ -1,0 +1,2456 @@
+{% extends "base.html" %}
+{% block title %}AI Supervisor{% endblock %}
+{% block page_title %}AI Supervisor{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+<style>
+    /* ── Outer flex layout (conv sidebar + main + trace sidebar) ── */
+    .sv-outer {
+        display: flex;
+        height: calc(100vh - 80px);
+        overflow: hidden;
+    }
+
+    .sv-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 16px;
+        container-type: inline-size;
+    }
+
+    /* ── Conversation History Sidebar (left) ──────────── */
+    .sv-conv-sidebar {
+        width: 260px;
+        flex-shrink: 0;
+        border-right: 1px solid var(--border-primary, #3A3A42);
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-primary, #1B1B1F);
+        overflow: hidden;
+    }
+    .sv-conv-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-primary, #3A3A42);
+        flex-shrink: 0;
+    }
+    .sv-conv-header-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary, #E8E8ED);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .sv-conv-new-btn {
+        width: 28px; height: 28px;
+        border-radius: 6px;
+        border: 1px solid var(--border-primary, #3A3A42);
+        background: transparent;
+        color: var(--text-primary, #E8E8ED);
+        font-size: 18px;
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .sv-conv-new-btn:hover { background: var(--bg-secondary, #2C2C33); }
+    .sv-conv-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 0;
+    }
+    .sv-conv-item {
+        display: block;
+        padding: 10px 14px;
+        cursor: pointer;
+        border-left: 3px solid transparent;
+        transition: background 0.1s;
+    }
+    .sv-conv-item:hover { background: var(--bg-secondary, #2C2C33); }
+    .sv-conv-item.active { border-left-color: #7C3AED; background: var(--bg-secondary, #2C2C33); }
+    .sv-conv-item-title {
+        font-size: 13px;
+        color: var(--text-primary, #E8E8ED);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 2px;
+    }
+    .sv-conv-item-meta {
+        font-size: 11px;
+        color: var(--text-muted, #6B6B78);
+        display: flex;
+        gap: 8px;
+    }
+    .sv-conv-loading {
+        padding: 20px 14px;
+        font-size: 12px;
+        color: var(--text-muted, #6B6B78);
+    }
+    .sv-conv-empty {
+        padding: 30px 14px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--text-muted, #6B6B78);
+    }
+    /* Trek theme */
+    [data-theme="trekkie"] .sv-conv-sidebar { background: #0A0A14; border-right-color: #333344; }
+    [data-theme="trekkie"] .sv-conv-item.active { border-left-color: #FC6; }
+    [data-theme="trekkie"] .sv-conv-item-title { color: #FC6; }
+    /* Light theme */
+    [data-theme="dbx-light"] .sv-conv-sidebar { background: #F4F4F8; border-right-color: #E0E0E0; }
+    /* Mobile: hide sidebar */
+    @media (max-width: 768px) {
+        .sv-conv-sidebar { display: none; }
+    }
+
+    /* ── Header ────────────────────────────────────────── */
+    .sv-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px 20px 8px;
+        flex-shrink: 0;
+    }
+
+    .sv-header-icon {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+    }
+
+    .sv-header-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .sv-header h1 {
+        margin: 0;
+        font-size: 1.3rem;
+        color: var(--text-primary);
+        letter-spacing: 0.02em;
+        line-height: 1.2;
+        display: inline;
+    }
+
+    .sv-header .sv-subtitle {
+        display: inline;
+        margin: 0 0 0 6px;
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        line-height: 1.3;
+    }
+
+    /* Hide subtitle + badges when sidebar is open (needs !important to override .dbx-only) */
+    .sv-outer.sv-sidebar-open .sv-header .sv-subtitle { display: none !important; }
+    .sv-outer.sv-sidebar-open .sv-header-badges { display: none !important; }
+
+    .sv-header-badges {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .sv-agent-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: rgba(0, 169, 114, 0.12);
+        color: #00A972;
+        border: 1px solid rgba(0, 169, 114, 0.25);
+    }
+    .sv-agent-badge-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00A972;
+        box-shadow: 0 0 4px #00A972;
+    }
+    .sv-agent-badge--error {
+        background: rgba(231, 76, 60, 0.12);
+        color: #e74c3c;
+        border-color: rgba(231, 76, 60, 0.25);
+    }
+    .sv-agent-badge--error .sv-agent-badge-dot {
+        background: #e74c3c;
+        box-shadow: 0 0 4px #e74c3c;
+    }
+
+    /* ── DAG Visualization ─────────────────────────────── */
+    .sv-dag {
+        flex-shrink: 0;
+        padding: 12px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        position: relative;
+        min-height: 80px;
+    }
+
+    .sv-dag-supervisor {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        z-index: 2;
+    }
+
+    .sv-dag-node {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        font-size: 1.2rem;
+        font-weight: 700;
+        transition: all 0.3s;
+    }
+
+    .sv-dag-supervisor .sv-dag-node {
+        background: var(--accent-primary, #FF3621);
+        color: #fff;
+        box-shadow: 0 0 0 3px var(--bg-primary, #1B1B1F), 0 0 0 5px var(--accent-primary, #FF3621);
+    }
+
+    .sv-dag-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+    }
+
+    .sv-dag-agents {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        z-index: 2;
+    }
+
+    .sv-dag-agent {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 12px 5px 8px;
+        border-radius: 8px;
+        background: var(--bg-secondary, #232328);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+        transition: all 0.3s;
+        cursor: default;
+    }
+
+    .sv-dag-agent-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-secondary);
+        opacity: 0.4;
+        transition: all 0.3s;
+        flex-shrink: 0;
+    }
+
+    .sv-dag-agent-name {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        white-space: nowrap;
+    }
+
+    .sv-dag-agent-desc {
+        font-size: 0.62rem;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 180px;
+    }
+
+    /* Active state for DAG nodes */
+    .sv-dag-active .sv-dag-node {
+        box-shadow: 0 0 0 3px var(--bg-primary, #1B1B1F), 0 0 0 5px var(--accent-primary, #FF3621), 0 0 16px rgba(255, 54, 33, 0.4);
+    }
+
+    .sv-dag-agent.sv-dag-active {
+        border-color: var(--accent-primary, #FF3621);
+        background: rgba(255, 54, 33, 0.08);
+        box-shadow: 0 0 12px rgba(255, 54, 33, 0.2);
+    }
+
+    .sv-dag-agent.sv-dag-active .sv-dag-agent-dot {
+        background: var(--accent-primary, #FF3621);
+        opacity: 1;
+        box-shadow: 0 0 6px var(--accent-primary, #FF3621);
+    }
+
+    /* SVG connection lines */
+    .sv-dag-svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .sv-dag-line {
+        stroke: var(--border-primary, rgba(255,255,255,0.15));
+        stroke-width: 1.5;
+        fill: none;
+        transition: stroke 0.4s, stroke-width 0.4s, opacity 0.4s;
+    }
+
+    .sv-dag-line.sv-dag-line-active {
+        stroke: var(--accent-primary, #FF3621);
+        stroke-width: 2;
+        filter: drop-shadow(0 0 4px rgba(255, 54, 33, 0.4));
+    }
+
+    .sv-dag-line.sv-dag-line-thinking {
+        animation: dagLineThink 1.5s ease-in-out infinite;
+    }
+
+    @keyframes dagLineThink {
+        0%, 100% { stroke: var(--border-primary, rgba(255,255,255,0.15)); opacity: 0.5; }
+        50% { stroke: rgba(255, 54, 33, 0.35); opacity: 1; }
+    }
+
+    /* Pulsing flow animation on active lines */
+    .sv-dag-line-flow {
+        stroke: var(--accent-primary, #FF3621);
+        stroke-width: 2.5;
+        fill: none;
+        stroke-dasharray: 6 12;
+        stroke-linecap: round;
+        opacity: 0;
+        filter: drop-shadow(0 0 4px rgba(255, 54, 33, 0.7));
+    }
+
+    .sv-dag-line-flow.sv-dag-flow-active {
+        opacity: 1;
+        animation: dagFlowPulse 1s linear infinite;
+    }
+
+    @keyframes dagFlowPulse {
+        from { stroke-dashoffset: 18; }
+        to { stroke-dashoffset: 0; }
+    }
+
+    /* Data particles — lead particle + trailing glow */
+    .sv-dag-particle {
+        fill: #fff;
+        filter: drop-shadow(0 0 6px rgba(255, 54, 33, 1)) drop-shadow(0 0 12px rgba(255, 54, 33, 0.6));
+    }
+    .sv-dag-particle-trail {
+        fill: var(--accent-primary, #FF3621);
+        opacity: 0;
+        filter: drop-shadow(0 0 3px rgba(255, 54, 33, 0.5));
+    }
+
+    /* Supervisor pulse during query */
+    .sv-dag-supervisor.sv-dag-thinking .sv-dag-node {
+        animation: dagSupervisorPulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes dagSupervisorPulse {
+        0%, 100% { box-shadow: 0 0 0 3px var(--bg-primary, #1B1B1F), 0 0 0 5px var(--accent-primary, #FF3621); }
+        50% { box-shadow: 0 0 0 3px var(--bg-primary, #1B1B1F), 0 0 0 8px var(--accent-primary, #FF3621), 0 0 24px rgba(255, 54, 33, 0.6); }
+    }
+
+    /* Agent node glow when active */
+    .sv-dag-agent.sv-dag-active .sv-dag-agent-dot {
+        animation: dagDotPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes dagDotPulse {
+        0%, 100% { box-shadow: 0 0 4px var(--accent-primary, #FF3621); }
+        50% { box-shadow: 0 0 12px var(--accent-primary, #FF3621), 0 0 24px rgba(255, 54, 33, 0.4); }
+    }
+
+    /* Active agent entrance animation */
+    .sv-dag-agent.sv-dag-active {
+        animation: dagAgentActivate 0.4s ease-out;
+    }
+    @keyframes dagAgentActivate {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.04); }
+        100% { transform: scale(1); }
+    }
+
+    /* ── Messages area ─────────────────────────────────── */
+    .sv-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        scroll-behavior: smooth;
+    }
+
+    .sv-messages::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .sv-messages::-webkit-scrollbar-thumb {
+        background: var(--border-primary, #444);
+        border-radius: 3px;
+    }
+
+    /* ── Empty state ───────────────────────────────────── */
+    .sv-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        gap: 20px;
+        padding: 30px 20px;
+    }
+
+    .sv-empty-icon {
+        font-size: 3rem;
+        opacity: 0.6;
+    }
+
+    .sv-empty h2 {
+        margin: 0;
+        font-size: 1.3rem;
+        color: var(--text-primary);
+        letter-spacing: 0.05em;
+    }
+
+    .sv-empty p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        max-width: 500px;
+        text-align: center;
+        line-height: 1.5;
+    }
+
+    .sv-starters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        max-width: 700px;
+        margin-top: 8px;
+    }
+
+    .sv-starter-btn {
+        background: var(--bg-tertiary, var(--bg-secondary));
+        color: var(--text-primary);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+        border-radius: var(--radius-md, 10px);
+        padding: 10px 16px;
+        font-size: 0.85rem;
+        font-family: var(--font-body);
+        cursor: pointer;
+        transition: var(--transition-theme, all 0.2s);
+        text-align: left;
+        line-height: 1.4;
+    }
+
+    .sv-starter-btn:hover {
+        background: var(--bg-hover, var(--accent-primary));
+        border-color: var(--accent-primary, #FF3621);
+        transform: translateY(-1px);
+    }
+
+    /* ── Message bubbles ───────────────────────────────── */
+    .sv-msg {
+        display: flex;
+        gap: 12px;
+        max-width: 85%;
+        animation: sv-fade-in 0.3s ease;
+    }
+
+    @keyframes sv-fade-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .sv-msg--user {
+        align-self: flex-end;
+        flex-direction: row-reverse;
+    }
+
+    .sv-msg--agent {
+        align-self: flex-start;
+    }
+
+    .sv-msg-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+        font-weight: 600;
+    }
+
+    .sv-msg--user .sv-msg-avatar {
+        background: var(--accent-primary, #FF3621);
+        color: #fff;
+    }
+
+    .sv-msg--agent .sv-msg-avatar {
+        background: var(--accent-secondary, var(--accent-success, #00A972));
+        color: #fff;
+    }
+
+    .sv-msg-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .sv-msg-bubble {
+        padding: 12px 16px;
+        border-radius: var(--radius-md, 10px);
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+    }
+
+    .sv-msg--user .sv-msg-bubble {
+        background: var(--accent-primary, #FF3621);
+        color: #fff;
+        border-bottom-right-radius: 4px;
+    }
+
+    .sv-msg--agent .sv-msg-bubble {
+        background: var(--bg-secondary, #232328);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+        border-bottom-left-radius: 4px;
+    }
+
+    /* ── Routing badge ─────────────────────────────────── */
+    .sv-routing {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        padding: 0 4px;
+    }
+
+    .sv-routing-label {
+        font-weight: 600;
+        opacity: 0.7;
+    }
+
+    .sv-routing-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        background: var(--accent-primary, #FF3621);
+        color: #fff;
+        opacity: 0.9;
+    }
+
+    .sv-routing-badge::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.6;
+    }
+
+    /* View Trace button after response */
+    .sv-trace-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 14px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: rgba(99, 102, 241, 0.12);
+        color: #818cf8;
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: var(--font-body);
+        margin-top: 4px;
+    }
+
+    .sv-trace-btn:hover {
+        background: rgba(99, 102, 241, 0.2);
+        border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    /* ── Space result section ──────────────────────────── */
+    .sv-space-result {
+        background: var(--bg-tertiary, #2C2C33);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+        border-radius: var(--radius-md, 10px);
+        overflow: hidden;
+    }
+
+    .sv-space-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+        background: var(--bg-secondary, #232328);
+    }
+
+    .sv-space-name {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: var(--accent-secondary, var(--accent-success, #00A972));
+        color: #fff;
+    }
+
+    .sv-space-status {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        margin-left: auto;
+        opacity: 0.7;
+    }
+
+    .sv-space-status--error {
+        color: var(--lcars-mars, #e74c3c);
+        opacity: 1;
+        font-weight: 500;
+    }
+
+    .sv-space-content {
+        padding: 14px;
+        font-size: 0.88rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+    }
+
+    .sv-space-error {
+        padding: 14px;
+        font-size: 0.88rem;
+        color: var(--lcars-mars, #e74c3c);
+        background: rgba(231, 76, 60, 0.08);
+        border-top: 2px solid var(--lcars-mars, #e74c3c);
+    }
+
+    /* ── Collapsible SQL / Table ───────────────────────── */
+    .sv-collapsible {
+        border-top: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    }
+
+    .sv-collapsible-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 10px 14px;
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-family: var(--font-body);
+        cursor: pointer;
+        transition: color 0.15s;
+    }
+
+    .sv-collapsible-toggle:hover {
+        color: var(--text-primary);
+    }
+
+    .sv-collapsible-arrow {
+        font-size: 0.65rem;
+        transition: transform 0.2s;
+    }
+
+    .sv-collapsible.sv-expanded .sv-collapsible-arrow {
+        transform: rotate(90deg);
+    }
+
+    .sv-collapsible-body {
+        display: none;
+        padding: 0 14px 14px;
+    }
+
+    .sv-collapsible.sv-expanded .sv-collapsible-body {
+        display: block;
+    }
+
+    /* ── SQL block ─────────────────────────────────────── */
+    .sv-sql-desc {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        font-style: italic;
+    }
+
+    .sv-sql-pre {
+        margin: 0;
+        padding: 12px;
+        border-radius: var(--radius-sm, 6px);
+        background: var(--bg-primary, #1B1B1F);
+        overflow-x: auto;
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .sv-sql-pre code {
+        font-family: var(--font-mono);
+    }
+
+    /* ── Data table ────────────────────────────────────── */
+    .sv-table-wrap {
+        overflow-x: auto;
+        border-radius: var(--radius-sm, 6px);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+    }
+
+    .sv-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+        font-family: var(--font-mono);
+    }
+
+    .sv-table th {
+        background: var(--bg-secondary, #232328);
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+        white-space: nowrap;
+    }
+
+    .sv-table td {
+        padding: 7px 12px;
+        border-bottom: 1px solid var(--border-primary, rgba(255,255,255,0.04));
+        color: var(--text-primary);
+        white-space: nowrap;
+    }
+
+    .sv-table tbody tr:hover {
+        background: var(--bg-hover, rgba(255,255,255,0.03));
+    }
+
+    .sv-table-more {
+        text-align: center;
+        padding: 8px;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        font-style: italic;
+    }
+
+    /* ── Thinking indicator ─────────────────────────────── */
+    .sv-thinking {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 16px;
+    }
+
+    .sv-thinking-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-secondary);
+        animation: sv-bounce 1.4s infinite ease-in-out both;
+    }
+
+    .sv-thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+    .sv-thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+    .sv-thinking-dot:nth-child(3) { animation-delay: 0s; }
+
+    @keyframes sv-bounce {
+        0%, 80%, 100% { transform: scale(0.5); opacity: 0.4; }
+        40% { transform: scale(1); opacity: 1; }
+    }
+
+    /* ── Input area ────────────────────────────────────── */
+    .sv-input-area {
+        flex-shrink: 0;
+        padding: 12px 0 20px;
+        border-top: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+    }
+
+    .sv-input-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+        background: var(--bg-secondary, #232328);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.1));
+        border-radius: var(--radius-lg, 16px);
+        padding: 8px 12px;
+        transition: border-color 0.2s;
+    }
+
+    .sv-input-row:focus-within {
+        border-color: var(--accent-primary, #FF3621);
+    }
+
+    .sv-textarea {
+        flex: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        resize: none;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-family: var(--font-body);
+        line-height: 1.5;
+        padding: 6px 4px;
+        max-height: 120px;
+    }
+
+    .sv-textarea::placeholder {
+        color: var(--text-secondary);
+        opacity: 0.6;
+    }
+
+    .sv-send-btn {
+        flex-shrink: 0;
+        padding: 8px 18px;
+        border: none;
+        border-radius: var(--radius-md, 10px);
+        background: var(--accent-primary, #FF3621);
+        color: #fff;
+        font-size: 0.85rem;
+        font-weight: 600;
+        font-family: var(--font-body);
+        cursor: pointer;
+        transition: background 0.2s, transform 0.1s;
+        letter-spacing: 0.03em;
+    }
+
+    .sv-send-btn:hover:not(:disabled) {
+        background: var(--accent-hover, #FF6F42);
+        transform: translateY(-1px);
+    }
+
+    .sv-send-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* ── Trace Sidebar ─────────────────────────────────── */
+    .sv-trace-sidebar {
+        width: 0;
+        overflow: hidden;
+        transition: width 0.3s ease;
+        border-left: 0px solid var(--border-primary, rgba(255,255,255,0.1));
+        background: var(--bg-secondary, #232328);
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+
+    .sv-trace-sidebar.sv-trace-open {
+        width: 380px;
+        border-left-width: 1px;
+    }
+
+    .sv-trace-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+        flex-shrink: 0;
+    }
+
+    .sv-trace-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .sv-trace-title-icon {
+        color: #818cf8;
+    }
+
+    .sv-trace-close {
+        background: none;
+        border: none;
+        color: var(--text-secondary);
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-family: var(--font-body);
+    }
+
+    .sv-trace-close:hover {
+        background: var(--bg-hover, rgba(255,255,255,0.06));
+        color: var(--text-primary);
+    }
+
+    .sv-trace-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 16px;
+    }
+
+    .sv-trace-empty {
+        text-align: center;
+        padding: 40px 16px;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .sv-trace-meta {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+        display: flex;
+        gap: 12px;
+    }
+
+    .sv-trace-meta-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    /* Trace status indicators */
+    .sv-span-status {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: inline-block;
+    }
+
+    .sv-span-status--ok {
+        background: #00A972;
+        box-shadow: 0 0 4px #00A972;
+    }
+
+    .sv-span-status--error {
+        background: #e74c3c;
+        box-shadow: 0 0 4px #e74c3c;
+    }
+
+    .sv-span-status--unset {
+        background: #666;
+    }
+
+    /* Trace details panel */
+    .sv-trace-details {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .sv-trace-section {
+        background: var(--bg-tertiary, #2C2C33);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+        border-radius: 8px;
+        padding: 10px 12px;
+    }
+
+    .sv-trace-section-label {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+
+    .sv-trace-section-value {
+        font-size: 0.78rem;
+        color: var(--text-primary);
+        line-height: 1.4;
+    }
+
+    .sv-trace-response-preview {
+        max-height: 120px;
+        overflow-y: auto;
+        opacity: 0.85;
+    }
+
+    .sv-trace-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .sv-trace-stat {
+        background: var(--bg-tertiary, #2C2C33);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+    }
+
+    .sv-trace-stat-num {
+        display: block;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--accent-primary, #FF3621);
+        font-family: var(--font-mono);
+    }
+
+    .sv-trace-stat-label {
+        display: block;
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-top: 2px;
+    }
+
+    .sv-span-children {
+        border-left: 1px solid var(--border-primary, rgba(255,255,255,0.08));
+        margin-left: 10px;
+        padding-left: 4px;
+    }
+
+    .sv-trace-loading {
+        text-align: center;
+        padding: 20px;
+        color: var(--text-secondary);
+        font-size: 0.82rem;
+    }
+
+    /* ── Reasoning Story (trace sidebar) ─────────────── */
+    .sv-story {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        margin: 8px 0 12px;
+        position: relative;
+    }
+
+    /* Vertical timeline line */
+    .sv-story::before {
+        content: '';
+        position: absolute;
+        left: 15px;
+        top: 20px;
+        bottom: 20px;
+        width: 2px;
+        background: linear-gradient(to bottom, var(--border-primary, rgba(255,255,255,0.1)), rgba(99, 102, 241, 0.3), var(--border-primary, rgba(255,255,255,0.1)));
+        border-radius: 1px;
+    }
+
+    .sv-story-beat {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 10px 8px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .sv-story-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        flex-shrink: 0;
+        border: 2px solid var(--bg-secondary, #232328);
+    }
+
+    .sv-story-icon--brain { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+    .sv-story-icon--route { background: rgba(255, 54, 33, 0.15); color: #FF3621; }
+    .sv-story-icon--search { background: rgba(0, 169, 114, 0.15); color: #00A972; }
+    .sv-story-icon--alert { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+    .sv-story-icon--merge { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+    .sv-story-icon--compose { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+    .sv-story-icon--stats { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+    .sv-story-content {
+        flex: 1;
+        min-width: 0;
+        padding-top: 4px;
+    }
+
+    .sv-story-text {
+        font-size: 0.82rem;
+        color: var(--text-primary);
+        line-height: 1.45;
+    }
+
+    .sv-story-text strong {
+        color: var(--accent-primary, #FF3621);
+        font-weight: 700;
+    }
+
+    .sv-story-detail {
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+        margin-top: 3px;
+        line-height: 1.3;
+    }
+
+    .sv-story-time {
+        font-size: 0.68rem;
+        color: var(--text-secondary);
+        opacity: 0.6;
+        margin-top: 2px;
+    }
+
+    /* Summary stats bar */
+    .sv-story-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 6px;
+    }
+
+    .sv-story-stat {
+        font-size: 0.7rem;
+        color: var(--text-secondary);
+    }
+
+    .sv-story-stat strong {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+
+    /* ── Stream status indicator ──────────────────────── */
+    .sv-stream-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        margin: 4px 0;
+        border-radius: 8px;
+        font-size: 0.76rem;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary, #2C2C33);
+        border: 1px solid var(--border-primary, rgba(255,255,255,0.06));
+        animation: svStreamPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes svStreamPulse {
+        0%, 100% { opacity: 0.7; }
+        50% { opacity: 1; }
+    }
+
+    .sv-stream-status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #818cf8;
+        box-shadow: 0 0 4px #818cf8;
+    }
+
+    .sv-stream-status--routing .sv-stream-status-dot {
+        background: #FF3621;
+        box-shadow: 0 0 4px #FF3621;
+    }
+
+    .sv-stream-status--agent .sv-stream-status-dot {
+        background: #00A972;
+        box-shadow: 0 0 4px #00A972;
+    }
+
+    /* ── Responsive ────────────────────────────────────── */
+    @media (max-width: 900px) {
+        .sv-trace-sidebar.sv-trace-open {
+            width: 320px;
+        }
+        .sv-dag-agent-desc {
+            display: none;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .sv-main {
+            padding: 0 10px;
+        }
+        .sv-msg {
+            max-width: 95%;
+        }
+        .sv-starters {
+            flex-direction: column;
+        }
+        .sv-trace-sidebar.sv-trace-open {
+            position: fixed;
+            right: 0;
+            top: 0;
+            height: 100vh;
+            width: 100vw;
+            max-width: 380px;
+            z-index: 100;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sv-outer">
+<!-- Conversation History Sidebar -->
+<aside class="sv-conv-sidebar" id="svConvSidebar">
+    <div class="sv-conv-header">
+        <span class="sv-conv-header-title">Conversations</span>
+        <button class="sv-conv-new-btn" onclick="newConversation()" title="New conversation">+</button>
+    </div>
+    <div class="sv-conv-list" id="svConvList">
+        <div class="sv-conv-loading">Loading...</div>
+    </div>
+</aside>
+<div class="sv-main">
+    <!-- Header -->
+    <div class="sv-header">
+        <img src="/static/mosaic-ai-icon-full-color.webp" class="sv-header-icon dbx-only" alt="Mosaic AI">
+        <div class="sv-header-text">
+            <h1 class="trek-only">MULTI-AGENT SUPERVISOR</h1>
+            <h1 class="dbx-only">AI Supervisor</h1>
+            <span class="sv-subtitle dbx-only">Route natural-language questions through a deployed multi-agent supervisor to specialized Genie AI spaces.</span>
+        </div>
+        <div class="sv-header-badges dbx-only">
+            {% if agent_endpoint %}
+            <div class="sv-agent-badge" style="margin:0;" title="Multi-agent supervisor built with LangGraph, deployed to Databricks Model Serving. Routes questions to specialized Genie AI spaces for data retrieval.">
+                <span class="sv-agent-badge-dot"></span>
+                LangGraph + GenieAgent on Model Serving
+            </div>
+            <div class="sv-agent-badge" id="svLlmBadge" style="margin:0;background:rgba(124,58,237,0.1);border-color:rgba(124,58,237,0.3);" title="Loading model info...">
+                <span style="color:#A78BFA;">&#10024;</span>
+                <span id="svLlmName">Loading...</span>
+            </div>
+            {% else %}
+            <div class="sv-agent-badge sv-agent-badge--error" style="margin:0;">
+                <span class="sv-agent-badge-dot"></span>
+                Agent Not Deployed
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- DAG Visualization -->
+    <div class="sv-dag" id="svDag">
+        <svg class="sv-dag-svg" id="svDagSvg"></svg>
+        <div class="sv-dag-supervisor" id="svDagSupervisor">
+            <div class="sv-dag-node"><img src="/static/databricks-symbol.svg" alt="S" style="width:24px;height:24px;filter:brightness(0) invert(1);"></div>
+            <div class="sv-dag-label">Supervisor</div>
+        </div>
+        <div class="sv-dag-agents" id="svDagAgents">
+            {% for space in agent_spaces %}
+            <div class="sv-dag-agent" data-key="{{ space.key }}">
+                <div class="sv-dag-agent-dot"></div>
+                <div style="display:flex;align-items:center;gap:5px;">
+                    <div class="sv-dag-agent-name">{{ space.name }}</div>
+                    <img src="/static/ai-bi-genie-icon-full-color.webp" alt="" style="width:12px;height:12px;flex-shrink:0;">
+                </div>
+            </div>
+            {% endfor %}
+            {% if not agent_spaces %}
+            <div class="sv-dag-agent">
+                <div class="sv-dag-agent-dot"></div>
+                <div><div class="sv-dag-agent-name" style="color:var(--text-secondary)">No agents configured</div></div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Messages area -->
+    <div class="sv-messages" id="svMessages">
+        <div class="sv-empty" id="svEmpty">
+            <div class="sv-empty-icon trek-only">&#9670;</div>
+            <div class="sv-empty-icon dbx-only">&#10024;</div>
+            <h2 class="trek-only">SUPERVISOR STANDING BY</h2>
+            <h2 class="dbx-only">Ask a question</h2>
+            <p class="dbx-only">The deployed AI supervisor will analyze your question and route it to the most relevant Genie AI agents.</p>
+            <div class="sv-starters" id="svStarters">
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">How many open work orders are there right now?</button>
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">Which nodes are at high maintenance risk?</button>
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">What is our SLA compliance rate by region?</button>
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">Give me a full system health overview</button>
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">What's the database connection pool status?</button>
+                <button class="sv-starter-btn" onclick="svAskStarter(this)">Show me IoT devices with degraded health</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input area -->
+    <div class="sv-input-area">
+        <div class="sv-input-row">
+            <textarea class="sv-textarea" id="svInput" rows="1" placeholder="Ask the supervisor a question..."></textarea>
+            <button class="sv-send-btn trek-only" id="svSendTrek" onclick="svSend()">TRANSMIT</button>
+            <button class="sv-send-btn dbx-only" id="svSendDbx" onclick="svSend()">Send</button>
+        </div>
+        <div class="sv-input-footer dbx-only" style="display:flex;align-items:center;gap:6px;padding:2px 4px 0;opacity:0.55;">
+            <img src="/static/ai-bi-genie-icon-full-color.webp" alt="Genie" style="width:13px;height:13px;">
+            <span style="font-size:0.65rem;color:var(--text-secondary);">Mosaic AI Agent Framework</span>
+            <span style="color:var(--text-muted);font-size:0.55rem;">&#x2022;</span>
+            <img src="/static/lakebase-icon-full-color.webp" alt="Lakebase" style="width:13px;height:13px;" title="Conversations persisted in Lakebase PostgreSQL. No separate vector DB needed.">
+            <span style="font-size:0.65rem;color:var(--text-secondary);">Long-Term Memory by Lakebase</span>
+        </div>
+    </div>
+</div>
+
+<!-- Trace Sidebar -->
+<aside class="sv-trace-sidebar" id="svTraceSidebar">
+    <div class="sv-trace-header">
+        <div class="sv-trace-title">
+            <span class="sv-trace-title-icon">&#9881;</span>
+            Agent Reasoning
+        </div>
+        <button class="sv-trace-close" onclick="svCloseTrace()">&times;</button>
+    </div>
+    <div class="sv-trace-body" id="svTraceBody">
+        <div class="sv-trace-empty">Submit a query to see agent reasoning traces.</div>
+    </div>
+</aside>
+</div>
+
+<script>
+(function() {
+    const messagesEl = document.getElementById('svMessages');
+    const inputEl = document.getElementById('svInput');
+    const sendBtnTrek = document.getElementById('svSendTrek');
+    const sendBtnDbx = document.getElementById('svSendDbx');
+    const dagEl = document.getElementById('svDag');
+    const traceSidebar = document.getElementById('svTraceSidebar');
+    const traceBody = document.getElementById('svTraceBody');
+
+    // Agent name to DAG key mapping
+    const AGENT_KEY_MAP = {
+        'FieldOpsGenie': 'field_ops',
+        'PostgresAdminGenie': 'postgres',
+        'NetworkHealthGenie': 'network_health',
+        'SLAWorkforceGenie': 'sla_workforce',
+    };
+
+    // ── Draw DAG lines ──────────────────────────────────
+    function drawDagLines() {
+        const svg = document.getElementById('svDagSvg');
+        const container = document.getElementById('svDag');
+        const supNode = document.querySelector('.sv-dag-supervisor .sv-dag-node');
+        const agents = document.querySelectorAll('.sv-dag-agent');
+        if (!svg || !supNode || !agents.length) return;
+
+        const rect = container.getBoundingClientRect();
+        svg.setAttribute('width', rect.width);
+        svg.setAttribute('height', rect.height);
+
+        // Only rebuild when the set of agents changed. animateParticle() caches
+        // element references and pathLength in a closure, so wiping the SVG on every
+        // redraw would leave in-flight animations driving detached nodes (and leaking
+        // their rAF loops). Now that a ResizeObserver redraws on each frame of a panel
+        // transition, that would happen constantly — so update the paths in place.
+        if (svg.querySelectorAll('.sv-dag-line').length !== agents.length) {
+            svg.innerHTML = '';
+        }
+
+        const supRect = supNode.getBoundingClientRect();
+        const sx = supRect.right - rect.left;
+        const sy = supRect.top + supRect.height / 2 - rect.top;
+
+        agents.forEach(function(agent) {
+            const aRect = agent.getBoundingClientRect();
+            const ex = aRect.left - rect.left;
+            const ey = aRect.top + aRect.height / 2 - rect.top;
+            const midX = (sx + ex) / 2;
+            const d = 'M' + sx + ',' + sy + ' C' + midX + ',' + sy + ' ' + midX + ',' + ey + ' ' + ex + ',' + ey;
+            const key = agent.getAttribute('data-key');
+
+            // Reuse existing nodes: updating 'd' keeps cached references valid, and
+            // running particles simply follow the new geometry.
+            var existingBase = svg.querySelector('.sv-dag-line[data-key="' + key + '"]');
+            var existingFlow = svg.querySelector('.sv-dag-line-flow[data-key="' + key + '"]');
+            if (existingBase && existingFlow) {
+                existingBase.setAttribute('d', d);
+                existingFlow.setAttribute('d', d);
+                return;
+            }
+
+            // Base line (static)
+            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('class', 'sv-dag-line');
+            path.setAttribute('data-key', key);
+            svg.appendChild(path);
+
+            // Flow overlay line (animated dashes)
+            var flowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            flowPath.setAttribute('d', d);
+            flowPath.setAttribute('class', 'sv-dag-line-flow');
+            flowPath.setAttribute('data-key', key);
+            svg.appendChild(flowPath);
+
+            // Trail particles (2 trailing glows that follow the lead)
+            for (var t = 0; t < 2; t++) {
+                var trail = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                trail.setAttribute('r', String(3 - t));
+                trail.setAttribute('class', 'sv-dag-particle-trail');
+                trail.setAttribute('data-key', key);
+                trail.setAttribute('data-trail', String(t));
+                svg.appendChild(trail);
+            }
+            // Lead data particle
+            var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('r', '4');
+            circle.setAttribute('class', 'sv-dag-particle');
+            circle.setAttribute('data-key', key);
+            circle.style.opacity = '0';
+            svg.appendChild(circle);
+        });
+    }
+
+    // Redraw at most once per frame. Panel transitions fire layout changes on
+    // every frame; recomputing getBoundingClientRect() for each one thrashes.
+    var _dagRedrawQueued = false;
+    function scheduleDagRedraw() {
+        if (_dagRedrawQueued) return;
+        _dagRedrawQueued = true;
+        requestAnimationFrame(function() {
+            _dagRedrawQueued = false;
+            drawDagLines();
+        });
+    }
+
+    // Draw on load and resize
+    setTimeout(drawDagLines, 100);
+    window.addEventListener('resize', scheduleDagRedraw);
+
+    // The paths are absolute coordinates derived from element geometry, so they go
+    // stale whenever the container's width changes. Opening the reasoning panel or
+    // the conversations sidebar does that WITHOUT firing a window resize event,
+    // which left the lines pointing at where the nodes used to be. A ResizeObserver
+    // catches every cause — panel toggles, sidebar collapse, zoom, font loading —
+    // and fires throughout a CSS transition rather than once after a guessed delay.
+    if (window.ResizeObserver) {
+        var _dagContainer = document.getElementById('svDag');
+        if (_dagContainer) {
+            new ResizeObserver(scheduleDagRedraw).observe(_dagContainer);
+        }
+    }
+
+    // ── DAG animation helpers ─────────────────────────
+    var _particleAnimations = {};
+
+    function animateParticle(key) {
+        var flowPath = document.querySelector('.sv-dag-line-flow[data-key="' + key + '"]');
+        var particle = document.querySelector('.sv-dag-particle[data-key="' + key + '"]');
+        if (!flowPath || !particle) return;
+
+        var pathEl = document.querySelector('.sv-dag-line[data-key="' + key + '"]');
+        if (!pathEl) return;
+        // Recomputed per frame rather than cached: the path's 'd' changes whenever the
+        // container resizes (side panel opening), and a stale length makes the particle
+        // overshoot or stall short of the node.
+        function currentPathLength() { return pathEl.getTotalLength(); }
+
+        // Gather trail particles
+        var trails = document.querySelectorAll('.sv-dag-particle-trail[data-key="' + key + '"]');
+        var trailOffsets = [0.06, 0.12]; // How far behind the lead (as fraction of path)
+
+        particle.style.opacity = '1';
+        trails.forEach(function(t) { t.style.opacity = '0.7'; });
+
+        var startTime = null;
+        var duration = 1400; // ms per trip
+
+        function step(timestamp) {
+            if (!startTime) startTime = timestamp;
+            var progress = ((timestamp - startTime) % duration) / duration;
+
+            // Lead particle
+            var pathLength = currentPathLength();
+            var point = pathEl.getPointAtLength(progress * pathLength);
+            particle.setAttribute('cx', point.x);
+            particle.setAttribute('cy', point.y);
+
+            // Trail particles follow behind
+            trails.forEach(function(t, i) {
+                var trailProgress = progress - trailOffsets[i];
+                if (trailProgress < 0) trailProgress += 1;
+                var tp = pathEl.getPointAtLength(trailProgress * pathLength);
+                t.setAttribute('cx', tp.x);
+                t.setAttribute('cy', tp.y);
+                t.style.opacity = String(0.5 - i * 0.15);
+            });
+
+            _particleAnimations[key] = requestAnimationFrame(step);
+        }
+        _particleAnimations[key] = requestAnimationFrame(step);
+    }
+
+    function stopParticle(key) {
+        if (_particleAnimations[key]) {
+            cancelAnimationFrame(_particleAnimations[key]);
+            delete _particleAnimations[key];
+        }
+        var particle = document.querySelector('.sv-dag-particle[data-key="' + key + '"]');
+        if (particle) particle.style.opacity = '0';
+        document.querySelectorAll('.sv-dag-particle-trail[data-key="' + key + '"]').forEach(function(t) {
+            t.style.opacity = '0';
+        });
+    }
+
+    // Start "thinking" animation on supervisor (called when query starts)
+    function dagStartThinking() {
+        var sup = document.getElementById('svDagSupervisor');
+        sup.classList.add('sv-dag-thinking');
+        sup.classList.add('sv-dag-active');
+        // Reset all agents
+        document.querySelectorAll('.sv-dag-agent').forEach(function(el) { el.classList.remove('sv-dag-active'); });
+        document.querySelectorAll('.sv-dag-line-flow').forEach(function(el) { el.classList.remove('sv-dag-flow-active'); });
+        Object.keys(_particleAnimations).forEach(stopParticle);
+        // Subtle pulse on all base lines to show "thinking"
+        document.querySelectorAll('.sv-dag-line').forEach(function(el) { el.classList.add('sv-dag-line-thinking'); });
+    }
+
+    // Stop thinking, highlight consulted agents with flow animation
+    function dagStopThinking() {
+        var sup = document.getElementById('svDagSupervisor');
+        sup.classList.remove('sv-dag-thinking');
+        document.querySelectorAll('.sv-dag-line').forEach(function(el) { el.classList.remove('sv-dag-line-thinking'); });
+    }
+
+    // ── DAG highlighting ────────────────────────────────
+    function highlightDagAgents(agentNames) {
+        dagStopThinking();
+
+        // Reset all
+        document.querySelectorAll('.sv-dag-agent').forEach(function(el) { el.classList.remove('sv-dag-active'); });
+        document.querySelectorAll('.sv-dag-line').forEach(function(el) { el.classList.remove('sv-dag-line-active'); });
+        document.querySelectorAll('.sv-dag-line-flow').forEach(function(el) { el.classList.remove('sv-dag-flow-active'); });
+        Object.keys(_particleAnimations).forEach(stopParticle);
+
+        var supervisorEl = document.getElementById('svDagSupervisor');
+        if (agentNames && agentNames.length > 0) {
+            supervisorEl.classList.add('sv-dag-active');
+            agentNames.forEach(function(name) {
+                var key = AGENT_KEY_MAP[name] || name;
+                var agentEl = document.querySelector('.sv-dag-agent[data-key="' + key + '"]');
+                if (agentEl) agentEl.classList.add('sv-dag-active');
+                var lineEl = document.querySelector('.sv-dag-line[data-key="' + key + '"]');
+                if (lineEl) lineEl.classList.add('sv-dag-line-active');
+                // Activate flow animation on the line
+                var flowEl = document.querySelector('.sv-dag-line-flow[data-key="' + key + '"]');
+                if (flowEl) flowEl.classList.add('sv-dag-flow-active');
+                // Animate particle along the path
+                animateParticle(key);
+            });
+        } else {
+            supervisorEl.classList.remove('sv-dag-active');
+        }
+    }
+
+    // Auto-resize textarea
+    inputEl.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    });
+
+    // Enter to send
+    inputEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            svSend();
+        }
+    });
+
+    // Starter question click
+    window.svAskStarter = function(btn) {
+        inputEl.value = btn.textContent;
+        svSend();
+    };
+
+    function setInputDisabled(disabled) {
+        inputEl.disabled = disabled;
+        sendBtnTrek.disabled = disabled;
+        sendBtnDbx.disabled = disabled;
+    }
+
+    function scrollToBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function removeEmptyState() {
+        const empty = document.getElementById('svEmpty');
+        if (empty) empty.remove();
+    }
+
+    // ── Add a user message ──────────────────────────────
+    function addUserMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'sv-msg sv-msg--user';
+        el.innerHTML =
+            '<div class="sv-msg-avatar">U</div>' +
+            '<div class="sv-msg-body">' +
+                '<div class="sv-msg-bubble">' + escapeHtml(text) + '</div>' +
+            '</div>';
+        messagesEl.appendChild(el);
+        scrollToBottom();
+    }
+
+    // ── Add thinking indicator ──────────────────────────
+    function addThinking() {
+        const id = 'sv-thinking-' + Date.now();
+        const el = document.createElement('div');
+        el.className = 'sv-msg sv-msg--agent';
+        el.id = id;
+        el.innerHTML =
+            '<div class="sv-msg-avatar">S</div>' +
+            '<div class="sv-msg-body">' +
+                '<div class="sv-msg-bubble">' +
+                    '<div class="sv-thinking">' +
+                        '<div class="sv-thinking-dot"></div>' +
+                        '<div class="sv-thinking-dot"></div>' +
+                        '<div class="sv-thinking-dot"></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        messagesEl.appendChild(el);
+        scrollToBottom();
+        return id;
+    }
+
+    // ── Build agent response ────────────────────────────
+    function addAgentResponse(data) {
+        const el = document.createElement('div');
+        el.className = 'sv-msg sv-msg--agent';
+
+        let bodyHtml = '';
+
+        // Routing badges
+        if (data.spaces_consulted && data.spaces_consulted.length > 0) {
+            bodyHtml += '<div class="sv-routing"><span class="sv-routing-label">Routed to:</span>';
+            data.spaces_consulted.forEach(function(name) {
+                bodyHtml += '<span class="sv-routing-badge">' + escapeHtml(name) + '</span>';
+            });
+            bodyHtml += '</div>';
+
+            // Highlight DAG
+            highlightDagAgents(data.spaces_consulted);
+        }
+
+        // Each space result
+        if (data.results && data.results.length > 0) {
+            data.results.forEach(function(result) {
+                bodyHtml += buildSpaceResult(result);
+            });
+        }
+
+        // View Trace button
+        bodyHtml += '<button class="sv-trace-btn" onclick="svOpenTrace()">&#9881; View Agent Trace</button>';
+
+        el.innerHTML =
+            '<div class="sv-msg-avatar">S</div>' +
+            '<div class="sv-msg-body">' + bodyHtml + '</div>';
+
+        messagesEl.appendChild(el);
+
+        // Highlight any SQL code blocks
+        el.querySelectorAll('code.language-sql').forEach(function(block) {
+            hljs.highlightElement(block);
+        });
+
+        scrollToBottom();
+    }
+
+    function buildSpaceResult(result) {
+        let html = '<div class="sv-space-result">';
+
+        // Header
+        html += '<div class="sv-space-header">';
+        html += '<span class="sv-space-name">' + escapeHtml(result.space_name || result.space_key) + '</span>';
+        if (result.status) {
+            const errClass = (result.status === 'FAILED' || result.error) ? ' sv-space-status--error' : '';
+            html += '<span class="sv-space-status' + errClass + '">' + escapeHtml(result.status) + '</span>';
+        }
+        html += '</div>';
+
+        // Error
+        if (result.error) {
+            html += '<div class="sv-space-error">' + escapeHtml(result.error) + '</div>';
+        }
+
+        // Answer (from agent endpoint)
+        if (result.answer) {
+            html += '<div class="sv-space-content">' + formatContent(result.answer) + '</div>';
+        }
+
+        // Text content (from direct Genie query)
+        if (result.content) {
+            html += '<div class="sv-space-content">' + formatContent(result.content) + '</div>';
+        }
+
+        // SQL query collapsible
+        if (result.query_info && result.query_info.query) {
+            const collapseId = 'sv-sql-' + Math.random().toString(36).substr(2, 8);
+            html += '<div class="sv-collapsible" id="' + collapseId + '">';
+            html += '<button class="sv-collapsible-toggle" onclick="document.getElementById(\'' + collapseId + '\').classList.toggle(\'sv-expanded\')">';
+            html += '<span class="sv-collapsible-arrow">&#9654;</span> View SQL Query</button>';
+            html += '<div class="sv-collapsible-body">';
+            if (result.query_info.description) {
+                html += '<div class="sv-sql-desc">' + escapeHtml(result.query_info.description) + '</div>';
+            }
+            html += '<pre class="sv-sql-pre"><code class="language-sql">' + escapeHtml(result.query_info.query) + '</code></pre>';
+            html += '</div></div>';
+        }
+
+        // Data table collapsible
+        if (result.query_result && result.query_result.columns && result.query_result.data) {
+            const tableId = 'sv-tbl-' + Math.random().toString(36).substr(2, 8);
+            const totalRows = result.query_result.data.length;
+            const displayRows = result.query_result.data.slice(0, 10);
+
+            html += '<div class="sv-collapsible" id="' + tableId + '">';
+            html += '<button class="sv-collapsible-toggle" onclick="document.getElementById(\'' + tableId + '\').classList.toggle(\'sv-expanded\')">';
+            html += '<span class="sv-collapsible-arrow">&#9654;</span> View Data (' + totalRows + ' rows)</button>';
+            html += '<div class="sv-collapsible-body"><div class="sv-table-wrap"><table class="sv-table">';
+
+            // Header
+            html += '<thead><tr>';
+            result.query_result.columns.forEach(function(col) {
+                html += '<th>' + escapeHtml(col) + '</th>';
+            });
+            html += '</tr></thead>';
+
+            // Body
+            html += '<tbody>';
+            displayRows.forEach(function(row) {
+                html += '<tr>';
+                row.forEach(function(cell) {
+                    html += '<td>' + escapeHtml(cell === null ? 'null' : String(cell)) + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+
+            if (totalRows > 10) {
+                html += '<div class="sv-table-more">Showing 10 of ' + totalRows + ' rows</div>';
+            }
+
+            html += '</div></div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    // ── Error message ───────────────────────────────────
+    function addErrorMessage(errText) {
+        const el = document.createElement('div');
+        el.className = 'sv-msg sv-msg--agent';
+        el.innerHTML =
+            '<div class="sv-msg-avatar">S</div>' +
+            '<div class="sv-msg-body">' +
+                '<div class="sv-msg-bubble" style="border-color: var(--lcars-mars, #e74c3c); color: var(--lcars-mars, #e74c3c);">' +
+                    escapeHtml(errText) +
+                '</div>' +
+            '</div>';
+        messagesEl.appendChild(el);
+        scrollToBottom();
+    }
+
+    // ── Utilities ───────────────────────────────────────
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatContent(text) {
+        // Split text into markdown table blocks and prose blocks
+        var lines = text.split('\n');
+        var blocks = [];
+        var currentBlock = { type: 'text', lines: [] };
+
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var isTableRow = /^\s*\|.*\|/.test(line);
+            var isSeparator = /^\s*\|[\s\-:|]+\|/.test(line);
+
+            if (isTableRow || isSeparator) {
+                if (currentBlock.type !== 'table') {
+                    if (currentBlock.lines.length > 0) blocks.push(currentBlock);
+                    currentBlock = { type: 'table', lines: [] };
+                }
+                currentBlock.lines.push(line);
+            } else {
+                if (currentBlock.type !== 'text') {
+                    if (currentBlock.lines.length > 0) blocks.push(currentBlock);
+                    currentBlock = { type: 'text', lines: [] };
+                }
+                currentBlock.lines.push(line);
+            }
+        }
+        if (currentBlock.lines.length > 0) blocks.push(currentBlock);
+
+        var html = '';
+        blocks.forEach(function(block) {
+            if (block.type === 'table') {
+                html += renderMarkdownTable(block.lines);
+            } else {
+                var textContent = block.lines.join('\n').trim();
+                if (textContent) {
+                    html += escapeHtml(textContent)
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>');
+                }
+            }
+        });
+        return html;
+    }
+
+    function renderMarkdownTable(lines) {
+        // Parse markdown table lines into an HTML table
+        var dataRows = [];
+        lines.forEach(function(line) {
+            // Skip separator lines (|---|---|)
+            if (/^\s*\|[\s\-:|]+\|$/.test(line)) return;
+            var cells = line.split('|').map(function(c) { return c.trim(); });
+            // Remove empty first/last from leading/trailing |
+            if (cells.length > 0 && cells[0] === '') cells.shift();
+            if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+            if (cells.length > 0) dataRows.push(cells);
+        });
+
+        if (dataRows.length === 0) return '';
+
+        var columns = dataRows[0];
+        var rows = dataRows.slice(1);
+
+        // Check if first column is just a row index (0, 1, 2...)
+        var hasIndexCol = columns.length > 1 && /^\s*$/.test(columns[0]);
+        var startCol = hasIndexCol ? 1 : 0;
+
+        var html = '<div class="sv-table-wrap" style="margin: 12px 0;">';
+        html += '<table class="query-result-table" style="width:100%;">';
+        html += '<thead><tr>';
+        for (var c = startCol; c < columns.length; c++) {
+            html += '<th>' + escapeHtml(columns[c]) + '</th>';
+        }
+        html += '</tr></thead><tbody>';
+        rows.forEach(function(row) {
+            html += '<tr>';
+            for (var c = startCol; c < row.length; c++) {
+                html += '<td>' + escapeHtml(row[c] || '') + '</td>';
+            }
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        return html;
+    }
+
+    // ── Trace Sidebar ───────────────────────────────────
+    window.svOpenTrace = function() {
+        traceSidebar.classList.add('sv-trace-open');
+        document.querySelector('.sv-outer').classList.add('sv-sidebar-open');
+        traceBody.innerHTML = '<div class="sv-trace-loading">Loading trace...</div>';
+        // Redrawing synchronously here used to capture the pre-transition layout;
+        // the ResizeObserver keeps the paths correct for every frame of the panel
+        // animation, so just queue one and let it follow the layout.
+        scheduleDagRedraw();
+        fetchTrace(0);
+    };
+
+    window.svCloseTrace = function() {
+        traceSidebar.classList.remove('sv-trace-open');
+        document.querySelector('.sv-outer').classList.remove('sv-sidebar-open');
+        // No magic 350ms to match the CSS transition — the observer redraws as the
+        // container actually resizes, so this stays correct if the timing changes.
+        scheduleDagRedraw();
+    };
+
+    function fetchTrace(retryCount) {
+        fetch('/api/agent/traces?limit=1')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.traces && data.traces.length > 0) {
+                    renderTrace(data.traces[0]);
+                } else if (retryCount < 3) {
+                    setTimeout(function() { fetchTrace(retryCount + 1); }, 2500);
+                } else {
+                    traceBody.innerHTML = '<div class="sv-trace-empty">No traces found yet. Traces may take a moment to appear in the inference table.</div>';
+                }
+            })
+            .catch(function(err) {
+                traceBody.innerHTML = '<div class="sv-trace-empty">Error loading trace: ' + escapeHtml(err.message) + '</div>';
+            });
+    }
+
+    function renderTrace(trace) {
+        let html = '';
+
+        // Status + Duration header
+        const duration = trace.execution_time_ms ? (trace.execution_time_ms / 1000).toFixed(1) + 's' : 'N/A';
+        const statusClass = trace.status === 'OK' ? 'sv-span-status--ok' : (trace.status === 'ERROR' ? 'sv-span-status--error' : 'sv-span-status--unset');
+        html += '<div class="sv-trace-meta">';
+        html += '<div class="sv-trace-meta-item"><span class="sv-span-status ' + statusClass + '"></span> ' + escapeHtml(trace.status || 'UNKNOWN') + '</div>';
+        html += '<div class="sv-trace-meta-item">Duration: <strong>' + duration + '</strong></div>';
+        html += '</div>';
+
+        // Reasoning story (the main attraction)
+        if (trace.reasoning_chain && trace.reasoning_chain.length > 0) {
+            html += '<div class="sv-story">';
+
+            var ICON_MAP = {
+                'brain': '🧠', 'route': '↗', 'search': '✓',
+                'alert': '⚠', 'merge': '⊕', 'compose': '✎', 'stats': '◎'
+            };
+
+            trace.reasoning_chain.forEach(function(beat) {
+                var iconClass = 'sv-story-icon--' + (beat.icon || 'brain');
+                var icon = ICON_MAP[beat.icon] || '•';
+
+                html += '<div class="sv-story-beat">';
+                html += '<div class="sv-story-icon ' + iconClass + '">' + icon + '</div>';
+                html += '<div class="sv-story-content">';
+
+                // Main text with **bold** support
+                var text = escapeHtml(beat.text || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                html += '<div class="sv-story-text">' + text + '</div>';
+
+                if (beat.detail) {
+                    html += '<div class="sv-story-detail">' + escapeHtml(beat.detail) + '</div>';
+                }
+
+                if (beat.duration_ms) {
+                    html += '<div class="sv-story-time">' + (beat.duration_ms / 1000).toFixed(1) + 's</div>';
+                }
+
+                // SQL query (from Genie space)
+                if (beat.sql) {
+                    var sqlId = 'sv-trace-sql-' + Math.random().toString(36).substr(2, 8);
+                    html += '<div class="sv-collapsible" id="' + sqlId + '" style="margin-top:6px;">';
+                    html += '<button class="sv-collapsible-toggle" style="font-size:11px;padding:4px 8px;" onclick="document.getElementById(\'' + sqlId + '\').classList.toggle(\'sv-expanded\')">';
+                    html += '<span class="sv-collapsible-arrow">&#9654;</span> Generated SQL</button>';
+                    html += '<div class="sv-collapsible-body"><pre class="sv-sql-pre"><code class="language-sql">' + escapeHtml(beat.sql) + '</code></pre></div></div>';
+                }
+
+                // Summary stats (for the final beat)
+                if (beat.stats) {
+                    html += '<div class="sv-story-stats">';
+                    if (beat.stats.total_time) html += '<div class="sv-story-stat"><strong>' + beat.stats.total_time + '</strong> total</div>';
+                    if (beat.stats.genie_queries) html += '<div class="sv-story-stat"><strong>' + beat.stats.genie_queries + '</strong> Genie queries</div>';
+                    if (beat.stats.genie_time) html += '<div class="sv-story-stat"><strong>' + beat.stats.genie_time + '</strong> querying</div>';
+                    if (beat.stats.llm_calls) html += '<div class="sv-story-stat"><strong>' + beat.stats.llm_calls + '</strong> LLM calls</div>';
+                    if (beat.stats.total_tokens) html += '<div class="sv-story-stat"><strong>' + beat.stats.total_tokens.toLocaleString() + '</strong> tokens</div>';
+                    html += '</div>';
+                }
+
+                html += '</div></div>';
+            });
+
+            html += '</div>';
+        } else {
+            // Fallback: just show stats grid when no reasoning chain
+            html += '<div class="sv-trace-stats">';
+            if (trace.num_spans) html += '<div class="sv-trace-stat"><span class="sv-trace-stat-num">' + trace.num_spans + '</span><span class="sv-trace-stat-label">Spans</span></div>';
+            if (trace.total_tokens) html += '<div class="sv-trace-stat"><span class="sv-trace-stat-num">' + trace.total_tokens.toLocaleString() + '</span><span class="sv-trace-stat-label">Tokens</span></div>';
+            if (trace.input_tokens) html += '<div class="sv-trace-stat"><span class="sv-trace-stat-num">' + trace.input_tokens.toLocaleString() + '</span><span class="sv-trace-stat-label">Input</span></div>';
+            if (trace.output_tokens) html += '<div class="sv-trace-stat"><span class="sv-trace-stat-num">' + trace.output_tokens.toLocaleString() + '</span><span class="sv-trace-stat-label">Output</span></div>';
+            html += '</div>';
+        }
+
+        // Trace ID (small, at the bottom)
+        if (trace.trace_id || trace.request_id) {
+            html += '<div style="font-size:0.62rem;color:var(--text-secondary);opacity:0.5;margin-top:12px;font-family:monospace;word-break:break-all;">' + escapeHtml(trace.trace_id || trace.request_id || '') + '</div>';
+        }
+
+        traceBody.innerHTML = html;
+
+        // Highlight any SQL code blocks in the trace
+        traceBody.querySelectorAll('code.language-sql').forEach(function(block) {
+            hljs.highlightElement(block);
+        });
+    }
+
+    // ── Streaming Status Updates ────────────────────────
+    var streamStatusEl = null;
+
+    // The endpoint sends nothing until the Genie query finishes -- measured at
+    // ~25s. Without a ticking clock that silence reads as a hung page, so the
+    // status line counts up and, once the wait gets long, says why.
+    var _statusBase = '';
+    var _statusStart = 0;
+    var _statusTimer = null;
+
+    function _renderStreamStatus() {
+        if (!streamStatusEl) return;
+        var secs = Math.floor((Date.now() - _statusStart) / 1000);
+        var text = _statusBase;
+        if (secs >= 3) text += ' (' + secs + 's)';
+        if (secs >= 10) text += ' — Genie queries typically take 20-30s';
+        streamStatusEl.querySelector('.sv-stream-status-text').textContent = text;
+    }
+
+    function addStreamStatus(text, type) {
+        if (!streamStatusEl) {
+            streamStatusEl = document.createElement('div');
+            streamStatusEl.className = 'sv-stream-status';
+            streamStatusEl.innerHTML = '<span class="sv-stream-status-dot"></span><span class="sv-stream-status-text"></span>';
+        }
+        streamStatusEl.className = 'sv-stream-status' + (type ? ' sv-stream-status--' + type : '');
+        // Restart the clock on each new phase so it times the current step.
+        _statusBase = text;
+        _statusStart = Date.now();
+        if (_statusTimer) clearInterval(_statusTimer);
+        _statusTimer = setInterval(_renderStreamStatus, 1000);
+        _renderStreamStatus();
+        // Insert before the thinking indicator or at end of messages
+        var thinking = document.querySelector('.sv-thinking');
+        if (thinking) {
+            thinking.parentNode.insertBefore(streamStatusEl, thinking);
+        } else {
+            messagesEl.appendChild(streamStatusEl);
+        }
+        scrollToBottom();
+    }
+
+    function removeStreamStatus() {
+        if (_statusTimer) { clearInterval(_statusTimer); _statusTimer = null; }
+        if (streamStatusEl && streamStatusEl.parentNode) {
+            streamStatusEl.parentNode.removeChild(streamStatusEl);
+        }
+        streamStatusEl = null;
+    }
+
+    // ── Conversation sidebar management ──────────────────
+    var currentConversationId = sessionStorage.getItem('sv_conversation_id') || null;
+
+    function loadConversationList() {
+        fetch('/api/agent/conversations?limit=30')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var list = document.getElementById('svConvList');
+                var convs = data.conversations || [];
+                if (convs.length === 0) {
+                    list.innerHTML = '<div class="sv-conv-empty">No conversations yet.<br>Ask a question to start.</div>';
+                    return;
+                }
+                list.innerHTML = convs.map(function(c) {
+                    var isActive = c.conversation_id === currentConversationId;
+                    var ago = timeAgo(c.updated_at);
+                    return '<div class="sv-conv-item' + (isActive ? ' active' : '') + '" onclick="loadConversation(\'' + c.conversation_id + '\')">' +
+                        '<div class="sv-conv-item-title">' + escHtml(c.title || 'Untitled') + '</div>' +
+                        '<div class="sv-conv-item-meta"><span>' + ago + '</span><span>' + c.message_count + ' msgs</span></div>' +
+                    '</div>';
+                }).join('');
+            })
+            .catch(function() {});
+    }
+
+    function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    function timeAgo(ts) {
+        try {
+            var diff = (Date.now() - new Date(ts).getTime()) / 1000;
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+            return Math.floor(diff/86400) + 'd ago';
+        } catch(e) { return ''; }
+    }
+
+    window.loadConversation = function(convId) {
+        currentConversationId = convId;
+        sessionStorage.setItem('sv_conversation_id', convId);
+        messagesEl.innerHTML = '';
+        removeEmptyState();
+
+        fetch('/api/agent/conversations/' + convId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) return;
+                (data.messages || []).forEach(function(msg) {
+                    if (msg.role === 'user') {
+                        addUserMessage(msg.content);
+                    } else if (msg.role === 'assistant') {
+                        // Add as a completed agent response
+                        var div = document.createElement('div');
+                        div.className = 'sv-msg sv-msg--agent';
+                        div.innerHTML = '<div class="sv-msg-content"><div class="sv-markdown">' +
+                            msg.content.replace(/\n/g, '<br>') + '</div></div>';
+                        messagesEl.appendChild(div);
+                    }
+                });
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+                loadConversationList(); // refresh active state
+            });
+    };
+
+    window.newConversation = function() {
+        currentConversationId = null;
+        sessionStorage.removeItem('sv_conversation_id');
+        messagesEl.innerHTML = '';
+        loadConversationList();
+        if (inputEl) inputEl.focus();
+    };
+
+    // Load LLM model info dynamically
+    fetch('/api/agent/status')
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            var badge = document.getElementById('svLlmBadge');
+            var nameEl = document.getElementById('svLlmName');
+            if (!badge || !nameEl) return;
+            var model = s.llm_model || 'unknown';
+            // Pretty-print model name
+            var display = model.replace('databricks-', '').replace(/-/g, ' ');
+            display = display.charAt(0).toUpperCase() + display.slice(1);
+            nameEl.textContent = display;
+            // Tooltip explaining why this model
+            var reasons = {
+                'claude sonnet 4 5': 'Selected for strong reasoning, multi-step planning, and 200K context window. Ideal for routing across 4 specialized agents and synthesizing cross-domain answers.',
+                'claude sonnet 4 6': 'Selected for strong reasoning, multi-step planning, and 200K context window. Ideal for routing across 4 specialized agents and synthesizing cross-domain answers.',
+                'meta llama': 'Open-source model selected for cost efficiency and low-latency inference on Databricks Model Serving.',
+                'dbrx': 'Databricks-native model optimized for RAG and tool-use patterns on the Databricks platform.',
+            };
+            var reason = 'Selected as the routing LLM for the multi-agent supervisor. Handles question classification, agent routing, and answer synthesis.';
+            for (var key in reasons) {
+                if (display.toLowerCase().indexOf(key) !== -1) { reason = reasons[key]; break; }
+            }
+            badge.title = 'Powered by ' + display + '. ' + reason;
+        })
+        .catch(function() {});
+
+    // Load conversation list on page load
+    loadConversationList();
+    // Restore active conversation if exists
+    if (currentConversationId) {
+        loadConversation(currentConversationId);
+    }
+
+    // ── Real-time Agent Reasoning Trace ─────────────────
+    var _traceSteps = [];
+    var _traceStart = 0;
+
+    function resetLiveTrace() {
+        _traceSteps = [];
+        _traceStart = Date.now();
+        traceSidebar.classList.add('sv-trace-open');
+        document.querySelector('.sv-outer').classList.add('sv-sidebar-open');
+        traceBody.innerHTML = '<div class="sv-trace-loading">Waiting for agent reasoning...</div>';
+    }
+
+    function addLiveTraceStep(icon, label, detail, status) {
+        var elapsed = Math.round(Date.now() - _traceStart);
+        // Mark previous active steps as done
+        _traceSteps.forEach(function(s) { if (s.status === 'active') s.status = 'done'; });
+        _traceSteps.push({icon: icon, title: label, detail: detail, status: status || 'active', time: elapsed});
+        renderReasoningTrace();
+    }
+
+    function renderReasoningTrace() {
+        var icons = {
+            analysis: '&#128161;', routing: '&#129302;', query: '&#128202;',
+            response: '&#128172;', synthesis: '&#10024;', complete: '&#9989;',
+            memory: '&#128190;', auth: '&#128274;', model: '&#129504;'
+        };
+
+        var allDone = _traceSteps.length > 0 && ['done','error'].indexOf(_traceSteps[_traceSteps.length - 1].status) !== -1 &&
+                       _traceSteps[_traceSteps.length - 1].title.indexOf('Complete') !== -1;
+
+        var html = '<div style="font-size:12px;font-weight:700;color:#A78BFA;margin-bottom:10px;display:flex;align-items:center;gap:6px;">' +
+            '<span>&#128270;</span> Agent Reasoning' +
+            (allDone ? '' : ' <span class="loading-spinner sm" style="width:12px;height:12px;margin-left:auto;"></span>') +
+            '</div>';
+
+        _traceSteps.forEach(function(s) {
+            var icon = icons[s.status === 'done' ? 'complete' : 'analysis'] || '&#9679;';
+            // Use step-specific icons
+            if (s.title.indexOf('Supervisor') !== -1 || s.title.indexOf('Thinking') !== -1) icon = '&#128161;';
+            else if (s.title.indexOf('Route') !== -1) icon = '&#129302;';
+            else if (s.title.indexOf('Data') !== -1 || s.title.indexOf('SQL') !== -1) icon = '&#128202;';
+            else if (s.title.indexOf('Synthesis') !== -1 || s.title.indexOf('Combining') !== -1) icon = '&#10024;';
+            else if (s.title.indexOf('Memory') !== -1) icon = '&#128190;';
+            else if (s.title.indexOf('Auth') !== -1) icon = '&#128274;';
+            else if (s.title.indexOf('LLM') !== -1 || s.title.indexOf('Model') !== -1) icon = '&#129504;';
+            else if (s.title.indexOf('Complete') !== -1) icon = '&#9989;';
+
+            var isActive = s.status === 'active';
+            var isDone = s.status === 'done';
+            // 'error' previously fell through to the neutral colour, making a failed
+            // step indistinguishable from one still pending.
+            var isError = s.status === 'error';
+            if (isError) icon = '&#10060;';
+            var borderColor = isError ? '#E5484D' : isActive ? '#60A5FA' : isDone ? '#00A972' : 'var(--border-primary,#3A3A42)';
+            var timeStr = (s.time / 1000).toFixed(1) + 's';
+
+            html += '<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;' +
+                'border-left:3px solid ' + borderColor + ';padding-left:12px;margin-bottom:2px;' +
+                (isActive ? 'background:rgba(96,165,250,0.05);border-radius:0 6px 6px 0;' : '') + '">' +
+                '<span style="font-size:16px;flex-shrink:0;">' + icon + '</span>' +
+                '<div style="flex:1;min-width:0;">' +
+                    '<div style="font-size:12px;font-weight:600;color:var(--text-primary);">' + s.title + '</div>' +
+                    (s.detail ? '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + s.detail + '</div>' : '') +
+                '</div>' +
+                '<div style="flex-shrink:0;font-size:10px;font-family:var(--font-mono);color:' +
+                    (isError ? '#E5484D' : isDone ? '#00A972' : isActive ? '#60A5FA' : 'var(--text-muted)') + ';">' +
+                    timeStr +
+                '</div>' +
+            '</div>';
+        });
+
+        traceBody.innerHTML = html;
+        traceBody.scrollTop = traceBody.scrollHeight;
+    }
+
+        // ── Send (with SSE streaming) ───────────────────────
+    window.svSend = function() {
+        const question = inputEl.value.trim();
+        if (!question) return;
+
+        // Start live trace
+        resetLiveTrace();
+        addLiveTraceStep('&#129504;', 'LLM Router', 'Claude Sonnet 4.5 via Foundation Model API', 'active');
+        addLiveTraceStep('&#128640;', 'Model Serving', 'POST /serving-endpoints/agents_.../invocations', 'active');
+
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+        removeEmptyState();
+        addUserMessage(question);
+        setInputDisabled(true);
+
+        // Start DAG thinking animation
+        dagStartThinking();
+
+        const thinkingId = addThinking();
+        var spacesConsulted = [];
+        var synthText = '';
+        var deltaText = '';       // accumulated token stream
+        var liveAnswerEl = null;  // bubble that grows as tokens arrive
+        var streamedParts = [];
+        var finished = false;
+        var synthTraced = false;  // synthesis arrives twice: start marker, then text
+
+        // Try SSE streaming first
+        fetch('/api/agent/ask-stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: question, conversation_id: currentConversationId })
+        }).then(function(response) {
+            if (!response.ok || !response.body) {
+                throw new Error('Streaming not available');
+            }
+
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = '';
+
+            function readChunk() {
+                return reader.read().then(function(result) {
+                    if (result.done) {
+                        finishStream();
+                        return;
+                    }
+
+                    buffer += decoder.decode(result.value, { stream: true });
+                    var lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    lines.forEach(function(line) {
+                        line = line.trim();
+                        if (!line.startsWith('data:')) return;
+                        var dataStr = line.substring(5).trim();
+                        if (!dataStr || dataStr === '[DONE]') return;
+
+                        try {
+                            var evt = JSON.parse(dataStr);
+                            handleStreamEvent(evt);
+                        } catch (e) {}
+                    });
+
+                    return readChunk();
+                });
+            }
+
+            return readChunk();
+        }).catch(function(err) {
+            // Fallback to non-streaming (only if stream didn't already complete)
+            if (finished) return;
+            removeStreamStatus();
+            fetch('/api/agent/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question })
+            })
+            .then(function(r) {
+                // The fallback can receive a non-JSON response — e.g. the Databricks
+                // Apps gateway returns an HTML timeout/error page on a slow request.
+                // Parsing that as JSON produced the raw "Unexpected token '<',
+                // <!DOCTYPE ..." error. Detect it and surface a friendly message.
+                var ct = r.headers.get('content-type') || '';
+                if (!r.ok || ct.indexOf('application/json') === -1) {
+                    return r.text().then(function() {
+                        throw new Error('The agent took too long or the connection dropped. Please try again.');
+                    });
+                }
+                return r.json();
+            })
+            .then(function(data) {
+                var thinking = document.getElementById(thinkingId);
+                if (thinking) thinking.remove();
+                if (data.error) {
+                    addErrorMessage('Error: ' + data.error);
+                    highlightDagAgents([]);
+                } else {
+                    addAgentResponse(data);
+                }
+            })
+            .catch(function(err2) {
+                var thinking = document.getElementById(thinkingId);
+                if (thinking) thinking.remove();
+                addErrorMessage(err2.message);
+                highlightDagAgents([]);
+            })
+            .finally(function() {
+                setInputDisabled(false);
+                inputEl.focus();
+            });
+        });
+
+        function handleStreamEvent(evt) {
+            switch (evt.type) {
+                case 'conversation':
+                    if (evt.conversation_id) {
+                        currentConversationId = evt.conversation_id;
+                        sessionStorage.setItem('sv_conversation_id', evt.conversation_id);
+                    }
+                    if (evt.llm_model) {
+                        addLiveTraceStep('&#129504;', 'LLM Model', evt.llm_model.replace('databricks-', ''), 'done');
+                    }
+                    addLiveTraceStep('&#128172;', 'Memory', 'Injected conversation history from Lakebase', 'done');
+                    break;
+
+                case 'delta':
+                    // Token stream: show words as they are produced rather than
+                    // leaving the user on a blank screen for the whole round trip.
+                    deltaText += (evt.text || '');
+                    if (!liveAnswerEl) {
+                        liveAnswerEl = document.createElement('div');
+                        liveAnswerEl.className = 'sv-msg sv-msg-agent';
+                        liveAnswerEl.style.whiteSpace = 'pre-wrap';
+                        messagesEl.appendChild(liveAnswerEl);
+                    }
+                    liveAnswerEl.textContent = deltaText;
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    break;
+
+                case 'thinking':
+                    addStreamStatus(evt.text || 'Supervisor analyzing...', '');
+                    addLiveTraceStep('&#128161;', 'Supervisor Thinking', 'Classifying question intent', 'active');
+                    break;
+
+                case 'routing':
+                    if (evt.agent) {
+                        spacesConsulted.push(evt.agent);
+                        highlightDagAgents(spacesConsulted);
+                        addStreamStatus('Consulting ' + evt.agent + '...', 'routing');
+                        addLiveTraceStep('&#129302;', 'Route → ' + evt.agent, 'Genie Space → SQL Warehouse → Unity Catalog', 'active');
+                    }
+                    break;
+
+                case 'agent_response':
+                    addStreamStatus(evt.agent + ' responding...', 'agent');
+                    if (evt.text) streamedParts.push(evt.text);
+                    addLiveTraceStep('&#128202;', (evt.agent || 'Agent') + ' Data', 'SQL executed, results returned', 'done');
+                    break;
+
+                case 'synthesis':
+                    addStreamStatus('Synthesizing answer...', '');
+                    if (evt.text) synthText = evt.text;
+                    if (!synthTraced) {
+                        synthTraced = true;
+                        addLiveTraceStep('&#10024;', 'LLM Synthesis', 'Combining agent results into final answer', 'active');
+                    }
+                    break;
+
+                case 'done':
+                    // Report what the server actually did. This used to always show
+                    // success, so a failed write (e.g. no rights on ai_memory) still
+                    // rendered "Saved Q&A to Lakebase ai_memory" while nothing was stored.
+                    if (evt.memory_persisted === false) {
+                        addLiveTraceStep('&#128190;', 'Memory Persist',
+                            'NOT saved — check app logs for ai_memory errors', 'error');
+                    } else {
+                        addLiveTraceStep('&#128190;', 'Memory Persist',
+                            'Saved Q&A to Lakebase ai_memory', 'done');
+                    }
+                    addLiveTraceStep('&#9989;', 'Complete', spacesConsulted.length + ' agent(s) consulted', 'done');
+                    finishStream();
+                    break;
+
+                case 'error':
+                    if (finished) break;
+                    finished = true;
+                    var thinking = document.getElementById(thinkingId);
+                    if (thinking) thinking.remove();
+                    removeStreamStatus();
+                    addErrorMessage('Error: ' + (evt.text || 'Unknown error'));
+                    highlightDagAgents([]);
+                    setInputDisabled(false);
+                    inputEl.focus();
+                    break;
+            }
+        }
+
+        function finishStream() {
+            if (finished) return;
+            finished = true;
+
+            var thinking = document.getElementById(thinkingId);
+            if (thinking) thinking.remove();
+            removeStreamStatus();
+
+            // Replace the raw token bubble with the formatted final answer.
+            if (liveAnswerEl) { liveAnswerEl.remove(); liveAnswerEl = null; }
+
+            var answer = synthText || streamedParts.join('\n') || deltaText;
+            if (!answer && spacesConsulted.length === 0) {
+                addErrorMessage('No response received from agent.');
+                highlightDagAgents([]);
+            } else {
+                addAgentResponse({
+                    spaces_consulted: spacesConsulted,
+                    results: [{
+                        space_key: 'supervisor',
+                        space_name: 'AI Supervisor',
+                        status: 'COMPLETED',
+                        answer: answer || '(No text response)',
+                        source: 'agent_endpoint',
+                    }]
+                });
+            }
+            setInputDisabled(false);
+            inputEl.focus();
+            // Refresh conversation sidebar
+            loadConversationList();
+        }
+    };
+})();
+</script>
+{% endblock %}

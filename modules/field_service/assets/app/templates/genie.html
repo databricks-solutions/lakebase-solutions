@@ -1,0 +1,535 @@
+{% extends "base.html" %}
+{% block title %}Genie AI{% endblock %}
+{% block page_title %}Genie AI{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div class="gn-header">
+            <div>
+                <h1>Genie AI</h1>
+                <p class="subtitle">Ask questions about your data in natural language</p>
+            </div>
+            <div class="powered-by powered-by-right">
+                <img src="/static/ai-bi-genie-icon-full-color.webp" class="powered-by-icon" alt="Genie">
+                <span>Powered by <strong>Databricks AI/BI Genie</strong></span>
+            </div>
+        </div>
+
+        <div class="gn-controls">
+            <div class="lcars-space-selector">
+                <span class="lcars-space-label trek-only">DATA SPACE</span>
+                <span class="lcars-space-label dbx-only">Data Source</span>
+                <div class="lcars-space-buttons">
+                    {% for key, space in spaces.items() %}
+                    {% if space.id %}
+                    <button class="space-btn{% if loop.first %} active{% endif %}" data-space="{{ key }}" onclick="switchSpace('{{ key }}')">{{ space.name }}</button>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            <button class="gn-new-chat-btn" id="newChatBtn" onclick="newConversation()" title="Start a new conversation">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m-7-7h14"/></svg>
+                New Chat
+            </button>
+        </div>
+
+        <div class="lcars-chat-frame">
+            <!-- LCARS Top Frame -->
+            <div class="lcars-frame lcars-frame-top">
+                <div class="lcars-elbow lcars-elbow-tl genie-elbow"><div class="lcars-elbow-inner"></div></div>
+                <div class="lcars-bar lcars-bar-top genie-bar-top">
+                    <span class="lcars-bar-label">COMPUTER &mdash; QUERY INTERFACE</span>
+                </div>
+                <div class="lcars-elbow lcars-elbow-tr genie-elbow"><div class="lcars-elbow-inner"></div></div>
+            </div>
+
+            <!-- Chat Container -->
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="empty-state">
+                        <div class="empty-state-icon trek-only">&#9670;</div>
+                        <div class="gn-empty-logo dbx-only">
+                            <img src="/static/ai-bi-genie-icon-full-color.webp" alt="Genie" width="28" height="28">
+                        </div>
+                        <h2 class="trek-only">COMPUTER READY</h2>
+                        <h2 class="dbx-only">Ask anything about your data</h2>
+                        <p id="emptyStateDescription">Loading...</p>
+
+                        <div class="example-questions" id="exampleQuestions">
+                            <div class="loading">Loading saved questions...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea id="chatInput" class="chat-input" placeholder="Enter query..." rows="1"></textarea>
+                        <button id="sendButton" class="send-button trek-only" onclick="sendMessage()">TRANSMIT</button>
+                        <button id="sendButtonModern" class="send-button dbx-only" onclick="sendMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LCARS Bottom Frame -->
+            <div class="lcars-frame lcars-frame-bottom">
+                <div class="lcars-elbow lcars-elbow-bl genie-elbow-bottom"><div class="lcars-elbow-inner"></div></div>
+                <div class="lcars-bar lcars-bar-bottom genie-bar-bottom">
+                    <span class="lcars-pill lcars-pill-1"></span>
+                    <span class="lcars-pill lcars-pill-2"></span>
+                    <span class="lcars-pill lcars-pill-3"></span>
+                </div>
+                <div class="lcars-elbow lcars-elbow-br genie-elbow-bottom"><div class="lcars-elbow-inner"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .gn-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .gn-header h1 { margin-bottom: 0; }
+        .gn-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .gn-new-chat-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 16px;
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-family: var(--font-body);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .gn-new-chat-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+        .gn-empty-logo {
+            margin-bottom: 6px;
+            opacity: 0.5;
+        }
+        /* ── Copy SQL button ── */
+        .gn-copy-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            background: none;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-family: var(--font-body);
+            cursor: pointer;
+            transition: all 0.12s;
+            margin-left: 8px;
+        }
+        .gn-copy-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+        .gn-copy-btn.gn-copied { color: var(--lcars-ice, #00A972); border-color: var(--lcars-ice, #00A972); }
+        /* ── Download results button ── */
+        .gn-download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            background: none;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-family: var(--font-body);
+            cursor: pointer;
+            transition: all 0.12s;
+            margin-left: 4px;
+        }
+        .gn-download-btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+        .gn-action-bar {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+        }
+    </style>
+
+    <script>
+        let conversationId = null;
+        let currentSpace = '{{ (spaces.keys()|list)[0] }}';
+
+        const spaceDescriptions = {
+            {% for key, space in spaces.items() %}
+            {% if space.id %}
+            '{{ key }}': '{{ space.description }}',
+            {% endif %}
+            {% endfor %}
+        };
+
+        function loadSpaceQuestions(spaceKey) {
+            const exampleContainer = document.getElementById('exampleQuestions');
+            exampleContainer.innerHTML = '<div class="loading">Loading saved questions...</div>';
+
+            fetch(`/api/genie/spaces/${spaceKey}/questions`)
+                .then(r => r.json())
+                .then(data => {
+                    exampleContainer.innerHTML = '';
+
+                    if (data.questions && data.questions.length > 0) {
+                        data.questions.forEach(q => {
+                            const div = document.createElement('div');
+                            div.className = 'example-question';
+                            div.textContent = q;
+                            div.onclick = () => askQuestion(q);
+                            exampleContainer.appendChild(div);
+                        });
+                    } else {
+                        exampleContainer.innerHTML = '<div class="loading">No saved questions available</div>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading questions:', err);
+                    exampleContainer.innerHTML = '<div class="error">Failed to load questions</div>';
+                });
+        }
+
+        function switchSpace(spaceKey) {
+            currentSpace = spaceKey;
+            conversationId = null;
+
+            document.querySelectorAll('.space-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.space === spaceKey);
+            });
+
+            resetChat();
+        }
+
+        function newConversation() {
+            conversationId = null;
+            resetChat();
+        }
+
+        function resetChat() {
+            const chatMessages = document.getElementById('chatMessages');
+            const isTrek = document.documentElement.getAttribute('data-theme') === 'trekkie';
+            chatMessages.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon trek-only">${isTrek ? '&#9670;' : ''}</div>
+                    <div class="gn-empty-logo dbx-only"${isTrek ? ' style="display:none"' : ''}>
+                        <img src="/static/ai-bi-genie-icon-full-color.webp" alt="Genie" width="28" height="28">
+                    </div>
+                    <h2>${isTrek ? 'COMPUTER READY' : 'Ask anything about your data'}</h2>
+                    <p>${spaceDescriptions[currentSpace]}</p>
+                    <div class="example-questions" id="exampleQuestions">
+                        <div class="loading">Loading saved questions...</div>
+                    </div>
+                </div>
+            `;
+            loadSpaceQuestions(currentSpace);
+        }
+
+        loadSpaceQuestions(currentSpace);
+        document.getElementById('emptyStateDescription').textContent = spaceDescriptions[currentSpace];
+
+        document.getElementById('chatInput').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        document.getElementById('chatInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function askQuestion(question) {
+            document.getElementById('chatInput').value = question;
+            sendMessage();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const question = input.value.trim();
+            if (!question) return;
+
+            input.value = '';
+            input.style.height = 'auto';
+
+            const emptyState = document.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            addMessage('user', question);
+            const loadingId = addLoadingMessage();
+
+            input.disabled = true;
+            document.getElementById('sendButton').disabled = true;
+            document.getElementById('sendButtonModern').disabled = true;
+
+            fetch('/api/genie/ask', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    question: question,
+                    conversation_id: conversationId,
+                    space_key: currentSpace
+                })
+            })
+            .then(r => r.json())
+            .then(response => {
+                document.getElementById(loadingId).remove();
+
+                if (response.error) {
+                    addMessage('genie', 'Sorry, I encountered an error: ' + response.error, null, null, null, true);
+                } else {
+                    conversationId = response.conversation_id;
+                    addMessage('genie', response.content, response.query_info, response.query_result, response.suggested_questions);
+                }
+            })
+            .catch(err => {
+                document.getElementById(loadingId).remove();
+                addMessage('genie', 'Error: ' + err.message, null, null, null, true);
+            })
+            .finally(() => {
+                input.disabled = false;
+                document.getElementById('sendButton').disabled = false;
+                document.getElementById('sendButtonModern').disabled = false;
+                input.focus();
+            });
+        }
+
+        function toggleCollapsible(element) {
+            element.closest('.collapsible-section').classList.toggle('expanded');
+        }
+
+        function copyToClipboard(text, btn) {
+            navigator.clipboard.writeText(text).then(() => {
+                btn.classList.add('gn-copied');
+                var orig = btn.innerHTML;
+                btn.innerHTML = '&#10003; Copied';
+                setTimeout(() => { btn.classList.remove('gn-copied'); btn.innerHTML = orig; }, 1500);
+            });
+        }
+
+        function downloadResultsCsv(columns, dataArray) {
+            var lines = [];
+            lines.push(columns.map(c => '"' + c.name.replace(/"/g, '""') + '"').join(','));
+            dataArray.forEach(row => {
+                lines.push(row.map(cell => {
+                    if (cell === null) return '';
+                    return '"' + String(cell).replace(/"/g, '""') + '"';
+                }).join(','));
+            });
+            var blob = new Blob([lines.join('\n')], {type: 'text/csv'});
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'genie_results.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+
+        function addMessage(type, text, queryInfo, queryResult, suggestedQuestions, isError) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = type === 'user' ? '\u25C7' : '\u25A3';
+
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            if (isError) {
+                content.style.background = 'var(--bg-secondary)';
+                content.style.border = '1px solid var(--lcars-mars)';
+                content.style.color = 'var(--lcars-mars)';
+            }
+
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+            textDiv.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            content.appendChild(textDiv);
+
+            if (queryInfo?.query) {
+                const collapsibleDiv = document.createElement('div');
+                collapsibleDiv.className = 'collapsible-section';
+
+                const header = document.createElement('div');
+                header.className = 'collapsible-header';
+                header.onclick = function() { toggleCollapsible(this); };
+                header.innerHTML = `
+                    <span class="collapsible-icon">&#9654;</span>
+                    <span class="collapsible-label">View SQL Query</span>
+                `;
+                collapsibleDiv.appendChild(header);
+
+                const collapsibleContent = document.createElement('div');
+                collapsibleContent.className = 'collapsible-content';
+
+                const sqlDiv = document.createElement('div');
+                sqlDiv.className = 'sql-query';
+
+                if (queryInfo.description) {
+                    const desc = document.createElement('div');
+                    desc.className = 'query-description';
+                    desc.textContent = queryInfo.description;
+                    sqlDiv.appendChild(desc);
+                }
+
+                const pre = document.createElement('pre');
+                pre.className = 'sql-query-pre';
+                const code = document.createElement('code');
+                code.className = 'language-sql';
+                code.textContent = queryInfo.query;
+                pre.appendChild(code);
+                sqlDiv.appendChild(pre);
+                hljs.highlightElement(code);
+
+                // Copy SQL button
+                const actionBar = document.createElement('div');
+                actionBar.className = 'gn-action-bar';
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'gn-copy-btn';
+                copyBtn.innerHTML = '&#128203; Copy SQL';
+                copyBtn.onclick = function() { copyToClipboard(queryInfo.query, this); };
+                actionBar.appendChild(copyBtn);
+                sqlDiv.appendChild(actionBar);
+
+                collapsibleContent.appendChild(sqlDiv);
+                collapsibleDiv.appendChild(collapsibleContent);
+                content.appendChild(collapsibleDiv);
+            }
+
+            if (queryResult?.statement_response?.manifest && queryResult.statement_response.result) {
+                const collapsibleDiv = document.createElement('div');
+                collapsibleDiv.className = 'collapsible-section';
+
+                const columns = queryResult.statement_response.manifest.schema.columns;
+                const dataArray = queryResult.statement_response.result.data_array || [];
+
+                const header = document.createElement('div');
+                header.className = 'collapsible-header';
+                header.onclick = function() { toggleCollapsible(this); };
+                header.innerHTML = `
+                    <span class="collapsible-icon">&#9654;</span>
+                    <span class="collapsible-label">View Data Table (${dataArray.length} rows)</span>
+                `;
+                collapsibleDiv.appendChild(header);
+
+                const collapsibleContent = document.createElement('div');
+                collapsibleContent.className = 'collapsible-content';
+
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'query-result-table';
+                const table = document.createElement('table');
+
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                columns.forEach(col => {
+                    const th = document.createElement('th');
+                    th.textContent = col.name;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                dataArray.forEach(row => {
+                    const tr = document.createElement('tr');
+                    row.forEach(cell => {
+                        const td = document.createElement('td');
+                        td.textContent = cell === null ? 'null' : cell;
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+                table.appendChild(tbody);
+                resultDiv.appendChild(table);
+
+                // Download CSV button
+                const actionBar = document.createElement('div');
+                actionBar.className = 'gn-action-bar';
+                const dlBtn = document.createElement('button');
+                dlBtn.className = 'gn-download-btn';
+                dlBtn.innerHTML = '&#11015; Download CSV';
+                dlBtn.onclick = function() { downloadResultsCsv(columns, dataArray); };
+                actionBar.appendChild(dlBtn);
+                resultDiv.appendChild(actionBar);
+
+                collapsibleContent.appendChild(resultDiv);
+                collapsibleDiv.appendChild(collapsibleContent);
+                content.appendChild(collapsibleDiv);
+            }
+
+            if (suggestedQuestions?.length) {
+                const suggestedDiv = document.createElement('div');
+                suggestedDiv.className = 'suggested-questions';
+                const label = document.createElement('div');
+                label.className = 'suggested-questions-label';
+                label.textContent = 'Suggested Questions';
+                suggestedDiv.appendChild(label);
+
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'suggested-questions-container';
+                suggestedQuestions.forEach(q => {
+                    const btn = document.createElement('button');
+                    btn.className = 'suggested-question-btn';
+                    btn.textContent = q;
+                    btn.onclick = () => askQuestion(q);
+                    btnContainer.appendChild(btn);
+                });
+                suggestedDiv.appendChild(btnContainer);
+                content.appendChild(suggestedDiv);
+            }
+
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function addLoadingMessage() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message genie';
+            const loadingId = 'loading-' + Date.now();
+            messageDiv.id = loadingId;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = '\u25A3';
+
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            const loading = document.createElement('div');
+            loading.className = 'loading-indicator';
+            loading.innerHTML = '<div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div>';
+            content.appendChild(loading);
+
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            return loadingId;
+        }
+    </script>
+{% endblock %}

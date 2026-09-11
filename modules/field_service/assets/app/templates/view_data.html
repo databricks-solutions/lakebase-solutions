@@ -1,0 +1,1354 @@
+{% extends "base.html" %}
+{% block title %}Data Explorer{% endblock %}
+{% block page_title %}Data Explorer{% endblock %}
+
+{% block content %}
+<style>
+/* ── Layout ── */
+.de-wrap {
+    display: flex;
+    gap: 0;
+    height: calc(100vh - 80px);
+    overflow: hidden;
+    font-family: var(--font-body);
+    color: var(--text-primary);
+}
+
+/* ── Left sidebar ── */
+.de-sidebar {
+    width: 280px;
+    min-width: 220px;
+    max-width: 340px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border-primary);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.de-sidebar-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border-primary);
+}
+.de-sidebar-header h3 {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.de-conn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: rgba(0, 169, 114, 0.12);
+    color: var(--lcars-ice, #00A972);
+    border: 1px solid rgba(0, 169, 114, 0.25);
+}
+.de-conn-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lcars-ice, #00A972);
+    animation: de-pulse 2s ease-in-out infinite;
+}
+@keyframes de-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.de-sidebar-search {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-primary);
+}
+.de-sidebar-search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.de-sidebar-search input:focus { border-color: var(--accent-primary); }
+.de-sidebar-search input::placeholder { color: var(--text-muted); }
+
+.de-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+.de-tree::-webkit-scrollbar { width: 6px; }
+.de-tree::-webkit-scrollbar-track { background: transparent; }
+.de-tree::-webkit-scrollbar-thumb { background: var(--border-primary); border-radius: 3px; }
+
+.de-schema-group { margin-bottom: 2px; }
+.de-schema-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 14px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    text-align: left;
+}
+.de-schema-toggle:hover { color: var(--text-primary); }
+.de-schema-arrow {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+.de-schema-arrow svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.de-schema-group.de-collapsed .de-schema-arrow { transform: rotate(-90deg); }
+.de-schema-group.de-collapsed .de-schema-tables { display: none; }
+.de-schema-count {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    background: var(--bg-primary);
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+.de-table-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 6px 32px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: all 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.de-table-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.de-table-item.de-active {
+    background: rgba(187, 134, 252, 0.08);
+    color: var(--accent-primary);
+    border-left-color: var(--accent-primary);
+    font-weight: 500;
+}
+.de-table-icon { flex-shrink: 0; width: 14px; height: 14px; opacity: 0.5; }
+.de-table-item.de-active .de-table-icon { opacity: 1; }
+.de-sidebar-loading, .de-sidebar-error {
+    padding: 24px 16px;
+    text-align: center;
+    font-size: 13px;
+}
+.de-sidebar-loading { color: var(--text-muted); }
+.de-sidebar-error { color: #e74c3c; }
+
+/* ── Main area ── */
+.de-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* ── Table meta bar ── */
+.de-meta-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    flex-wrap: wrap;
+}
+.de-meta-stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.de-meta-val {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.de-meta-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border-primary);
+}
+.de-meta-toggle {
+    margin-left: auto;
+    padding: 3px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    font-family: var(--font-body);
+}
+.de-meta-toggle:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+/* ── Column Schema Panel (collapsible) ── */
+.de-schema-panel {
+    display: none;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-card);
+    max-height: 200px;
+    overflow-y: auto;
+}
+.de-schema-panel.de-open { display: block; }
+.de-schema-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 6px 16px;
+}
+.de-col-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.de-col-card:hover { background: var(--bg-hover); }
+.de-col-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.de-type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+}
+.de-type-text { background: rgba(59, 130, 246, 0.15); color: #3B82F6; }
+.de-type-num { background: rgba(16, 185, 129, 0.15); color: #10B981; }
+.de-type-time { background: rgba(245, 158, 11, 0.15); color: #F59E0B; }
+.de-type-bool { background: rgba(168, 85, 247, 0.15); color: #A855F7; }
+.de-type-other { background: rgba(107, 114, 128, 0.15); color: #6B7280; }
+.de-col-null {
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+.de-col-auto {
+    font-size: 9px;
+    color: var(--lcars-ice, #00A972);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* ── Toolbar ── */
+.de-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-card);
+    flex-wrap: wrap;
+}
+.de-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 200px;
+}
+.de-table-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.de-search-box {
+    position: relative;
+    max-width: 260px;
+    flex: 1;
+}
+.de-search-box input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px 7px 30px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 12px;
+    outline: none;
+}
+.de-search-box input:focus { border-color: var(--accent-primary); }
+.de-search-box input::placeholder { color: var(--text-muted); }
+.de-search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 13px;
+    height: 13px;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+.de-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.de-row-count {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.de-select {
+    padding: 5px 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+}
+.de-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+}
+.de-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--text-muted); }
+.de-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.de-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.de-btn-accent {
+    background: var(--accent-primary, #BB86FC);
+    color: #fff;
+    border-color: var(--accent-primary, #BB86FC);
+}
+.de-btn-accent:hover { opacity: 0.85; color: #fff; }
+
+/* ── Data table ── */
+.de-table-wrap {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+}
+.de-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+.de-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.de-table-wrap::-webkit-scrollbar-thumb { background: var(--border-primary); border-radius: 4px; }
+
+.de-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    table-layout: auto;
+}
+.de-table thead { position: sticky; top: 0; z-index: 2; }
+.de-table th {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 11px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.1s;
+}
+.de-table th:hover { background: var(--bg-hover); color: var(--text-primary); }
+.de-table th:last-child { border-right: none; }
+.de-th-content { display: flex; align-items: center; gap: 4px; }
+.de-th-type {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+.de-sort-arrow {
+    margin-left: 3px;
+    font-size: 9px;
+    opacity: 0.3;
+    transition: opacity 0.15s;
+}
+.de-table th.de-sort-active .de-sort-arrow {
+    opacity: 1;
+    color: var(--accent-primary);
+}
+.de-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    white-space: nowrap;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.de-table td:last-child { border-right: none; }
+.de-table tbody tr { cursor: pointer; transition: background 0.08s; }
+.de-table tbody tr:nth-child(even) { background: var(--bg-secondary); }
+.de-table tbody tr:nth-child(odd) { background: var(--bg-card); }
+.de-table tbody tr:hover { background: rgba(187, 134, 252, 0.06); }
+.de-table tbody tr.de-row-selected { background: rgba(187, 134, 252, 0.12) !important; }
+.de-null { color: var(--text-muted); font-style: italic; font-family: var(--font-body); font-size: 10px; opacity: 0.6; }
+
+/* ── Insert row ── */
+.de-insert-row td { background: rgba(0, 169, 114, 0.06) !important; }
+.de-insert-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    outline: none;
+}
+.de-insert-input:focus { border-color: var(--accent-primary); }
+.de-insert-auto {
+    font-size: 10px;
+    color: var(--lcars-ice, #00A972);
+    font-style: italic;
+}
+.de-insert-actions {
+    display: flex;
+    gap: 4px;
+}
+.de-insert-save {
+    padding: 3px 10px;
+    border: none;
+    border-radius: 3px;
+    background: var(--lcars-ice, #00A972);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.de-insert-cancel {
+    padding: 3px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+/* ── Row Detail Drawer ── */
+.de-drawer {
+    position: fixed;
+    top: 0; right: -420px;
+    width: 400px;
+    height: 100vh;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border-primary);
+    box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    transition: right 0.25s ease;
+}
+.de-drawer.de-open { right: 0; }
+.de-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-primary);
+}
+.de-drawer-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.de-drawer-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+.de-drawer-close:hover { color: var(--text-primary); }
+.de-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+.de-drawer-field {
+    margin-bottom: 14px;
+}
+.de-drawer-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+.de-drawer-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    word-break: break-all;
+    white-space: pre-wrap;
+    padding: 6px 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    border: 1px solid var(--border-primary);
+    max-height: 120px;
+    overflow-y: auto;
+}
+.de-drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.2);
+    z-index: 99;
+    display: none;
+}
+.de-drawer-overlay.de-open { display: block; }
+
+/* ── Pagination ── */
+.de-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-card);
+    flex-shrink: 0;
+}
+.de-page-info { font-size: 12px; color: var(--text-secondary); }
+
+/* ── Empty state ── */
+.de-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-muted);
+    padding: 48px 24px;
+}
+.de-empty-icon { width: 56px; height: 56px; opacity: 0.3; }
+.de-empty-title { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+.de-empty-sub { font-size: 13px; }
+
+/* ── Loading overlay ── */
+.de-loading {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+.de-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--border-primary);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: de-spin 0.7s linear infinite;
+}
+@keyframes de-spin { to { transform: rotate(360deg); } }
+
+/* ── Toast ── */
+.de-toast {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: var(--font-body);
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.3s, transform 0.3s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    max-width: 380px;
+}
+.de-toast-show { opacity: 1; transform: translateY(0); }
+.de-toast-success { background: var(--lcars-ice, #00A972); color: #fff; }
+.de-toast-error { background: var(--lcars-mars, #FF4444); color: #fff; }
+
+/* ── Per-schema data path (flow of product icons) ── */
+.de-data-path {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 3px 12px 5px 28px;
+    opacity: 0.45;
+    transition: opacity 0.15s;
+}
+.de-schema-group:hover .de-data-path { opacity: 0.7; }
+.de-dp-node {
+    position: relative;
+    cursor: help;
+    display: inline-flex;
+}
+.de-dp-icon {
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+.de-dp-tip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    font-size: 10px;
+    font-family: var(--font-body);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 20;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.de-dp-node:hover .de-dp-tip { opacity: 1; }
+.de-dp-arrow {
+    font-size: 8px;
+    color: var(--text-muted);
+    margin: 0 3px;
+    opacity: 0.5;
+}
+.de-collapsed .de-data-path { display: none; }
+
+/* ── Responsive ── */
+@media (max-width: 860px) {
+    .de-wrap { flex-direction: column; height: auto; }
+    .de-sidebar { width: 100%; max-width: none; max-height: 240px; border-right: none; border-bottom: 1px solid var(--border-primary); }
+    .de-main { min-height: 60vh; }
+    .de-drawer { width: 100%; right: -100%; }
+}
+</style>
+
+<div class="de-wrap">
+    <!-- ── Sidebar ── -->
+    <div class="de-sidebar">
+        <div class="de-sidebar-header">
+            <h3>Data Explorer</h3>
+        </div>
+        <div class="de-sidebar-search">
+            <input type="text" id="deFilter" placeholder="Filter tables..." />
+        </div>
+        <div class="de-tree" id="deTree">
+            <div class="de-sidebar-loading" id="deTreeLoading">Loading tables...</div>
+        </div>
+    </div>
+
+    <!-- ── Main ── -->
+    <div class="de-main" id="deMain">
+        <!-- Empty state -->
+        <div class="de-empty" id="deEmpty">
+            <svg class="de-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/>
+                <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <div class="de-empty-title">No table selected</div>
+            <div class="de-empty-sub">Choose a table from the sidebar to explore its data</div>
+        </div>
+
+        <!-- Active view (hidden until table selected) -->
+        <div id="deActive" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+            <!-- Meta bar -->
+            <div class="de-meta-bar" id="deMetaBar">
+                <div class="de-meta-stat"><span>Rows:</span> <span class="de-meta-val" id="deTotalRows">--</span></div>
+                <div class="de-meta-sep"></div>
+                <div class="de-meta-stat"><span>Columns:</span> <span class="de-meta-val" id="deTotalCols">--</span></div>
+                <div class="de-meta-sep"></div>
+                <div class="de-meta-stat" id="deSchemaLabel"></div>
+                <button class="de-meta-toggle" id="deSchemaToggle" onclick="toggleSchemaPanel()">Show Schema</button>
+            </div>
+
+            <!-- Column Schema Panel -->
+            <div class="de-schema-panel" id="deSchemaPanel"></div>
+
+            <!-- Toolbar -->
+            <div class="de-toolbar">
+                <div class="de-toolbar-left">
+                    <span class="de-table-title" id="deTitle"></span>
+                    <div class="de-search-box">
+                        <svg class="de-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+                        </svg>
+                        <input type="text" id="deSearch" placeholder="Search rows..." />
+                    </div>
+                </div>
+                <div class="de-toolbar-right">
+                    <span class="de-row-count" id="deRowCount"></span>
+                    <select class="de-select" id="dePageSize">
+                        <option value="25">25 rows</option>
+                        <option value="50" selected>50 rows</option>
+                        <option value="100">100 rows</option>
+                    </select>
+                    <button class="de-btn de-btn-accent" id="deInsertBtn" title="Insert a new row">
+                        <svg class="de-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m-7-7h14"/></svg>
+                        Insert
+                    </button>
+                    <button class="de-btn" id="deDownload" title="Download as CSV">
+                        <svg class="de-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Data grid -->
+            <div class="de-table-wrap" id="deTableWrap">
+                <table class="de-table" id="deTable">
+                    <thead id="deThead"></thead>
+                    <tbody id="deTbody"></tbody>
+                </table>
+                <div class="de-loading" id="deLoading" style="display:none;">
+                    <div class="de-spinner"></div>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div class="de-pagination">
+                <button class="de-btn" id="dePrev" disabled>
+                    <svg class="de-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                    Prev
+                </button>
+                <span class="de-page-info" id="dePageInfo">Page 1 of 1</span>
+                <button class="de-btn" id="deNext" disabled>
+                    Next
+                    <svg class="de-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row Detail Drawer -->
+<div class="de-drawer-overlay" id="deOverlay" onclick="closeDrawer()"></div>
+<div class="de-drawer" id="deDrawer">
+    <div class="de-drawer-header">
+        <span class="de-drawer-title" id="deDrawerTitle">Row Detail</span>
+        <button class="de-drawer-close" onclick="closeDrawer()">&times;</button>
+    </div>
+    <div class="de-drawer-body" id="deDrawerBody"></div>
+</div>
+
+<script>
+(function() {
+    /* ── State ── */
+    var S = {
+        schema: null, table: null,
+        source: 'lakebase', catalog: '',
+        page: 1, pageSize: 50,
+        sortCol: null, sortDir: 'asc',
+        search: '',
+        columns: [], columnMeta: [],
+        data: [], totalCount: 0, totalPages: 0
+    };
+    var _searchTimer = null;
+    var _allTables = [];
+    var _insertMode = false;
+
+    /* ── DOM refs ── */
+    var $tree = document.getElementById('deTree');
+    var $treeLoading = document.getElementById('deTreeLoading');
+    var $filter = document.getElementById('deFilter');
+    var $empty = document.getElementById('deEmpty');
+    var $active = document.getElementById('deActive');
+    var $title = document.getElementById('deTitle');
+    var $search = document.getElementById('deSearch');
+    var $rowCount = document.getElementById('deRowCount');
+    var $pageSize = document.getElementById('dePageSize');
+    var $thead = document.getElementById('deThead');
+    var $tbody = document.getElementById('deTbody');
+    var $loading = document.getElementById('deLoading');
+    var $prev = document.getElementById('dePrev');
+    var $next = document.getElementById('deNext');
+    var $pageInfo = document.getElementById('dePageInfo');
+    var $totalRows = document.getElementById('deTotalRows');
+    var $totalCols = document.getElementById('deTotalCols');
+    var $schemaLabel = document.getElementById('deSchemaLabel');
+    var $schemaPanel = document.getElementById('deSchemaPanel');
+    var $drawer = document.getElementById('deDrawer');
+    var $overlay = document.getElementById('deOverlay');
+    var $drawerBody = document.getElementById('deDrawerBody');
+    var $drawerTitle = document.getElementById('deDrawerTitle');
+
+    function esc(s) {
+        if (s === null || s === undefined) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function fmtNum(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+    function typeCategory(t) {
+        if (!t) return 'other';
+        var tl = t.toLowerCase();
+        if (tl.includes('int') || tl.includes('numeric') || tl.includes('decimal') || tl.includes('float') || tl.includes('double') || tl.includes('real') || tl.includes('serial')) return 'num';
+        if (tl.includes('timestamp') || tl.includes('date') || tl.includes('time')) return 'time';
+        if (tl.includes('bool')) return 'bool';
+        if (tl.includes('char') || tl.includes('text') || tl.includes('varchar')) return 'text';
+        return 'other';
+    }
+
+    function typeBadge(t) {
+        var cat = typeCategory(t);
+        return '<span class="de-type-badge de-type-' + cat + '">' + esc(t) + '</span>';
+    }
+
+    /* ── Load table list ── */
+    var _ucPolling = false;
+    function loadTableList() {
+        fetch('/api/tables')
+            .then(function(r) { return r.ok ? r.json() : Promise.reject('Failed'); })
+            .then(function(resp) {
+                // API returns {tables: [...], uc_loading: bool} or plain array (legacy)
+                var tables = Array.isArray(resp) ? resp : (resp.tables || []);
+                var ucLoading = resp.uc_loading || false;
+                _allTables = tables;
+                renderTree(tables);
+
+                // If UC tables are still loading, show indicator and poll
+                if (ucLoading && !_ucPolling) {
+                    _ucPolling = true;
+                    var ucNote = document.createElement('div');
+                    ucNote.id = 'ucLoadingNote';
+                    ucNote.style.cssText = 'padding:8px 12px;font-size:0.75rem;color:var(--accent-primary,#FF9944);border-top:1px solid var(--border-primary);text-align:center;';
+                    ucNote.innerHTML = '&#9203; Loading Unity Catalog tables (warehouse starting)...';
+                    $tree.parentElement.appendChild(ucNote);
+
+                    // Poll every 5s until UC tables arrive
+                    var pollTimer = setInterval(function() {
+                        fetch('/api/tables').then(function(r) { return r.json(); }).then(function(r2) {
+                            var t2 = Array.isArray(r2) ? r2 : (r2.tables || []);
+                            var still = r2.uc_loading || false;
+                            if (!still || t2.length > _allTables.length) {
+                                _allTables = t2;
+                                renderTree(t2);
+                                clearInterval(pollTimer);
+                                _ucPolling = false;
+                                var note = document.getElementById('ucLoadingNote');
+                                if (note) note.remove();
+                            }
+                        });
+                    }, 5000);
+                }
+            })
+            .catch(function(e) {
+                $treeLoading.style.display = 'none';
+                $tree.innerHTML = '<div class="de-sidebar-error">Error: ' + esc(e) + '</div>';
+            });
+    }
+
+    /* ── Schema → data path (product flow) ── */
+    var SCHEMA_PATH = {
+        'field_service': [
+            { icon: '/static/lakebase-icon-full-color.webp', tip: 'Lakebase' },
+            { icon: '/static/lakehouse-icon-full-color.webp', tip: 'Lakehouse Federation' },
+            { icon: '/static/databricks-sql-icon-full-color.webp', tip: 'Databricks SQL' }
+        ],
+        'monitoring': [
+            { icon: '/static/lakebase-icon-full-color.webp', tip: 'Lakebase' },
+            { icon: '/static/lakehouse-icon-full-color.webp', tip: 'Lakehouse Federation' },
+            { icon: '/static/databricks-sql-icon-full-color.webp', tip: 'Databricks SQL' }
+        ],
+        'network_data': [
+            { icon: '/static/unity-catalog-icon-full-color.webp', tip: 'Unity Catalog' },
+            { icon: '/static/databricks-sql-icon-full-color.webp', tip: 'Databricks SQL' }
+        ]
+    };
+    var DEFAULT_PATH = [
+        { icon: '/static/lakebase-icon-full-color.webp', tip: 'Lakebase' }
+    ];
+
+    function renderDataPath(schemaName) {
+        var path = SCHEMA_PATH[schemaName] || DEFAULT_PATH;
+        var html = '<div class="de-data-path">';
+        path.forEach(function(p, i) {
+            if (i > 0) html += '<span class="de-dp-arrow">&#9654;</span>';
+            html += '<span class="de-dp-node">';
+            html += '<img class="de-dp-icon" src="' + p.icon + '" alt="' + esc(p.tip) + '">';
+            html += '<span class="de-dp-tip">' + esc(p.tip) + '</span>';
+            html += '</span>';
+        });
+        html += '</div>';
+        return html;
+    }
+
+    function renderTree(tables) {
+        $treeLoading.style.display = 'none';
+        var schemas = {};
+        var schemaMeta = {};
+        tables.forEach(function(t) {
+            if (!schemas[t.schema]) { schemas[t.schema] = []; schemaMeta[t.schema] = t; }
+            schemas[t.schema].push(t);
+        });
+        var keys = Object.keys(schemas).sort();
+        if (!keys.length) { $tree.innerHTML = '<div class="de-sidebar-loading">No tables found</div>'; return; }
+
+        var html = '';
+        keys.forEach(function(s) {
+            var tblEntries = schemas[s].sort(function(a, b) { return a.table.localeCompare(b.table); });
+            var meta = schemaMeta[s] || {};
+            html += '<div class="de-schema-group de-collapsed" data-schema="' + esc(s) + '">';
+            html += '<button class="de-schema-toggle" onclick="this.parentElement.classList.toggle(\'de-collapsed\')">';
+            html += '<span class="de-schema-arrow"><svg viewBox="0 0 12 12"><polyline points="3 2 9 6 3 10"/></svg></span>';
+            var label = meta.source === 'uc' ? s + ' (UC)' : s;
+            html += esc(label) + '<span class="de-schema-count">' + tblEntries.length + '</span></button>';
+            html += renderDataPath(s);
+            html += '<div class="de-schema-tables">';
+            tblEntries.forEach(function(entry) {
+                var act = S.schema === s && S.table === entry.table;
+                html += '<div class="de-table-item' + (act ? ' de-active' : '') + '"';
+                html += ' data-schema="' + esc(s) + '" data-table="' + esc(entry.table) + '"';
+                html += ' data-source="' + esc(entry.source || 'lakebase') + '"';
+                if (entry.catalog) html += ' data-catalog="' + esc(entry.catalog) + '"';
+                html += '>';
+                html += '<svg class="de-table-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>';
+                html += esc(entry.table) + '</div>';
+            });
+            html += '</div></div>';
+        });
+        $tree.querySelectorAll('.de-schema-group').forEach(function(g) { g.remove(); });
+        $tree.insertAdjacentHTML('beforeend', html);
+        $tree.querySelectorAll('.de-table-item').forEach(function(el) {
+            el.addEventListener('click', function() {
+                selectTable(
+                    el.getAttribute('data-schema'),
+                    el.getAttribute('data-table'),
+                    el.getAttribute('data-source') || 'lakebase',
+                    el.getAttribute('data-catalog') || ''
+                );
+            });
+        });
+    }
+
+    $filter.addEventListener('input', function() {
+        var q = $filter.value.trim().toLowerCase();
+        if (!q) { renderTree(_allTables); return; }
+        renderTree(_allTables.filter(function(t) {
+            return t.schema.toLowerCase().indexOf(q) !== -1 || t.table.toLowerCase().indexOf(q) !== -1;
+        }));
+    });
+
+    /* ── Select table ── */
+    function selectTable(schema, table, source, catalog) {
+        S.schema = schema; S.table = table;
+        S.source = source || 'lakebase';
+        S.catalog = catalog || '';
+        S.page = 1; S.sortCol = null; S.sortDir = 'asc';
+        S.search = ''; _insertMode = false;
+        $search.value = '';
+        $tree.querySelectorAll('.de-table-item').forEach(function(el) {
+            el.classList.toggle('de-active', el.getAttribute('data-schema') === schema && el.getAttribute('data-table') === table);
+        });
+        $empty.style.display = 'none';
+        $active.style.display = 'flex';
+        $title.textContent = (S.source === 'uc' ? S.catalog + '.' : '') + schema + '.' + table;
+        $schemaPanel.classList.remove('de-open');
+        document.getElementById('deSchemaToggle').textContent = 'Show Schema';
+        // Hide insert for UC tables (read-only)
+        document.getElementById('deInsertBtn').style.display = S.source === 'uc' ? 'none' : '';
+        fetchData();
+    }
+
+    /* ── Fetch data ── */
+    function buildQueryParams() {
+        var p = ['page=' + S.page, 'page_size=' + S.pageSize];
+        if (S.sortCol) { p.push('sort_col=' + encodeURIComponent(S.sortCol)); p.push('sort_dir=' + S.sortDir); }
+        if (S.search) p.push('search=' + encodeURIComponent(S.search));
+        if (S.source === 'uc') { p.push('source=uc'); if (S.catalog) p.push('catalog=' + encodeURIComponent(S.catalog)); }
+        return p;
+    }
+
+    function fetchData() {
+        $loading.style.display = 'flex';
+        var url = '/api/query/' + encodeURIComponent(S.schema) + '/' + encodeURIComponent(S.table) + '/paginated';
+        var p = buildQueryParams();
+
+        fetch(url + '?' + p.join('&'))
+            .then(function(r) { return r.ok ? r.json() : Promise.reject('Query failed'); })
+            .then(function(d) {
+                S.columns = d.columns || [];
+                S.columnMeta = d.column_meta || [];
+                S.data = d.data || [];
+                S.totalCount = d.total_count || 0;
+                S.page = d.page || 1;
+                S.pageSize = d.page_size || 50;
+                S.totalPages = d.total_pages || 1;
+                renderMeta();
+                renderTable();
+                renderPagination();
+                $loading.style.display = 'none';
+            })
+            .catch(function(e) {
+                $loading.style.display = 'none';
+                $tbody.innerHTML = '<tr><td colspan="100" style="text-align:center;padding:32px;color:#e74c3c;">Error: ' + esc(e) + '</td></tr>';
+            });
+    }
+
+    /* ── Meta bar + schema panel ── */
+    function renderMeta() {
+        $totalRows.textContent = fmtNum(S.totalCount);
+        $totalCols.textContent = S.columns.length;
+        $schemaLabel.innerHTML = '<span>' + esc(S.schema) + '.' + esc(S.table) + '</span>';
+
+        if (!S.columnMeta.length) return;
+        var html = '<div class="de-schema-grid">';
+        S.columnMeta.forEach(function(c) {
+            html += '<div class="de-col-card">';
+            html += '<span class="de-col-name">' + esc(c.name) + '</span>';
+            html += typeBadge(c.type);
+            if (c.auto_type) html += ' <span class="de-col-auto">' + (c.auto_type === 'serial' ? 'PK' : 'auto') + '</span>';
+            if (c.nullable) html += ' <span class="de-col-null">nullable</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+        $schemaPanel.innerHTML = html;
+    }
+
+    window.toggleSchemaPanel = function() {
+        var panel = $schemaPanel;
+        var btn = document.getElementById('deSchemaToggle');
+        if (panel.classList.contains('de-open')) {
+            panel.classList.remove('de-open');
+            btn.textContent = 'Show Schema';
+        } else {
+            panel.classList.add('de-open');
+            btn.textContent = 'Hide Schema';
+        }
+    };
+
+    /* ── Render table ── */
+    function renderTable() {
+        var headHtml = '<tr>';
+        S.columns.forEach(function(col) {
+            var sorted = S.sortCol === col.name;
+            var arrow = sorted ? (S.sortDir === 'asc' ? '&#9650;' : '&#9660;') : '&#9650;';
+            headHtml += '<th class="' + (sorted ? 'de-sort-active' : '') + '" data-col="' + esc(col.name) + '">';
+            headHtml += '<div class="de-th-content"><span>' + esc(col.name) + '</span>';
+            if (col.type) headHtml += '<span class="de-th-type">' + esc(col.type) + '</span>';
+            headHtml += '</div>';
+            headHtml += '<span class="de-sort-arrow">' + arrow + '</span>';
+            headHtml += '</th>';
+        });
+        headHtml += '</tr>';
+        $thead.innerHTML = headHtml;
+        $thead.querySelectorAll('th').forEach(function(th) {
+            th.addEventListener('click', function() {
+                var col = th.getAttribute('data-col');
+                if (S.sortCol === col) { S.sortDir = S.sortDir === 'asc' ? 'desc' : 'asc'; }
+                else { S.sortCol = col; S.sortDir = 'asc'; }
+                S.page = 1; fetchData();
+            });
+        });
+
+        if (!S.data.length) {
+            $tbody.innerHTML = '<tr><td colspan="' + (S.columns.length || 1) + '" style="text-align:center;padding:32px;color:var(--text-muted);font-style:italic;">No rows found</td></tr>';
+            updateRowCount(); return;
+        }
+
+        var bodyHtml = '';
+        S.data.forEach(function(row, idx) {
+            bodyHtml += '<tr data-idx="' + idx + '">';
+            S.columns.forEach(function(col) {
+                var v = row[col.name];
+                if (v === null || v === undefined) {
+                    bodyHtml += '<td><span class="de-null">null</span></td>';
+                } else {
+                    bodyHtml += '<td title="' + esc(v) + '">' + esc(v) + '</td>';
+                }
+            });
+            bodyHtml += '</tr>';
+        });
+        $tbody.innerHTML = bodyHtml;
+
+        // Row click → detail drawer
+        $tbody.querySelectorAll('tr[data-idx]').forEach(function(tr) {
+            tr.addEventListener('click', function() {
+                var idx = parseInt(tr.getAttribute('data-idx'));
+                openDrawer(S.data[idx]);
+                $tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('de-row-selected'); });
+                tr.classList.add('de-row-selected');
+            });
+        });
+
+        updateRowCount();
+    }
+
+    function updateRowCount() {
+        var start = (S.page - 1) * S.pageSize + 1;
+        var end = Math.min(S.page * S.pageSize, S.totalCount);
+        $rowCount.textContent = fmtNum(start) + '-' + fmtNum(end) + ' of ' + fmtNum(S.totalCount);
+    }
+
+    function renderPagination() {
+        $prev.disabled = S.page <= 1;
+        $next.disabled = S.page >= S.totalPages;
+        $pageInfo.textContent = 'Page ' + S.page + ' of ' + S.totalPages;
+    }
+
+    /* ── Row Detail Drawer ── */
+    function openDrawer(row) {
+        var html = '';
+        S.columns.forEach(function(col) {
+            var v = row[col.name];
+            html += '<div class="de-drawer-field">';
+            html += '<div class="de-drawer-label">' + esc(col.name);
+            if (col.type) html += ' &middot; ' + esc(col.type);
+            html += '</div>';
+            html += '<div class="de-drawer-value">' + (v === null || v === undefined ? '<span class="de-null">null</span>' : esc(v)) + '</div>';
+            html += '</div>';
+        });
+        $drawerBody.innerHTML = html;
+        $drawerTitle.textContent = 'Row Detail';
+        $drawer.classList.add('de-open');
+        $overlay.classList.add('de-open');
+    }
+
+    window.closeDrawer = function() {
+        $drawer.classList.remove('de-open');
+        $overlay.classList.remove('de-open');
+        $tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('de-row-selected'); });
+    };
+
+    /* ── Insert Row ── */
+    document.getElementById('deInsertBtn').addEventListener('click', function() {
+        if (_insertMode) return;
+        _insertMode = true;
+
+        // Fetch column metadata for smart input types
+        fetch('/api/columns/' + encodeURIComponent(S.schema) + '/' + encodeURIComponent(S.table))
+            .then(function(r) { return r.json(); })
+            .then(function(cols) {
+                var tr = document.createElement('tr');
+                tr.className = 'de-insert-row';
+                tr.id = 'deInsertRow';
+
+                cols.forEach(function(col) {
+                    var td = document.createElement('td');
+                    td.dataset.colName = col.name;
+
+                    if (col.auto_type === 'serial') {
+                        td.innerHTML = '<span class="de-insert-auto">auto</span>';
+                    } else if (col.auto_type === 'timestamp_default') {
+                        td.innerHTML = '<span class="de-insert-auto">now()</span>';
+                    } else if (col.auto_type === 'date_default') {
+                        td.innerHTML = '<span class="de-insert-auto">today</span>';
+                    } else {
+                        var input = document.createElement('input');
+                        input.className = 'de-insert-input';
+                        input.name = col.name;
+                        var t = col.type.toLowerCase();
+                        if (t.includes('int') || t.includes('numeric') || t.includes('decimal') || t.includes('float') || t.includes('double') || t.includes('real')) {
+                            input.type = 'number'; input.step = 'any';
+                        } else if (t === 'date') {
+                            input.type = 'date';
+                        } else if (t.includes('timestamp')) {
+                            input.type = 'datetime-local';
+                        } else if (t === 'boolean') {
+                            input.type = 'checkbox';
+                        } else {
+                            input.type = 'text';
+                        }
+                        if (col.nullable) input.placeholder = 'NULL';
+                        input.addEventListener('keydown', function(e) {
+                            if (e.key === 'Enter') saveInsert(cols);
+                            if (e.key === 'Escape') cancelInsert();
+                        });
+                        td.appendChild(input);
+                    }
+                    tr.appendChild(td);
+                });
+
+                // Prepend to tbody
+                if ($tbody.firstChild) $tbody.insertBefore(tr, $tbody.firstChild);
+                else $tbody.appendChild(tr);
+
+                // Focus first input
+                var first = tr.querySelector('input');
+                if (first) first.focus();
+
+                // Show save/cancel bar
+                showInsertBar(cols);
+            });
+    });
+
+    function showInsertBar(cols) {
+        var bar = document.createElement('div');
+        bar.id = 'deInsertBar';
+        bar.style.cssText = 'display:flex;gap:8px;padding:8px 20px;background:rgba(0,169,114,0.08);border-bottom:1px solid var(--border-primary);align-items:center;';
+        bar.innerHTML = '<span style="font-size:12px;color:var(--text-muted);flex:1;">Enter values and press Save or Enter to insert a new row</span>';
+        var saveBtn = document.createElement('button');
+        saveBtn.className = 'de-insert-save';
+        saveBtn.textContent = 'Save';
+        saveBtn.onclick = function() { saveInsert(cols); };
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'de-insert-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.onclick = cancelInsert;
+        bar.appendChild(saveBtn);
+        bar.appendChild(cancelBtn);
+        var wrap = document.getElementById('deTableWrap');
+        wrap.parentElement.insertBefore(bar, wrap);
+    }
+
+    function saveInsert(cols) {
+        var row = document.getElementById('deInsertRow');
+        if (!row) return;
+        var data = {};
+        cols.forEach(function(col) {
+            if (col.auto_type) return;
+            var td = row.querySelector('td[data-col-name="' + col.name + '"]');
+            if (!td) return;
+            var input = td.querySelector('input');
+            if (!input) return;
+            if (input.type === 'checkbox') data[col.name] = input.checked;
+            else if (input.value !== '') data[col.name] = input.value;
+        });
+
+        var saveBtn = document.querySelector('#deInsertBar .de-insert-save');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+        fetch('/api/insert/' + encodeURIComponent(S.schema) + '/' + encodeURIComponent(S.table), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.success) {
+                toast('success', 'Row inserted successfully');
+                cancelInsert();
+                fetchData(); // refresh to show new row
+            } else {
+                toast('error', result.error || 'Insert failed');
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+            }
+        })
+        .catch(function(e) {
+            toast('error', e.message || 'Insert failed');
+            if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+        });
+    }
+
+    function cancelInsert() {
+        _insertMode = false;
+        var row = document.getElementById('deInsertRow');
+        if (row) row.remove();
+        var bar = document.getElementById('deInsertBar');
+        if (bar) bar.remove();
+    }
+    window.cancelInsert = cancelInsert;
+
+    function toast(type, msg) {
+        var el = document.createElement('div');
+        el.className = 'de-toast de-toast-' + type;
+        el.innerHTML = (type === 'success' ? '&#10003; ' : '&#10007; ') + esc(msg);
+        document.body.appendChild(el);
+        requestAnimationFrame(function() { el.classList.add('de-toast-show'); });
+        setTimeout(function() {
+            el.classList.remove('de-toast-show');
+            setTimeout(function() { el.remove(); }, 300);
+        }, 3500);
+    }
+
+    /* ── Events ── */
+    $prev.addEventListener('click', function() { if (S.page > 1) { S.page--; fetchData(); } });
+    $next.addEventListener('click', function() { if (S.page < S.totalPages) { S.page++; fetchData(); } });
+    $pageSize.addEventListener('change', function() { S.pageSize = parseInt($pageSize.value, 10); S.page = 1; fetchData(); });
+    $search.addEventListener('input', function() {
+        clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(function() { S.search = $search.value.trim(); S.page = 1; fetchData(); }, 350);
+    });
+    document.getElementById('deDownload').addEventListener('click', function() {
+        if (!S.schema || !S.table) return;
+        window.open('/api/export/' + encodeURIComponent(S.schema) + '/' + encodeURIComponent(S.table) + '/csv', '_blank');
+    });
+
+    /* ── Keyboard shortcuts ── */
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeDrawer();
+    });
+
+    /* ── Silent auto-refresh every 15s ── */
+    setInterval(function() {
+        if (!S.schema || !S.table || _insertMode) return;
+        var url = '/api/query/' + encodeURIComponent(S.schema) + '/' + encodeURIComponent(S.table) + '/paginated';
+        var p = buildQueryParams();
+        fetch(url + '?' + p.join('&')).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.error) return;
+            S.columns = d.columns || [];
+            S.columnMeta = d.column_meta || [];
+            S.data = d.data || [];
+            S.totalCount = d.total_count || 0;
+            S.totalPages = d.total_pages || 1;
+            renderMeta();
+            renderTable();
+            renderPagination();
+        }).catch(function() {});
+    }, 15000);
+
+    /* ── Init ── */
+    loadTableList();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,548 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "c0329f76a79b4cdd9566d39e34c2a7d3",
+        "question": [
+          "Show me today's node health summary across all regions"
+        ]
+      },
+      {
+        "id": "9dcac349467147bbb99b58eb5a768161",
+        "question": [
+          "Which nodes are currently in critical or high maintenance risk?"
+        ]
+      },
+      {
+        "id": "912ab65acfa94a4d8a79567b35533a55",
+        "question": [
+          "What are the top root causes for network outages this month?"
+        ]
+      },
+      {
+        "id": "d032d0320cf544b2a29b5df0e44727a6",
+        "question": [
+          "Show me IoT devices with degraded health scores"
+        ]
+      },
+      {
+        "id": "873b5a2c4ba249249532c21595b1fda4",
+        "question": [
+          "Compare network performance across all regions"
+        ]
+      },
+      {
+        "id": "25e3ecdcf72c4acf816b431f1c3432d6",
+        "question": [
+          "What is the average outage duration by severity level?"
+        ]
+      },
+      {
+        "id": "6c1983e305b242829cfae6369e700f2a",
+        "question": [
+          "List nodes with predicted maintenance needs in the next 7 days"
+        ]
+      },
+      {
+        "id": "bcb3ed413317483ebe9a754b773354e1",
+        "question": [
+          "Are there any IoT telemetry anomalies in the last 24 hours?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_daily_node_health",
+        "description": [
+          "Daily aggregated health metrics for each network node.",
+          "Contains throughput, latency, packet loss, CPU usage, temperature, connected users, errors, bandwidth utilization, and a composite health score.",
+          "One row per node per day. Use this table for trend analysis and comparing node performance over time."
+        ],
+        "column_configs": [
+          {
+            "column_name": "avg_bandwidth_util_pct",
+            "description": [
+              "Average bandwidth utilization as a percentage of total available capacity."
+            ],
+            "synonyms": [
+              "bandwidth utilization",
+              "capacity usage",
+              "bandwidth usage",
+              "utilization"
+            ]
+          },
+          {
+            "column_name": "avg_connected_users",
+            "description": [
+              "Average number of users connected to the node during the day."
+            ],
+            "synonyms": [
+              "connected users",
+              "user count",
+              "sessions",
+              "connections"
+            ]
+          },
+          {
+            "column_name": "avg_cpu_pct",
+            "description": [
+              "Average CPU utilization percentage of the node during the day."
+            ],
+            "synonyms": [
+              "cpu usage",
+              "cpu utilization",
+              "processor load",
+              "cpu load"
+            ]
+          },
+          {
+            "column_name": "avg_latency_ms",
+            "description": [
+              "Average network latency in milliseconds for the day."
+            ],
+            "synonyms": [
+              "latency",
+              "delay",
+              "response time",
+              "ping",
+              "round trip time"
+            ]
+          },
+          {
+            "column_name": "avg_packet_loss_pct",
+            "description": [
+              "Average packet loss as a percentage (0.0 to 1.0 scale where 0.01 = 1%)."
+            ],
+            "synonyms": [
+              "packet loss",
+              "drop rate",
+              "loss rate",
+              "error rate"
+            ]
+          },
+          {
+            "column_name": "avg_temperature_c",
+            "description": [
+              "Average operating temperature of the node in degrees Celsius."
+            ],
+            "synonyms": [
+              "temperature",
+              "temp",
+              "heat",
+              "thermal"
+            ]
+          },
+          {
+            "column_name": "avg_throughput_mbps",
+            "description": [
+              "Average data throughput in megabits per second for the day."
+            ],
+            "synonyms": [
+              "throughput",
+              "speed",
+              "bandwidth speed",
+              "data rate",
+              "mbps"
+            ]
+          },
+          {
+            "column_name": "health_score",
+            "description": [
+              "Composite health score from 0 to 100. Above 75 is healthy, 50-75 is degraded, 25-50 is poor, below 25 is critical."
+            ],
+            "synonyms": [
+              "health",
+              "score",
+              "status score",
+              "node health",
+              "overall health"
+            ]
+          },
+          {
+            "column_name": "max_latency_ms",
+            "description": [
+              "Maximum recorded latency in milliseconds during the day."
+            ],
+            "synonyms": [
+              "peak latency",
+              "worst latency",
+              "max delay"
+            ]
+          },
+          {
+            "column_name": "measurement_count",
+            "description": [
+              "Number of raw telemetry measurements aggregated into this daily record."
+            ],
+            "synonyms": [
+              "sample count",
+              "reading count",
+              "observation count"
+            ]
+          },
+          {
+            "column_name": "measurement_date",
+            "description": [
+              "Calendar date of the aggregated measurements."
+            ],
+            "synonyms": [
+              "date",
+              "day",
+              "reporting date",
+              "observation date"
+            ],
+            "enable_format_assistance": true
+          },
+          {
+            "column_name": "node_id",
+            "description": [
+              "Unique identifier for the network node."
+            ],
+            "synonyms": [
+              "node identifier",
+              "equipment id",
+              "asset id"
+            ]
+          },
+          {
+            "column_name": "node_name",
+            "description": [
+              "Human-readable name assigned to the network node."
+            ],
+            "synonyms": [
+              "device name",
+              "equipment name",
+              "hostname"
+            ]
+          },
+          {
+            "column_name": "node_type",
+            "description": [
+              "Classification of the network node such as router, switch, access_point, or gateway."
+            ],
+            "synonyms": [
+              "device type",
+              "equipment type",
+              "hardware type"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "peak_connected_users",
+            "description": [
+              "Maximum number of concurrent users connected to the node during the day."
+            ],
+            "synonyms": [
+              "max users",
+              "peak connections",
+              "peak sessions"
+            ]
+          },
+          {
+            "column_name": "peak_cpu_pct",
+            "description": [
+              "Maximum CPU utilization percentage recorded during the day."
+            ],
+            "synonyms": [
+              "max cpu",
+              "peak cpu usage",
+              "cpu spike"
+            ]
+          },
+          {
+            "column_name": "peak_throughput_mbps",
+            "description": [
+              "Maximum recorded throughput in megabits per second during the day."
+            ],
+            "synonyms": [
+              "max throughput",
+              "peak speed",
+              "peak bandwidth"
+            ]
+          },
+          {
+            "column_name": "region_code",
+            "description": [
+              "Geographic region code where the node is deployed (e.g. US-EAST, US-WEST, EU-WEST)."
+            ],
+            "synonyms": [
+              "region",
+              "location",
+              "area",
+              "geography",
+              "site"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "total_errors",
+            "description": [
+              "Total count of errors reported by the node during the day."
+            ],
+            "synonyms": [
+              "errors",
+              "error count",
+              "faults",
+              "failures"
+            ]
+          },
+          {
+            "column_name": "vendor",
+            "description": [
+              "Hardware manufacturer or vendor of the network node."
+            ],
+            "synonyms": [
+              "manufacturer",
+              "make",
+              "brand",
+              "OEM"
+            ],
+            "enable_entity_matching": true
+          }
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_daily_outage_summary",
+        "description": [
+          "Daily summary of network outage events aggregated by date.",
+          "Includes outage counts, durations, and severity breakdowns.",
+          "Use for understanding outage trends and severity distribution over time."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_iot_device_health",
+        "description": [
+          "Daily aggregated health metrics for IoT devices connected to the network.",
+          "Contains device-level health scores, battery status, signal strength, and connectivity metrics.",
+          "Health scores below 50 indicate degraded devices; below 25 is critical."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_node_maintenance_risk",
+        "description": [
+          "Maintenance risk assessment for each network node based on age, health trends, and outage history.",
+          "Each row represents the current risk profile of a single node.",
+          "Risk categories are: critical, high, medium, low. Use this to prioritize preventive maintenance."
+        ],
+        "column_configs": [
+          {
+            "column_name": "age_days",
+            "description": [
+              "Number of days since the node was installed."
+            ],
+            "synonyms": [
+              "node age",
+              "days since install",
+              "equipment age",
+              "age"
+            ]
+          },
+          {
+            "column_name": "days_since_maintenance",
+            "description": [
+              "Number of days since the last maintenance event on this node."
+            ],
+            "synonyms": [
+              "maintenance gap",
+              "time since service",
+              "last serviced",
+              "days since repair"
+            ]
+          },
+          {
+            "column_name": "has_backup_power",
+            "description": [
+              "Whether the node has backup power (UPS or generator). True means it has backup power."
+            ],
+            "synonyms": [
+              "backup power",
+              "UPS",
+              "battery backup",
+              "redundant power"
+            ]
+          },
+          {
+            "column_name": "install_date",
+            "description": [
+              "Date the node was originally installed or commissioned."
+            ],
+            "synonyms": [
+              "installation date",
+              "deployed date",
+              "commission date",
+              "setup date"
+            ],
+            "enable_format_assistance": true
+          },
+          {
+            "column_name": "maintenance_risk_score",
+            "description": [
+              "Computed risk score indicating likelihood of needing maintenance. Higher is worse (0-100)."
+            ],
+            "synonyms": [
+              "risk score",
+              "maintenance score",
+              "risk level",
+              "failure risk"
+            ]
+          },
+          {
+            "column_name": "node_id",
+            "description": [
+              "Unique identifier for the network node."
+            ],
+            "synonyms": [
+              "node identifier",
+              "equipment id",
+              "asset id"
+            ]
+          },
+          {
+            "column_name": "node_name",
+            "description": [
+              "Human-readable name assigned to the network node."
+            ],
+            "synonyms": [
+              "device name",
+              "equipment name",
+              "hostname"
+            ]
+          },
+          {
+            "column_name": "node_type",
+            "description": [
+              "Classification of the network node such as router, switch, access_point, or gateway."
+            ],
+            "synonyms": [
+              "device type",
+              "equipment type",
+              "hardware type"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "recent_avg_health",
+            "description": [
+              "Average health score of the node over the recent lookback period (0-100)."
+            ],
+            "synonyms": [
+              "recent health",
+              "current health",
+              "latest health score"
+            ]
+          },
+          {
+            "column_name": "recent_outage_count",
+            "description": [
+              "Number of outage events for this node in the recent lookback period."
+            ],
+            "synonyms": [
+              "outage count",
+              "recent outages",
+              "failure count",
+              "incidents"
+            ]
+          },
+          {
+            "column_name": "region_code",
+            "description": [
+              "Geographic region code where the node is deployed."
+            ],
+            "synonyms": [
+              "region",
+              "location",
+              "area",
+              "geography",
+              "site"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "risk_category",
+            "description": [
+              "Categorical risk label derived from maintenance_risk_score: critical, high, medium, or low."
+            ],
+            "synonyms": [
+              "risk level",
+              "risk tier",
+              "risk classification",
+              "severity"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "status",
+            "description": [
+              "Current operational status of the node (e.g. active, inactive, maintenance)."
+            ],
+            "synonyms": [
+              "operational status",
+              "state",
+              "node status",
+              "current state"
+            ],
+            "enable_entity_matching": true
+          },
+          {
+            "column_name": "vendor",
+            "description": [
+              "Hardware manufacturer or vendor of the network node."
+            ],
+            "synonyms": [
+              "manufacturer",
+              "make",
+              "brand",
+              "OEM"
+            ],
+            "enable_entity_matching": true
+          }
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_outage_root_cause_analysis",
+        "description": [
+          "Root cause analysis of network outages with categorized failure reasons.",
+          "Includes outage cause, affected node details, duration, and impact metrics.",
+          "Use for identifying systemic issues and recurring failure patterns."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.gold_regional_network_summary",
+        "description": [
+          "Regional-level aggregated network performance metrics.",
+          "Summarizes node counts, average health, throughput, latency, and capacity across each region.",
+          "Use for comparing network quality and capacity between geographic regions."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.silver_iot_telemetry",
+        "description": [
+          "Raw event-level IoT telemetry readings from sensors and connected devices.",
+          "Contains individual sensor readings including temperature, humidity, signal strength, and battery level.",
+          "Use for drilling into specific device events or investigating anomalies at the raw data level."
+        ]
+      },
+      {
+        "identifier": "dba-lakebase-network.network_data.silver_network_outages",
+        "description": [
+          "Raw event-level network outage records with start time, end time, affected nodes, and severity.",
+          "Each row represents a single outage incident.",
+          "Use for investigating specific outage events or correlating outages with other telemetry."
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "6a8e299491664a5a91ce11304c2916cf",
+        "content": [
+          "Gold tables contain pre-aggregated daily summaries; silver tables contain event-level records. Use gold for trend analysis, silver for drilling into specific events. The risk_category column in gold_node_maintenance_risk uses values: critical, high, medium, low \u2014 always sort by severity (critical first). IoT device health scores range 0-100: below 50 is degraded, below 25 is critical. gold_iot_device_health has daily aggregates; silver_iot_telemetry has raw readings. Health scores in gold_daily_node_health are composite: above 75 is healthy, 50-75 degraded, 25-50 poor, below 25 critical. When comparing regions, use gold_regional_network_summary for high-level views and gold_daily_node_health grouped by region_code for time-series analysis."
+        ]
+      }
+    ]
+  }
+}

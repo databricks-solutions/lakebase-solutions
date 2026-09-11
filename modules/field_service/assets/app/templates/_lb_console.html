@@ -1,0 +1,57 @@
+{# ============================================================================
+   Shared "Under the hood" live console component.
+   Provides the .lb-console markup styling + a global lbRenderConsole(container,
+   steps) helper. Steps are {kind, label, code, t}; kind ∈ api|sql|result|probe|
+   info|endpoint|scale|http. Include this once per page, then render into any
+   element with a .lb-console-head + .lb-console-body. Mirrors the inline console
+   in lakebase_hub.html (kept in sync intentionally).
+   ============================================================================ #}
+<style>
+.lb-console { margin-top:14px; border:1px solid var(--border-primary,#3334); border-radius:8px; background:#0b0b0f; overflow:hidden; }
+.lb-console-head { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; font-size:12px; font-weight:600; color:var(--text-secondary); background:rgba(255,255,255,0.03); user-select:none; }
+.lb-console-head .lb-caret { transition:transform .15s ease; transform:rotate(90deg); }
+.lb-console.collapsed .lb-console-head .lb-caret { transform:rotate(0deg); }
+.lb-console.collapsed .lb-console-body { display:none; }
+.lb-console-body { max-height:320px; overflow:auto; padding:10px 12px; font-family:var(--font-mono,monospace); font-size:11.5px; line-height:1.5; }
+.lb-c-row { margin-bottom:8px; }
+.lb-c-time { color:#5a5a66; margin-right:8px; }
+.lb-c-kind { font-weight:700; margin-right:6px; display:inline-block; min-width:34px; }
+.lb-c-api .lb-c-kind { color:#00BCD4; }
+.lb-c-http .lb-c-kind { color:#00BCD4; }
+.lb-c-sql .lb-c-kind { color:#00C77E; }
+.lb-c-result .lb-c-kind { color:#9B9BA7; }
+.lb-c-probe .lb-c-kind { color:#E6A700; }
+.lb-c-info .lb-c-kind { color:#1B7FE3; }
+.lb-c-endpoint .lb-c-kind { color:#8B7DF6; }
+.lb-c-endpoint .lb-c-label { color:#b9b2ef; font-weight:600; }
+.lb-c-label { color:var(--text-primary); }
+.lb-c-code { display:block; white-space:pre-wrap; word-break:break-word; color:#b9d9c8; background:rgba(0,169,114,0.06); border-left:2px solid #00A97288; padding:6px 10px; margin-top:5px; border-radius:4px; }
+</style>
+<script>
+if (!window.lbRenderConsole) {
+    window.LB_KIND_LABEL = { api:'API', sql:'SQL', result:'&rarr;', probe:'CU', info:'i', endpoint:'&#8674;', scale:'SCALE', http:'HTTP' };
+    window.lbEsc = function (s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    window.lbRenderConsole = function (container, steps) {
+        if (!container) return;
+        var body = container.querySelector('.lb-console-body');
+        var cnt = container.querySelector('.lb-c-count');
+        if (cnt) cnt.textContent = (steps && steps.length) ? ('(' + steps.length + ')') : '';
+        if (!body) return;
+        var html = '';
+        for (var i = 0; i < (steps || []).length; i++) {
+            var s = steps[i];
+            var code = s.code ? '<code class="lb-c-code">' + window.lbEsc(s.code) + '</code>' : '';
+            html += '<div class="lb-c-row lb-c-' + s.kind + '"><span class="lb-c-time">' + window.lbEsc(s.t || '') + '</span>' +
+                '<span class="lb-c-kind">' + (window.LB_KIND_LABEL[s.kind] || s.kind) + '</span>' +
+                '<span class="lb-c-label">' + window.lbEsc(s.label) + '</span>' + code + '</div>';
+        }
+        body.innerHTML = html;
+        body.scrollTop = body.scrollHeight;
+    };
+    // Collapsible console headers (delegated)
+    document.addEventListener('click', function (e) {
+        var head = e.target.closest ? e.target.closest('.lb-console-head') : null;
+        if (head && head.parentElement) head.parentElement.classList.toggle('collapsed');
+    });
+}
+</script>

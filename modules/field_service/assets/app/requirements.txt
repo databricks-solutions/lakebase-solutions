@@ -1,0 +1,19 @@
+databricks-sdk>=0.87.0
+flask~=3.0.3
+python-dotenv~=1.2.1
+psycopg[binary,pool]==3.1.18
+# The bulk Scale-Up worker (routes/simulator.py:_run_upscale) deliberately uses a
+# raw psycopg2 autocommit connection (outside the psycopg3 pool) for long bulk
+# generate_series inserts. Without this the import throws and the worker thread
+# dies silently, leaving upscale stuck at phase=starting / rows=0.
+psycopg2-binary~=2.9
+# Outbound HTTP for the Lakebase Data API proxy (routes/data_api.py) and other
+# REST calls (genie_agent.py, map_field.py already import it). Pin it explicitly
+# rather than relying on it arriving transitively via the base image.
+requests>=2.31,<3
+# Pin the pyarrow range. Unpinned, pyiceberg pulled pyarrow 25.0.0, which the base
+# image's databricks-sql-connector 3.4.0 rejects (it requires pyarrow<17), and the
+# Iceberg demo killed the whole app process at RestCatalog() with no traceback —
+# the signature of a native crash or OOM rather than a catchable exception.
+pyiceberg[pyarrow,s3fs]>=0.7.0,<0.9.0
+pyarrow>=14.0.1,<17

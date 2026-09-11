@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Field Operations Dashboard{% endblock %}
+{% block page_title %}Operations Center{% endblock %}
+
+{% block content %}
+    <div class="container" style="max-width: 100%; padding: 0; height: 100%; background: var(--bg-primary); display:flex; flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:flex-end;padding:8px 16px;flex-shrink:0;">
+            <div class="powered-by">
+                <img src="/static/ai-bi-dashboards-icon-full-color.webp" class="powered-by-icon" alt="Dashboards">
+                <span>Powered by <strong>AI/BI Dashboards</strong></span>
+            </div>
+        </div>
+        {% if dashboard_url %}
+        <iframe id="opsDashboard" src="{{ dashboard_url }}"
+                style="width:100%; flex:1; border:none;"
+                allow="fullscreen"
+                title="Operations Dashboard"></iframe>
+        <script>
+        (function() {
+            var iframe = document.getElementById('opsDashboard');
+            function applyTheme() {
+                var theme = document.documentElement.getAttribute('data-theme') || 'trekkie';
+                var isDark = (theme !== 'dbx-light');
+                iframe.style.filter = isDark ? 'invert(1) hue-rotate(180deg)' : 'none';
+            }
+            applyTheme();
+            var observer = new MutationObserver(function() { applyTheme(); });
+            observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
+        })();
+        </script>
+        {% else %}
+        <div id="dashboardContainer" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+            <div class="ops-placeholder">
+                <p class="ops-placeholder-title">Operations Dashboard</p>
+                <p class="ops-placeholder-body">AI/BI Dashboard will be embedded here after deployment.</p>
+                <p class="ops-placeholder-note">Run the deployment notebook to create the Lakeview Dashboard and redeploy the app.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %}

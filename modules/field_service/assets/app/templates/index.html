@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+{% block title %}FieldOps Command{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+    <!-- ═══ Trek theme: Original hero + menu grid ═══ -->
+    <div class="container trek-only">
+        <div style="text-align:center; margin-bottom: 8px;">
+            <img src="/static/logo.svg" alt="FieldOps Command" style="width: 96px; height: 96px;">
+        </div>
+        <h1 class="hero-title">Field<span class="star-orbit">Ops</span></h1>
+        <p class="subtitle">Field Service Command Center</p>
+
+        <div class="menu-grid">
+            <a href="/dispatch" class="menu-card">
+                <span class="menu-icon">&#x1F4CB;</span>
+                <div class="menu-title">Dispatch Board</div>
+                <div class="menu-description">Live dispatch view — work orders, technician status, SLA tracking, and regional assignments.</div>
+            </a>
+            <a href="/view-data" class="menu-card">
+                <span class="menu-icon">&#x1F4CA;</span>
+                <div class="menu-title">View Data</div>
+                <div class="menu-description">Browse and explore tables across field service, monitoring, and network schemas.</div>
+            </a>
+            <a href="/insert-data" class="menu-card">
+                <span class="menu-icon">&#x1F4DD;</span>
+                <div class="menu-title">Insert Data</div>
+                <div class="menu-description">Create work orders, add technician notes, or insert records into any table.</div>
+            </a>
+            <a href="/genie" class="menu-card">
+                <span class="menu-icon">&#x2728;</span>
+                <div class="menu-title">Genie AI</div>
+                <div class="menu-description">Ask natural language questions about work orders, SLA performance, and field operations.</div>
+            </a>
+            <a href="/operations" class="menu-card">
+                <span class="menu-icon">&#x1F4E1;</span>
+                <div class="menu-title">Operations Center</div>
+                <div class="menu-description">Executive dashboard with SLA metrics, technician performance, and equipment tracking.</div>
+            </a>
+            <a href="/simulator" class="menu-card">
+                <span class="menu-icon">&#x26A1;</span>
+                <div class="menu-title">Activity Simulator</div>
+                <div class="menu-description">Generate realistic field service activity — work orders, dispatches, and completions.</div>
+            </a>
+            <a href="/health" class="menu-card">
+                <span class="menu-icon">&#x1F48A;</span>
+                <div class="menu-title">System Health</div>
+                <div class="menu-description">Monitor application health, database connectivity, connection pool, and diagnostics.</div>
+            </a>
+        </div>
+    </div>
+
+    <!-- ═══ DBX themes: Enterprise dashboard ═══ -->
+    <div class="dashboard-home dbx-only">
+        <!-- Header with powered-by -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+            <h2 style="margin:0;font-size:18px;color:var(--text-primary);">Operations Dashboard</h2>
+            <div class="powered-by">
+                <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                <span>Powered by <strong>Databricks Lakebase</strong></span>
+            </div>
+        </div>
+        <!-- KPI Row -->
+        <div class="kpi-row" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="kpi-card">
+                <div class="kpi-label">Open Work Orders</div>
+                <div class="kpi-value" id="kpiOpen"><span class="loading-spinner sm"></span></div>
+                <div class="kpi-sub">Requires attention</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">In Progress</div>
+                <div class="kpi-value" id="kpiProgress"><span class="loading-spinner sm"></span></div>
+                <div class="kpi-sub">Active now</div>
+            </div>
+            <div class="kpi-card kpi-card-warn">
+                <div class="kpi-label">SLA At Risk</div>
+                <div class="kpi-value" id="kpiAtRisk"><span class="loading-spinner sm"></span></div>
+                <div class="kpi-sub">Due within 2 hours</div>
+            </div>
+            <div class="kpi-card kpi-card-danger">
+                <div class="kpi-label">SLA Breached</div>
+                <div class="kpi-value" id="kpiBreached"><span class="loading-spinner sm"></span></div>
+                <div class="kpi-sub">Past deadline</div>
+            </div>
+        </div>
+
+        <!-- Row 1: Quick Actions + Lakebase Health -->
+        <div class="dash-row">
+            <div class="dash-section dash-section-wide">
+                <div class="dash-section-header">Quick Actions</div>
+                <div class="quick-actions">
+                    <a href="/insert-data" class="quick-action">
+                        <svg class="quick-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14m-7-7h14"/></svg>
+                        <div>
+                            <div class="quick-action-title">New Work Order</div>
+                            <div class="quick-action-desc">Create and assign a work order</div>
+                        </div>
+                    </a>
+                    <a href="/genie" class="quick-action">
+                        <svg class="quick-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+                        <div>
+                            <div class="quick-action-title">Ask Genie</div>
+                            <div class="quick-action-desc">Query operations data with AI</div>
+                        </div>
+                    </a>
+                    <a href="/dispatch" class="quick-action">
+                        <svg class="quick-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+                        <div>
+                            <div class="quick-action-title">Dispatch Board</div>
+                            <div class="quick-action-desc">View live field operations</div>
+                        </div>
+                    </a>
+                    <a href="/simulator" class="quick-action">
+                        <svg class="quick-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        <div>
+                            <div class="quick-action-title">Simulator</div>
+                            <div class="quick-action-desc">Run field service activity simulator</div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+            <div class="dash-section">
+                <div class="dash-section-header">Lakebase Health</div>
+                <div class="sys-status" id="sysStatus">
+                    <div class="sys-status-row">
+                        <span class="sys-dot sys-dot-checking"></span>
+                        <span>Checking...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 2: Activity Feed + Regional Load -->
+        <div class="dash-row">
+            <div class="dash-section dash-section-wide">
+                <div class="dash-section-header">Activity Feed</div>
+                <div class="activity-feed" id="activityFeed">
+                    <div class="activity-item"><span style="color: var(--text-muted, #6B6B78); font-size:12px;">Loading activity...</span></div>
+                </div>
+            </div>
+            <div class="dash-section">
+                <div class="dash-section-header">Regional Load</div>
+                <div id="regionalLoad">
+                    <span class="loading-spinner-container"><span class="loading-spinner sm"></span><span>Loading...</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 3: Technician Availability + SLA Compliance Trend -->
+        <div class="dash-row">
+            <div class="dash-section dash-section-wide">
+                <div class="dash-section-header">Technician Availability</div>
+                <div class="tech-summary" id="techSummary">
+                    <div class="tech-stat">
+                        <span class="tech-dot" style="background:#00A972"></span>
+                        <span class="tech-label">Available</span>
+                        <span class="tech-count" id="techAvailable">--</span>
+                    </div>
+                    <div class="tech-stat">
+                        <span class="tech-dot" style="background:#FFAB2E"></span>
+                        <span class="tech-label">En Route</span>
+                        <span class="tech-count" id="techEnRoute">--</span>
+                    </div>
+                    <div class="tech-stat">
+                        <span class="tech-dot" style="background:#FF6F42"></span>
+                        <span class="tech-label">On Site</span>
+                        <span class="tech-count" id="techOnSite">--</span>
+                    </div>
+                    <div class="tech-stat">
+                        <span class="tech-dot" style="background:#6B6B78"></span>
+                        <span class="tech-label">Off Duty</span>
+                        <span class="tech-count" id="techOffDuty">--</span>
+                    </div>
+                </div>
+            </div>
+            <div class="dash-section">
+                <div class="dash-section-header">SLA Compliance (7-Day)</div>
+                <div id="slaTrend">
+                    <span class="loading-spinner-container"><span class="loading-spinner sm"></span><span>Loading...</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 4: Databricks Platform Services (full width) -->
+        <div class="dash-row">
+            <div class="dash-section dash-section-full">
+                <div class="dash-section-header">Databricks Platform Services</div>
+                <div id="servicesStatus">
+                    <span class="loading-spinner-container"><span class="loading-spinner sm"></span><span>Loading services...</span></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Dashboard data loading with auto-refresh
+    (function() {
+        var dash = document.querySelector('.dashboard-home');
+        if (!dash) return;
+
+        function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        function animateValue(el, newVal) {
+            if (!el) return;
+            var cur = parseInt(el.textContent);
+            if (!isNaN(cur) && cur === newVal) return;
+            el.textContent = newVal;
+            el.style.transition = 'transform 0.3s, color 0.3s';
+            el.style.transform = 'scale(1.15)';
+            el.style.color = newVal > cur ? '#00A972' : '#FF6F42';
+            setTimeout(function() {
+                el.style.transform = 'scale(1)';
+                el.style.color = '';
+            }, 400);
+        }
+
+        // ── KPI + Technician data (from /api/dispatch/summary) ──
+        function loadDashboardData() {
+            fetch('/api/dispatch/summary')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    var wo = data.work_orders || {};
+                    animateValue(document.getElementById('kpiOpen'), (wo.open || 0) + (wo.assigned || 0));
+                    animateValue(document.getElementById('kpiProgress'), (wo.en_route || 0) + (wo.in_progress || 0) + (wo.on_hold || 0));
+                    animateValue(document.getElementById('kpiAtRisk'), (data.sla && data.sla.at_risk) || 0);
+                    animateValue(document.getElementById('kpiBreached'), (data.sla && data.sla.breached) || 0);
+                    var t = data.technicians || {};
+                    animateValue(document.getElementById('techAvailable'), t.available || 0);
+                    animateValue(document.getElementById('techEnRoute'), t.en_route || 0);
+                    animateValue(document.getElementById('techOnSite'), t.on_site || 0);
+                    animateValue(document.getElementById('techOffDuty'), t.off_duty || 0);
+                })
+                .catch(function() { /* API unavailable — spinners will clear on next successful refresh */ });
+        }
+
+        // ── Lakebase Health (lightweight) ──
+        function loadHealthStatus() {
+            fetch('/api/dashboard/health-lite')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('sysStatus');
+                    var checks = data.checks || {};
+                    var db = checks.database || {};
+                    var pool = checks.pool || {};
+                    var conn = checks.connections || {};
+                    var items = [
+                        {label: 'Database', ok: db.status === 'connected'},
+                        {label: 'Pool (' + (pool.pool_available || 0) + '/' + (pool.pool_size || 0) + ' avail)', ok: pool.status === 'ok'},
+                        {label: 'Connections (' + (conn.active || 0) + ' active)', ok: true}
+                    ];
+                    el.innerHTML = items.map(function(i) {
+                        return '<div class="sys-status-row"><span class="sys-dot" style="background:' +
+                            (i.ok ? '#00A972' : '#FF4444') + '"></span><span>' + i.label + '</span></div>';
+                    }).join('');
+                })
+                .catch(function() {
+                    document.getElementById('sysStatus').innerHTML =
+                        '<div class="sys-status-row"><span class="sys-dot" style="background:#6B6B78"></span><span>Unable to reach health API</span></div>';
+                });
+        }
+
+        // ── Activity Feed ──
+        function loadActivityFeed() {
+            fetch('/api/dashboard/activity-feed')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('activityFeed');
+                    var events = data.events || [];
+                    if (events.length === 0) {
+                        el.innerHTML = '<div class="activity-item"><span style="font-size:12px; opacity:0.5;">No recent activity</span></div>';
+                        return;
+                    }
+                    el.innerHTML = events.map(function(e) {
+                        var dotCls = 'activity-dot activity-dot-' + e.event_type;
+                        var priBadge = '';
+                        if (e.priority) {
+                            priBadge = '<span class="activity-priority activity-priority-' + esc(e.priority) + '">' + esc(e.priority) + '</span>';
+                        }
+                        var timeStr = '';
+                        if (e.event_time) {
+                            try {
+                                var d = new Date(e.event_time);
+                                timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                            } catch(x) { timeStr = ''; }
+                        }
+                        return '<div class="activity-item">' +
+                            '<span class="' + dotCls + '"></span>' +
+                            '<span class="activity-msg">' + esc(e.message) + priBadge + '</span>' +
+                            '<span class="activity-time">' + timeStr + '</span>' +
+                        '</div>';
+                    }).join('');
+                })
+                .catch(function() { /* API unavailable — spinners will clear on next successful refresh */ });
+        }
+
+        // ── Regional Load ──
+        function loadRegionalLoad() {
+            fetch('/api/dashboard/regional-load')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('regionalLoad');
+                    var regions = data.regions || [];
+                    if (regions.length === 0) {
+                        el.innerHTML = '<span style="font-size:12px; opacity:0.5;">No data</span>';
+                        return;
+                    }
+                    var html = '<table class="region-table"><thead><tr>' +
+                        '<th>Region</th><th>Open</th><th>Techs</th><th>SLA</th>' +
+                        '</tr></thead><tbody>';
+                    regions.forEach(function(r) {
+                        var breachBadge = r.sla_breached > 0
+                            ? '<span class="region-badge region-badge-breach">' + r.sla_breached + ' breach</span>'
+                            : '<span class="region-badge region-badge-ok">OK</span>';
+                        html += '<tr>' +
+                            '<td>' + esc(r.region) + '</td>' +
+                            '<td>' + r.open_wos + '</td>' +
+                            '<td>' + r.techs_available + '/' + r.techs_total + '</td>' +
+                            '<td>' + breachBadge + '</td>' +
+                        '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    el.innerHTML = html;
+                })
+                .catch(function() { /* API unavailable — spinners will clear on next successful refresh */ });
+        }
+
+        // ── SLA Compliance Trend (7-day sparkline) ──
+        function loadSlaTrend() {
+            fetch('/api/dashboard/sla-trend')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('slaTrend');
+                    var trend = data.trend || [];
+                    if (trend.length === 0) {
+                        el.innerHTML = '<span style="font-size:12px; opacity:0.5;">No SLA data for last 7 days</span>';
+                        return;
+                    }
+                    var html = '<div style="display:flex; gap:6px; align-items:flex-end; height:80px; padding:8px 0;">';
+                    var maxTotal = Math.max.apply(null, trend.map(function(d) { return d.total || 1; }));
+                    trend.forEach(function(d) {
+                        var barH = Math.max(Math.round((d.total / maxTotal) * 60), 4);
+                        var color = d.pct >= 85 ? '#00A972' : d.pct >= 70 ? '#FFAB2E' : '#FF4444';
+                        var dayLabel = d.date.slice(5); // MM-DD
+                        html += '<div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;">' +
+                            '<span style="font-size:10px; font-weight:600; color:' + color + ';">' + d.pct + '%</span>' +
+                            '<div style="width:100%; height:' + barH + 'px; background:' + color + '; border-radius:3px; min-width:20px;"></div>' +
+                            '<span style="font-size:9px; color:var(--text-muted,#6B6B78);">' + dayLabel + '</span>' +
+                        '</div>';
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+                })
+                .catch(function() {
+                    document.getElementById('slaTrend').innerHTML =
+                        '<span style="font-size:12px; opacity:0.5;">Unable to load SLA data</span>';
+                });
+        }
+
+        // ── Databricks Services Status ──
+        function loadServicesStatus() {
+            fetch('/api/dashboard/services-status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('servicesStatus');
+                    var services = data.services || [];
+                    var html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px;">';
+                    services.forEach(function(s) {
+                        var isActive = s.status === 'active';
+                        var dotColor = isActive ? '#00A972' : '#6B6B78';
+                        html += '<div style="display:flex; align-items:center; gap:10px; padding:10px 14px; ' +
+                            'background:var(--bg-secondary, #F4F4F4); border-radius:8px; border:1px solid var(--border-color, #E0E0E0);">' +
+                            '<span class="sys-dot" style="background:' + dotColor + ';width:10px;height:10px;flex-shrink:0;"></span>' +
+                            '<div>' +
+                                '<div style="font-size:13px; font-weight:600; color:var(--text-primary);">' + esc(s.name) + '</div>' +
+                                '<div style="font-size:11px; color:var(--text-muted,#6B6B78);">' + esc(s.detail) + '</div>' +
+                            '</div>' +
+                        '</div>';
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+                })
+                .catch(function() {
+                    document.getElementById('servicesStatus').innerHTML =
+                        '<span style="font-size:12px; opacity:0.5;">Unable to load services</span>';
+                });
+        }
+
+        // ── Initial load + auto-refresh (optimized intervals) ──
+        loadDashboardData();
+        loadHealthStatus();
+        loadActivityFeed();
+        loadRegionalLoad();
+        loadSlaTrend();
+        loadServicesStatus();
+
+        setInterval(loadDashboardData, 30000);   // cached 45s
+        setInterval(loadActivityFeed, 60000);     // cached 60s
+        setInterval(loadRegionalLoad, 60000);     // cached 45s
+        setInterval(loadHealthStatus, 60000);     // cached 30s
+        setInterval(loadSlaTrend, 300000);        // cached 5min
+        setInterval(loadServicesStatus, 300000);  // cached 5min
+    })();
+    </script>
+{% endblock %}

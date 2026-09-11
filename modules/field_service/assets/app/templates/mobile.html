@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FieldOps Mobile</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0F0F14; color: #E8E8ED; min-height: 100vh; }
+
+        .m-header { background: #1B1B22; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2A2A35; position: sticky; top: 0; z-index: 100; }
+        .m-header-title { font-size: 16px; font-weight: 700; color: #FF3621; }
+        .m-header-sub { font-size: 11px; color: #6B6B78; }
+        .m-header-status { width: 10px; height: 10px; border-radius: 50%; background: #00A972; }
+
+        .m-section { padding: 16px; }
+        .m-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #6B6B78; margin-bottom: 12px; }
+
+        .m-next-stop { background: linear-gradient(135deg, #1B2A32, #1B1B22); border: 1px solid #2A4A5A; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+        .m-next-label { font-size: 11px; color: #60A5FA; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+        .m-next-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        .m-next-address { font-size: 13px; color: #A0A0B0; margin-bottom: 8px; }
+        .m-next-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+        .m-next-badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .m-pri-critical { background: rgba(255,68,68,0.2); color: #FF4444; }
+        .m-pri-high { background: rgba(255,171,46,0.2); color: #FFAB2E; }
+        .m-pri-medium { background: rgba(96,165,250,0.2); color: #60A5FA; }
+        .m-pri-low { background: rgba(107,107,120,0.2); color: #6B6B78; }
+
+        .m-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .m-action-btn { padding: 12px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
+        .m-action-navigate { background: #2563EB; color: #fff; }
+        .m-action-arrive { background: #00A972; color: #fff; }
+        .m-action-complete { background: #7C3AED; color: #fff; }
+        .m-action-notes { background: #1B1B22; color: #E8E8ED; border: 1px solid #3A3A42; }
+
+        .m-wo-list { list-style: none; }
+        .m-wo-item { padding: 12px 0; border-bottom: 1px solid #2A2A35; display: flex; align-items: flex-start; gap: 12px; }
+        .m-wo-num { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #2563EB; color: #fff; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+        .m-wo-info { flex: 1; }
+        .m-wo-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+        .m-wo-sub { font-size: 12px; color: #6B6B78; }
+        .m-wo-sla { font-size: 11px; font-weight: 600; }
+        .m-sla-ok { color: #00A972; }
+        .m-sla-risk { color: #FFAB2E; }
+        .m-sla-breach { color: #FF4444; }
+
+        .m-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+        .m-stat { background: #1B1B22; border-radius: 8px; padding: 12px; text-align: center; }
+        .m-stat-val { font-size: 22px; font-weight: 700; color: #E8E8ED; }
+        .m-stat-label { font-size: 10px; color: #6B6B78; text-transform: uppercase; margin-top: 2px; }
+
+        .m-loading { text-align: center; padding: 40px; color: #6B6B78; }
+        .m-empty { text-align: center; padding: 40px; color: #6B6B78; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="m-header">
+        <div>
+            <div class="m-header-title">FieldOps Mobile</div>
+            <div class="m-header-sub" id="mTechName">Loading...</div>
+        </div>
+        <div class="m-header-status" id="mStatus"></div>
+    </div>
+
+    <div class="m-section">
+        <div class="m-stats">
+            <div class="m-stat">
+                <div class="m-stat-val" id="mActiveCount">--</div>
+                <div class="m-stat-label">Active</div>
+            </div>
+            <div class="m-stat">
+                <div class="m-stat-val" id="mCompletedCount">--</div>
+                <div class="m-stat-label">Completed</div>
+            </div>
+            <div class="m-stat">
+                <div class="m-stat-val" id="mAtRiskCount">--</div>
+                <div class="m-stat-label">At Risk</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="m-section" id="mNextSection" style="display:none;">
+        <div class="m-section-title">Next Stop</div>
+        <div class="m-next-stop" id="mNextStop"></div>
+    </div>
+
+    <div class="m-section" id="mRouteSection" style="display:none;">
+        <div class="m-section-title">Today's Route</div>
+        <div id="mRouteInfo"></div>
+    </div>
+
+    <div class="m-section">
+        <div class="m-section-title">My Work Orders</div>
+        <div id="mWoList">
+            <div class="m-loading"><span style="font-size:24px;">&#128736;</span><br>Loading your assignments...</div>
+        </div>
+    </div>
+
+    <script>
+    // Demo: load tech ID from URL param or default to 100
+    var techId = new URLSearchParams(window.location.search).get('tech') || 100;
+
+    function loadTechData() {
+        fetch('/api/technicians/' + techId)
+            .then(function(r) { return r.json(); })
+            .then(function(t) {
+                if (t.error) {
+                    document.getElementById('mTechName').textContent = 'Error loading tech data';
+                    return;
+                }
+                document.getElementById('mTechName').textContent = t.name + ' | ' + (t.cert_level || '') + ' | ' + (t.region || '');
+
+                var orders = t.active_orders || [];
+                var completions = t.recent_completions || [];
+                var atRisk = orders.filter(function(o) {
+                    if (!o.sla_due) return false;
+                    var remaining = (new Date(o.sla_due).getTime() - Date.now()) / 3600000;
+                    return remaining < 2 && remaining > 0;
+                });
+
+                document.getElementById('mActiveCount').textContent = orders.length;
+                document.getElementById('mCompletedCount').textContent = completions.length;
+                document.getElementById('mAtRiskCount').textContent = atRisk.length;
+                window._mobileOrders = orders;
+
+                // Calculate day's route
+                if (t.lat && t.lng && orders.length > 0) {
+                    loadDayRoute(t.lat, t.lng, orders);
+                }
+                if (atRisk.length > 0) document.getElementById('mAtRiskCount').style.color = '#FFAB2E';
+
+                // Next stop
+                if (orders.length > 0) {
+                    var next = orders[0];
+                    document.getElementById('mNextSection').style.display = '';
+                    var priClass = 'm-pri-' + (next.priority || 'medium');
+                    document.getElementById('mNextStop').innerHTML =
+                        '<div class="m-next-label">Next Assignment</div>' +
+                        '<div class="m-next-title">' + (next.number || '') + ' - ' + (next.category || '') + '</div>' +
+                        '<div class="m-next-address">' + (next.address || 'No address') + '</div>' +
+                        '<div class="m-next-meta">' +
+                            '<span class="m-next-badge ' + priClass + '">' + (next.priority || '') + '</span>' +
+                            '<span>' + (next.status || '') + '</span>' +
+                            (next.sla_due ? '<span>' + formatSla(next.sla_due) + '</span>' : '') +
+                        '</div>' +
+                        '<div class="m-actions">' +
+                            '<button class="m-action-btn m-action-navigate" onclick="navigate(' + (next.lat||0) + ',' + (next.lng||0) + ')">Navigate</button>' +
+                            '<button class="m-action-btn m-action-arrive">Mark Arrived</button>' +
+                            '<button class="m-action-btn m-action-complete">Complete</button>' +
+                            '<button class="m-action-btn m-action-notes">Add Note</button>' +
+                        '</div>';
+                }
+
+                // Work order list
+                if (orders.length === 0) {
+                    document.getElementById('mWoList').innerHTML = '<div class="m-empty">No active work orders. You\'re all caught up!</div>';
+                    return;
+                }
+                document.getElementById('mWoList').innerHTML = '<ul class="m-wo-list">' +
+                    orders.map(function(o, i) {
+                        var slaClass = 'm-sla-ok';
+                        var slaText = '--';
+                        if (o.sla_due) {
+                            var hrs = (new Date(o.sla_due).getTime() - Date.now()) / 3600000;
+                            if (hrs < 0) { slaClass = 'm-sla-breach'; slaText = 'BREACHED'; }
+                            else if (hrs < 2) { slaClass = 'm-sla-risk'; slaText = Math.round(hrs * 60) + 'm left'; }
+                            else { slaText = Math.round(hrs) + 'h left'; }
+                        }
+                        return '<li class="m-wo-item">' +
+                            '<div class="m-wo-num">' + (i + 1) + '</div>' +
+                            '<div class="m-wo-info">' +
+                                '<div class="m-wo-title">' + (o.number || 'WO-' + o.id) + '</div>' +
+                                '<div class="m-wo-sub">' + (o.category || '') + ' | ' + (o.customer || '') + '</div>' +
+                                '<div class="m-wo-sub">' + (o.address || '') + '</div>' +
+                            '</div>' +
+                            '<div class="m-wo-sla ' + slaClass + '">' + slaText + '</div>' +
+                        '</li>';
+                    }).join('') + '</ul>';
+            })
+            .catch(function(e) {
+                document.getElementById('mWoList').innerHTML = '<div class="m-empty">Unable to load data. Database may be busy.</div>';
+            });
+    }
+
+    function formatSla(slaDate) {
+        var hrs = (new Date(slaDate).getTime() - Date.now()) / 3600000;
+        if (hrs < 0) return 'SLA BREACHED';
+        if (hrs < 2) return 'SLA: ' + Math.round(hrs * 60) + 'm';
+        return 'SLA: ' + Math.round(hrs) + 'h';
+    }
+
+    function navigate(lat, lng) {
+        window.open('https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng, '_blank');
+    }
+
+    function loadDayRoute(techLat, techLng, orders) {
+        if (!orders || orders.length === 0 || !techLat || !techLng) return;
+        var routeSection = document.getElementById('mRouteSection');
+        var routeInfo = document.getElementById('mRouteInfo');
+        routeSection.style.display = '';
+
+        // Build waypoints: tech position → stop1 → stop2 → ...
+        var validStops = orders.filter(function(o) { return o.lat && o.lng; });
+        if (validStops.length === 0) return;
+
+        var waypoints = techLat + ',' + techLng;
+        validStops.forEach(function(s) { waypoints += ',' + s.lat + ',' + s.lng; });
+
+        routeInfo.innerHTML = '<div style="color:#6B6B78;font-size:12px;">Calculating route...</div>';
+
+        fetch('/api/map/route?waypoints=' + encodeURIComponent(waypoints))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    routeInfo.innerHTML = '<div style="color:#6B6B78;font-size:12px;">Route unavailable</div>';
+                    return;
+                }
+                routeInfo.innerHTML =
+                    '<div style="display:flex;gap:12px;margin-bottom:12px;">' +
+                        '<div style="padding:8px 14px;background:#1B1B22;border-radius:8px;">' +
+                            '<div style="font-size:18px;font-weight:700;">' + data.distance_km + ' km</div>' +
+                            '<div style="font-size:10px;color:#6B6B78;">TOTAL DISTANCE</div>' +
+                        '</div>' +
+                        '<div style="padding:8px 14px;background:#1B1B22;border-radius:8px;">' +
+                            '<div style="font-size:18px;font-weight:700;">' + data.duration_min + ' min</div>' +
+                            '<div style="font-size:10px;color:#6B6B78;">TOTAL DRIVE TIME</div>' +
+                        '</div>' +
+                        '<div style="padding:8px 14px;background:#1B1B22;border-radius:8px;">' +
+                            '<div style="font-size:18px;font-weight:700;">' + validStops.length + '</div>' +
+                            '<div style="font-size:10px;color:#6B6B78;">STOPS</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<button onclick="openFullRoute(' + techLat + ',' + techLng + ')" ' +
+                        'style="width:100%;padding:12px;border-radius:8px;border:none;background:#2563EB;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">' +
+                        'Open Full Route in Google Maps</button>';
+            })
+            .catch(function() {
+                routeInfo.innerHTML = '<div style="color:#6B6B78;font-size:12px;">Route unavailable (OSRM timeout)</div>';
+            });
+    }
+
+    window.openFullRoute = function(techLat, techLng) {
+        // Open Google Maps with all waypoints
+        var url = 'https://www.google.com/maps/dir/' + techLat + ',' + techLng;
+        var orders = window._mobileOrders || [];
+        orders.forEach(function(o) {
+            if (o.lat && o.lng) url += '/' + o.lat + ',' + o.lng;
+        });
+        window.open(url, '_blank');
+    };
+
+    loadTechData();
+    setInterval(loadTechData, 60000);
+    </script>
+</body>
+</html>

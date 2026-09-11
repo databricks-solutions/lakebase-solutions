@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Ring 1 back half — tilted +25deg, teal -->
+  <ellipse cx="32" cy="32" rx="27" ry="7" fill="none" stroke="#03DAC6" stroke-width="2.8"
+    transform="rotate(25, 32, 32)"
+    stroke-dasharray="80 80" stroke-dashoffset="0" stroke-linecap="round"/>
+
+  <!-- Ring 2 back half — tilted -25deg, teal -->
+  <ellipse cx="32" cy="32" rx="27" ry="7" fill="none" stroke="#03DAC6" stroke-width="2.8"
+    transform="rotate(-25, 32, 32)"
+    stroke-dasharray="80 80" stroke-dashoffset="0" stroke-linecap="round"/>
+
+  <!-- Planet body — solid flat pink -->
+  <circle cx="32" cy="32" r="13" fill="#CF6679"/>
+
+  <!-- Simple highlight — flat crescent, not gradient -->
+  <path d="M 25 24 A 9 9 0 0 1 38 26" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" opacity="0.35"/>
+
+  <!-- Planet outline — bold dark stroke -->
+  <circle cx="32" cy="32" r="13" fill="none" stroke="#9B3A50" stroke-width="1.8"/>
+
+  <!-- Ring 1 front half — tilted +25deg -->
+  <ellipse cx="32" cy="32" rx="27" ry="7" fill="none" stroke="#03DAC6" stroke-width="2.8"
+    transform="rotate(25, 32, 32)"
+    stroke-dasharray="80 80" stroke-dashoffset="80" stroke-linecap="round"/>
+
+  <!-- Ring 2 front half — tilted -25deg -->
+  <ellipse cx="32" cy="32" rx="27" ry="7" fill="none" stroke="#03DAC6" stroke-width="2.8"
+    transform="rotate(-25, 32, 32)"
+    stroke-dasharray="80 80" stroke-dashoffset="80" stroke-linecap="round"/>
+
+  <!-- Stars -->
+  <circle cx="8" cy="10" r="1.2" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="56" cy="8" r="1" fill="#FFFFFF" opacity="0.7"/>
+  <circle cx="54" cy="54" r="1.2" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="10" cy="52" r="0.8" fill="#FFFFFF" opacity="0.5"/>
+  <circle cx="5" cy="30" r="0.8" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="59" cy="26" r="1" fill="#FFFFFF" opacity="0.5"/>
+
+  <!-- 4-point sparkles -->
+  <path d="M 12 44 L 13 42 L 14 44 L 13 46 Z" fill="#FFFFFF" opacity="0.7"/>
+  <path d="M 51 15 L 52 13 L 53 15 L 52 17 Z" fill="#FFFFFF" opacity="0.6"/>
+</svg>

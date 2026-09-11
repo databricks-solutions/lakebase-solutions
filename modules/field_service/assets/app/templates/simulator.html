@@ -1,0 +1,2235 @@
+{% extends "base.html" %}
+{% block title %}Field Service Activity Simulator{% endblock %}
+{% block page_title %}Activity Simulator{% endblock %}
+
+{% block head_extra %}
+    <script src="https://unpkg.com/@strudel/web@1.0.3"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Field Service Activity Simulator</h1>
+                <p class="subtitle" style="text-align:left; margin-bottom:24px;">Generate realistic field service activity — work orders, dispatches, and completions — in real-time.</p>
+            </div>
+            <div class="powered-by" style="margin-top:8px;">
+                <img src="/static/apps-icon-full-color.webp" class="powered-by-icon" alt="Apps">
+                <span>Powered by <strong>Databricks Apps</strong></span>
+            </div>
+        </div>
+
+        <!-- Red Alert / Max Load Overlay -->
+        <div class="red-alert-overlay" id="redAlert">
+            <div class="red-alert-text trek-only">RED ALERT &mdash; SO MUCH DATA...</div>
+            <div class="red-alert-text dbx-only">MAX THROUGHPUT &mdash; HIGH VOLUME</div>
+        </div>
+
+        <!-- LCARS Control Panel -->
+        <div class="sim-controls lcars-panel">
+            <div class="lcars-frame">
+                <div class="lcars-elbow lcars-elbow-tl">
+                    <div class="lcars-elbow-inner"></div>
+                </div>
+                <div class="lcars-bar lcars-bar-top">
+                    <span class="lcars-bar-label trek-only">FIELDOPS SIMULATOR</span>
+                    <span class="lcars-bar-label dbx-only">Activity Simulator</span>
+                </div>
+                <div class="lcars-elbow lcars-elbow-tr">
+                    <div class="lcars-elbow-inner"></div>
+                </div>
+            </div>
+            <div class="sim-controls-row lcars-body">
+                <!-- Duration Knob (Trek) -->
+                <div class="amp-knob-group" id="durationKnobGroup">
+                    <div class="amp-knob-ring"></div>
+                    <div class="amp-knob" id="durationKnob">
+                        <div class="amp-knob-cap">
+                            <div class="amp-knob-pointer"></div>
+                        </div>
+                        <div class="amp-knob-screw"></div>
+                    </div>
+                    <div class="amp-knob-title">DURATION</div>
+                </div>
+
+                <!-- Volume Knob (Trek) -->
+                <div class="amp-knob-group" id="volumeKnobGroup">
+                    <div class="amp-knob-ring"></div>
+                    <div class="amp-knob" id="volumeKnob">
+                        <div class="amp-knob-cap">
+                            <div class="amp-knob-pointer"></div>
+                        </div>
+                        <div class="amp-knob-screw"></div>
+                    </div>
+                    <div class="amp-knob-title">VOLUME</div>
+                </div>
+
+                <!-- Flat Controls (DBX labels — selects shown alongside) -->
+                <div class="sim-control-group dbx-only">
+                    <label class="sim-control-label">Duration</label>
+                </div>
+                <select id="durationSelect" class="sim-select">
+                    <option value="1">1 min</option>
+                    <option value="2" selected>2 min</option>
+                    <option value="5">5 min</option>
+                    <option value="10">10 min</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                </select>
+                <div class="sim-control-group dbx-only">
+                    <label class="sim-control-label">Volume</label>
+                </div>
+                <select id="volumeSelect" class="sim-select">
+                    <option value="1">Low</option>
+                    <option value="3" selected>Medium</option>
+                    <option value="10">High</option>
+                    <option value="50">Max</option>
+                </select>
+
+                <!-- LCARS Buttons -->
+                <div class="lcars-button-group">
+                    <button id="startBtn" class="lcars-btn lcars-btn-engage" onclick="startSimulator()"><span class="trek-only">ENGAGE</span><span class="dbx-only">Start</span></button>
+                    <button id="stopBtn" class="lcars-btn lcars-btn-halt" onclick="stopSimulator()" disabled><span class="trek-only">ALL STOP</span><span class="dbx-only">Stop</span></button>
+                </div>
+
+                <!-- Tricorder Monitor -->
+                <div class="tricorder-monitor">
+                    <div class="tricorder-bezel">
+                        <div class="tricorder-label trek-only">SENSOR ARRAY</div>
+                        <div class="tricorder-label dbx-only">ACTIVITY MONITOR</div>
+                        <div class="tricorder-screen">
+                            <canvas id="waveCanvas"></canvas>
+                        </div>
+                        <div class="tricorder-footer">
+                            <span class="tricorder-indicator"></span>
+                            <span class="tricorder-mode" id="tricorderMode">STANDBY</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LCARS Status Readout -->
+                <div class="lcars-readout" id="statusBadge">
+                    <div class="lcars-readout-label">STATUS</div>
+                    <div class="lcars-readout-value">IDLE</div>
+                </div>
+            </div>
+            <div class="lcars-frame lcars-frame-bottom">
+                <div class="lcars-elbow lcars-elbow-bl">
+                    <div class="lcars-elbow-inner"></div>
+                </div>
+                <div class="lcars-bar lcars-bar-bottom">
+                    <span class="lcars-pill lcars-pill-1"></span>
+                    <span class="lcars-pill lcars-pill-2"></span>
+                    <span class="lcars-pill lcars-pill-3"></span>
+                </div>
+                <div class="lcars-elbow lcars-elbow-br">
+                    <div class="lcars-elbow-inner"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Music Player -->
+        <div class="music-player" id="musicPlayer">
+            <div class="music-player-left">
+                <button class="music-player-btn" id="musicToggleBtn" onclick="toggleBeat()" title="Toggle music">
+                    <span id="musicIcon">&#9654;</span>
+                </button>
+                <div class="music-eq" id="musicEq">
+                    <span class="eq-bar"></span>
+                    <span class="eq-bar"></span>
+                    <span class="eq-bar"></span>
+                    <span class="eq-bar"></span>
+                    <span class="eq-bar"></span>
+                </div>
+                <div class="music-info">
+                    <div class="music-title trek-only">The Neutral Zone</div>
+                    <div class="music-title dbx-only">Deep Focus</div>
+                    <div class="music-artist trek-only">Strudel Dark Ambience</div>
+                    <div class="music-artist dbx-only">Ambient Generative</div>
+                </div>
+            </div>
+            <div class="music-player-right">
+                <label class="music-vol-label" for="musicVolume">VOL</label>
+                <input type="range" id="musicVolume" class="music-vol-slider" min="0" max="100" value="30" oninput="setMusicVolume(this.value)">
+                <span class="music-status" id="musicStatus">STOPPED</span>
+            </div>
+        </div>
+
+        <!-- Dashboard (hidden until started) -->
+        <div id="dashboard" style="display:none;">
+            <div class="sim-info-bar" id="infoBar">
+                <span>Total: <strong id="totalTime">0:00</strong></span>
+                <span>Generating: <strong id="elapsedTime">--:--</strong></span>
+                <span>Rate: <strong id="sessionRate">0</strong> orders/min</span>
+                <span>Total events: <strong id="totalEvents">0</strong></span>
+            </div>
+
+            <div class="sim-stats-grid">
+                <div class="sim-stat-card" id="statSessions">
+                    <div class="sim-stat-icon">📋</div>
+                    <div class="sim-stat-value" id="valSessions">0</div>
+                    <div class="sim-stat-label">Work Orders</div>
+                </div>
+                <div class="sim-stat-card" id="statTickets">
+                    <div class="sim-stat-icon">✅</div>
+                    <div class="sim-stat-value" id="valTickets">0</div>
+                    <div class="sim-stat-label">Completed</div>
+                </div>
+                <div class="sim-stat-card" id="statCustomers">
+                    <div class="sim-stat-icon">📅</div>
+                    <div class="sim-stat-value" id="valCustomers">0</div>
+                    <div class="sim-stat-label">Appointments</div>
+                </div>
+                <div class="sim-stat-card" id="statDevices">
+                    <div class="sim-stat-icon">📝</div>
+                    <div class="sim-stat-value" id="valDevices">0</div>
+                    <div class="sim-stat-label">Tech Notes</div>
+                </div>
+                <div class="sim-stat-card" id="statIot">
+                    <div class="sim-stat-icon">📡</div>
+                    <div class="sim-stat-value" id="valIot">0</div>
+                    <div class="sim-stat-label">IoT Files</div>
+                </div>
+            </div>
+
+            <!-- Pipeline Refresh Status -->
+            <div id="pipelineCard" style="margin-top:16px;padding:14px 18px;background:var(--bg-secondary);border:1px solid var(--border-primary,#3A3A42);border-radius:8px;display:none;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span id="pipelineIcon" style="font-size:16px;">⏳</span>
+                        <strong style="font-size:13px;">Iceberg Pipeline</strong>
+                    </div>
+                    <span id="pipelinePhaseLabel" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,106,0,0.15);color:#FF6A00;font-weight:600;text-transform:uppercase;"></span>
+                </div>
+                <div id="pipelineDetail" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;"></div>
+                <div style="height:6px;background:var(--bg-tertiary,#2A2A32);border-radius:3px;overflow:hidden;">
+                    <div id="pipelineBar" style="height:100%;width:0%;background:linear-gradient(90deg,#FF6A00,#FFAB2E);border-radius:3px;transition:width 0.5s ease;"></div>
+                </div>
+                <div id="pipelineElapsed" style="font-size:11px;color:var(--text-muted);margin-top:4px;text-align:right;"></div>
+            </div>
+
+            <h2>Live Event Feed</h2>
+            <div class="sim-event-feed" id="eventFeed">
+                <div class="sim-event-empty">Waiting for events...</div>
+            </div>
+
+            <p id="durationNote" style="color:var(--text-muted); font-size:0.85em; margin-top:12px; display:none;">
+                Note: Actual generation time may vary slightly from the selected duration due to event pacing and cleanup.
+            </p>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             OPEN SOURCE ICEBERG INTEROPERABILITY DEMO
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="ice-demo" id="icebergDemo">
+            <h2 style="margin-top:32px;">Open Source Iceberg Interoperability</h2>
+            <p class="subtitle" style="text-align:left; margin-bottom:16px;">
+                Demonstrates that <strong>PyIceberg</strong> (Apache open-source) can read and write
+                Unity Catalog Managed Iceberg tables — no proprietary SDK required.
+                Auth via OAuth token, data access via the Iceberg REST protocol served by Unity Catalog.
+            </p>
+
+            <!-- DAG Visualization -->
+            <div class="ice-dag">
+                <div class="ice-dag-node" id="iceDagClient">
+                    <div class="ice-dag-icon">
+                        <svg viewBox="0 0 32 32" width="28" height="28"><rect x="2" y="6" width="28" height="20" rx="3" fill="none" stroke="#00A972" stroke-width="2"/><text x="16" y="19" text-anchor="middle" fill="#00A972" font-size="8" font-weight="bold" font-family="monospace">&gt;_</text></svg>
+                    </div>
+                    <div class="ice-dag-label">PyIceberg Client</div>
+                    <div class="ice-dag-sub">Apache open-source</div>
+                </div>
+                <div class="ice-dag-arrow" id="iceDagArrow1">
+                    <svg width="48" height="24" viewBox="0 0 48 24"><path d="M0 12h40" stroke="#6B6B78" stroke-width="1.5" stroke-dasharray="4 3"/><path d="M36 6l8 6-8 6" fill="none" stroke="#6B6B78" stroke-width="1.5"/></svg>
+                    <span class="ice-dag-arrow-label">OAuth Bearer</span>
+                </div>
+                <div class="ice-dag-node" id="iceDagRest">
+                    <div class="ice-dag-icon">
+                        <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="12" fill="none" stroke="#60A5FA" stroke-width="2"/><text x="16" y="13" text-anchor="middle" fill="#60A5FA" font-size="6" font-weight="bold" font-family="monospace">REST</text><text x="16" y="21" text-anchor="middle" fill="#60A5FA" font-size="5" font-family="monospace">API</text></svg>
+                    </div>
+                    <div class="ice-dag-label">Unity Catalog</div>
+                    <div class="ice-dag-sub">Iceberg REST protocol</div>
+                </div>
+                <div class="ice-dag-arrow" id="iceDagArrow2">
+                    <svg width="48" height="24" viewBox="0 0 48 24"><path d="M0 12h40" stroke="#6B6B78" stroke-width="1.5" stroke-dasharray="4 3"/><path d="M36 6l8 6-8 6" fill="none" stroke="#6B6B78" stroke-width="1.5"/></svg>
+                    <span class="ice-dag-arrow-label">Credential Vending</span>
+                </div>
+                <div class="ice-dag-node" id="iceDagUC">
+                    <div class="ice-dag-icon">
+                        <svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="12" fill="none" stroke="#FF3621" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="#FF3621"/><path d="M16 4v4M16 24v4M4 16h4M24 16h4" stroke="#FF3621" stroke-width="1.5"/></svg>
+                    </div>
+                    <div class="ice-dag-label">Governance + ACLs</div>
+                    <div class="ice-dag-sub">Column & row-level security</div>
+                </div>
+                <div class="ice-dag-arrow" id="iceDagArrow3">
+                    <svg width="48" height="24" viewBox="0 0 48 24"><path d="M0 12h40" stroke="#6B6B78" stroke-width="1.5" stroke-dasharray="4 3"/><path d="M36 6l8 6-8 6" fill="none" stroke="#6B6B78" stroke-width="1.5"/></svg>
+                    <span class="ice-dag-arrow-label">Vended S3 Creds</span>
+                </div>
+                <div class="ice-dag-node" id="iceDagStorage">
+                    <div class="ice-dag-icon">
+                        <svg viewBox="0 0 32 32" width="28" height="28"><ellipse cx="16" cy="10" rx="10" ry="4" fill="none" stroke="#F59E0B" stroke-width="2"/><path d="M6 10v12c0 2.2 4.5 4 10 4s10-1.8 10-4V10" fill="none" stroke="#F59E0B" stroke-width="2"/><ellipse cx="16" cy="18" rx="10" ry="4" fill="none" stroke="#F59E0B" stroke-width="1" opacity="0.4"/></svg>
+                    </div>
+                    <div class="ice-dag-label">Managed Iceberg</div>
+                    <div class="ice-dag-sub">S3 (Parquet + metadata)</div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="ice-controls">
+                <button id="iceStartBtn" class="ice-btn ice-btn-start" onclick="startIcebergDemo()">Start Iceberg Demo</button>
+                <button id="iceStopBtn" class="ice-btn ice-btn-stop" onclick="stopIcebergDemo()" disabled>Stop</button>
+                <div class="ice-stats">
+                    <span class="ice-stat"><span class="ice-stat-val" id="iceReads">0</span> reads</span>
+                    <span class="ice-stat"><span class="ice-stat-val" id="iceWrites">0</span> writes</span>
+                    <span class="ice-stat ice-stat-err"><span class="ice-stat-val" id="iceErrors">0</span> errors</span>
+                </div>
+            </div>
+
+            <!-- Operation Log -->
+            <div class="ice-ops-log" id="iceOpsLog">
+                <div class="ice-ops-empty">Start the demo to see open-source Iceberg operations...</div>
+            </div>
+        </div>
+
+        <!-- Code Snippet Slide-in Pane -->
+        <div class="ice-code-pane" id="iceCodePane">
+            <div class="ice-code-header">
+                <div class="ice-code-title">
+                    <svg viewBox="0 0 20 20" width="16" height="16" style="vertical-align:-2px"><path d="M7.5 3L2 10l5.5 7M12.5 3L18 10l-5.5 7" fill="none" stroke="#00A972" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <span id="iceCodeLabel">PyIceberg Code</span>
+                </div>
+                <button class="ice-code-close" onclick="closeIceCodePane()">&times;</button>
+            </div>
+            <div class="ice-code-tabs">
+                <button class="ice-code-tab" id="iceTabExample" onclick="switchIceCodeTab('example')">API Reference</button>
+                <button class="ice-code-tab ice-code-tab-active" id="iceTabSource" onclick="switchIceCodeTab('source')">Live Output</button>
+            </div>
+            <div class="ice-code-body" id="iceCodeBody"></div>
+            <div class="ice-code-footer">
+                <span class="ice-code-lib">pyiceberg</span>
+                <span class="ice-code-note">Apache open-source &middot; no vendor SDK required</span>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             STB ICEBERG MIGRATION SIMULATOR
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="ice-demo" id="migrationDemo" style="margin-top:40px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div style="flex:1;min-width:280px;">
+                    <h2>Set Top Box — Iceberg Migration Simulator</h2>
+                    <p class="subtitle" style="text-align:left; margin-bottom:16px;">
+                        Demonstrates a <strong>2-tier migration</strong>: raw Parquet files in a UC Volume,
+                        then CTAS directly into <strong>managed Iceberg</strong> with liquid clustering
+                        via <code>read_files()</code>. Watch each step execute in real-time.
+                    </p>
+                </div>
+                <div class="powered-by" style="margin-top:4px;flex-shrink:0;">
+                    <img src="/static/unity-catalog-icon-full-color.webp" class="powered-by-icon" alt="UC">
+                    <span>Powered by <strong>Unity Catalog</strong></span>
+                </div>
+            </div>
+
+            <!-- Migration DAG -->
+            <div class="mig-dag" id="migDag">
+                <!-- Tier 1: Raw Parquet Files -->
+                <div class="mig-dag-phase" id="migPhase1">
+                    <div class="mig-dag-phase-label">RAW PARQUET FILES</div>
+                    <div class="mig-dag-phase-sub">UC Volume: /Volumes/.../stb_source_data/</div>
+                </div>
+                <div class="mig-dag-nodes" id="migTier1">
+                    <div class="mig-dag-node" id="migStep-create_volume" data-step="create_volume">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 7v10c0 1.1 2.7 2 6 2h6c3.3 0 6-.9 6-2V7" fill="none" stroke="currentColor" stroke-width="1.5"/><ellipse cx="12" cy="7" rx="9" ry="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 12c0 1.1 2.7 2 6 2h6c3.3 0 6-.9 6-2" fill="none" stroke="currentColor" stroke-width="1" opacity="0.4"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Create Volume</div>
+                        <div class="mig-dag-node-status" id="migStatus-create_volume"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-gen_devices" data-step="gen_devices">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 13h8M8 17h5" stroke="currentColor" stroke-width="1"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Gen Devices</div>
+                        <div class="mig-dag-node-status" id="migStatus-gen_devices"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-gen_telemetry" data-step="gen_telemetry">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 13h8M8 17h5" stroke="currentColor" stroke-width="1"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Gen Telemetry</div>
+                        <div class="mig-dag-node-status" id="migStatus-gen_telemetry"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-gen_incidents" data-step="gen_incidents">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 13h8M8 17h5" stroke="currentColor" stroke-width="1"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Gen Incidents</div>
+                        <div class="mig-dag-node-status" id="migStatus-gen_incidents"></div>
+                    </div>
+                </div>
+
+                <!-- Divider: CTAS Migration (Parquet → Managed Iceberg) -->
+                <div class="mig-dag-divider" id="migDivider1">
+                    <svg width="100%" height="40" viewBox="0 0 600 40" preserveAspectRatio="none">
+                        <defs>
+                            <marker id="migArrowhead1" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#00A972"/>
+                            </marker>
+                        </defs>
+                        <path d="M300 4 L300 36" stroke="#00A972" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#migArrowhead1)" class="mig-dag-flow"/>
+                    </svg>
+                    <div class="mig-dag-divider-label" id="migDivider1Label">CTAS FROM PARQUET → MANAGED ICEBERG</div>
+                    <div class="mig-dag-divider-sub">CREATE TABLE ... USING ICEBERG CLUSTER BY (...) AS SELECT * FROM read_files(...)</div>
+                </div>
+
+                <!-- Tier 2: Managed Iceberg -->
+                <div class="mig-dag-phase" id="migPhase2">
+                    <div class="mig-dag-phase-label">MANAGED ICEBERG</div>
+                    <div class="mig-dag-phase-sub">Liquid clustering + predictive optimization</div>
+                </div>
+                <div class="mig-dag-nodes" id="migTier2">
+                    <div class="mig-dag-node" id="migStep-migrate_devices" data-step="migrate_devices">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 12l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Managed Devices</div>
+                        <div class="mig-dag-node-status" id="migStatus-migrate_devices"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-migrate_telemetry" data-step="migrate_telemetry">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 12l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Managed Telemetry</div>
+                        <div class="mig-dag-node-status" id="migStatus-migrate_telemetry"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-migrate_incidents" data-step="migrate_incidents">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 12l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Managed Incidents</div>
+                        <div class="mig-dag-node-status" id="migStatus-migrate_incidents"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-validate" data-step="validate">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 12l3 3 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Validate</div>
+                        <div class="mig-dag-node-status" id="migStatus-validate"></div>
+                    </div>
+                    <div class="mig-dag-arrow">&#8594;</div>
+                    <div class="mig-dag-node" id="migStep-show_benefits" data-step="show_benefits">
+                        <div class="mig-dag-node-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l3 7h7l-5.5 4.5 2 7L12 17l-6.5 3.5 2-7L2 9h7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+                        </div>
+                        <div class="mig-dag-node-label">Benefits</div>
+                        <div class="mig-dag-node-status" id="migStatus-show_benefits"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Migration Controls -->
+            <div class="ice-controls" style="margin-top:16px;">
+                <button id="migStartBtn" class="ice-btn ice-btn-start" onclick="startMigration()">Run Migration Demo</button>
+                <button id="migStopBtn" class="ice-btn ice-btn-stop" onclick="stopMigration()" disabled>Stop</button>
+            </div>
+
+            <!-- Migration Log -->
+            <div class="ice-ops-log" id="migOpsLog">
+                <div class="ice-ops-empty">Click "Run Migration Demo" to see Parquet &rarr; Managed Iceberg migration with liquid clustering...</div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             ENVIRONMENT SCALE-UP
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="ice-demo" id="scaleUpDemo" style="margin-top:32px;">
+            <h2>Environment Scale-Up</h2>
+            <p class="subtitle" style="text-align:left; margin-bottom:16px;">
+                Additively bulk-insert records to scale the environment from its current size up to <strong>2 million customers</strong>
+                (~33M+ total rows). Runs in the background — the app stays fully operational while scaling.
+            </p>
+
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <label style="font-weight:600;font-size:0.9em;">Target Customers:</label>
+                    <select id="scaleTarget" class="sim-select" style="width:auto;">
+                        <option value="100000">100K</option>
+                        <option value="500000">500K</option>
+                        <option value="1000000">1M</option>
+                        <option value="2000000" selected>2M</option>
+                    </select>
+                </div>
+                <button id="scaleStartBtn" class="ice-btn ice-btn-start" onclick="startScaleUp()">Scale Up Environment</button>
+                <button id="scaleStopBtn" class="ice-btn ice-btn-stop" onclick="stopScaleUp()" disabled>Stop</button>
+            </div>
+
+            <div id="scaleStatus" style="display:none; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <span style="font-weight:600;" id="scalePhaseLabel">Initializing...</span>
+                    <span style="font-size:0.85em;color:var(--text-muted);" id="scaleRowsAdded">0 rows added</span>
+                </div>
+                <div style="background:var(--bg-secondary);border-radius:4px;height:8px;overflow:hidden;margin-bottom:8px;">
+                    <div id="scaleProgressBar" style="background:var(--accent-primary);height:100%;width:0%;transition:width 0.5s;border-radius:4px;"></div>
+                </div>
+                <div style="font-size:0.85em;color:var(--text-muted);" id="scaleProgressText">Starting...</div>
+            </div>
+
+            <div class="ice-ops-log" id="scaleLog" style="max-height:200px;">
+                <div class="ice-ops-empty">Click "Scale Up Environment" to begin bulk data insertion...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Knob Controller ────────────────────────────────────────────────
+        const ARC_START = -135;  // degrees (7 o'clock)
+        const ARC_END = 135;     // degrees (5 o'clock)
+        const ARC_RANGE = ARC_END - ARC_START; // 270
+
+        function initKnob(knobId, selectId, groupId) {
+            const knob = document.getElementById(knobId);
+            const select = document.getElementById(selectId);
+            const group = document.getElementById(groupId);
+            const ring = group.querySelector('.amp-knob-ring');
+            const cap = knob.querySelector('.amp-knob-cap');
+            const options = Array.from(select.options);
+            const n = options.length;
+
+            // Compute angle for each option
+            const angles = options.map((_, i) => ARC_START + (i * ARC_RANGE / (n - 1)));
+
+            // Render tick marks and labels in the ring
+            const RING_R = 56;  // label distance from center
+            const TICK_R = 42;  // tick mark distance from center
+            ring.innerHTML = '';
+            options.forEach((opt, i) => {
+                const angleDeg = angles[i];
+                const angleRad = angleDeg * Math.PI / 180;
+
+                // Tick mark
+                const tick = document.createElement('div');
+                tick.className = 'amp-tick';
+                tick.style.left = `${50 + TICK_R * Math.sin(angleRad)}px`;
+                tick.style.top = `${50 - TICK_R * Math.cos(angleRad)}px`;
+                tick.style.transform = `translate(-50%, -50%) rotate(${angleDeg}deg)`;
+                ring.appendChild(tick);
+
+                // Label
+                const label = document.createElement('div');
+                label.className = 'amp-tick-label';
+                label.textContent = opt.textContent;
+                label.dataset.index = i;
+                label.style.left = `${50 + RING_R * Math.sin(angleRad)}px`;
+                label.style.top = `${50 - RING_R * Math.cos(angleRad)}px`;
+                label.addEventListener('click', () => {
+                    if (select.disabled) return;
+                    select.selectedIndex = i;
+                    setKnobAngle(cap, angles[i]);
+                    updateActiveLabel(ring, i);
+                });
+                ring.appendChild(label);
+            });
+
+            // Set initial position
+            const idx = select.selectedIndex;
+            setKnobAngle(cap, angles[idx]);
+            updateActiveLabel(ring, idx);
+
+            // Click on knob itself cycles to next value
+            knob.addEventListener('click', () => {
+                if (select.disabled) return;
+                const next = (select.selectedIndex + 1) % n;
+                select.selectedIndex = next;
+                setKnobAngle(cap, angles[next]);
+                updateActiveLabel(ring, next);
+            });
+
+            return { knob, select, cap, angles, ring };
+        }
+
+        function setKnobAngle(cap, deg) {
+            cap.style.transform = `rotate(${deg}deg)`;
+        }
+
+        function updateActiveLabel(ring, activeIdx) {
+            ring.querySelectorAll('.amp-tick-label').forEach((el, i) => {
+                el.classList.toggle('active', i === parseInt(activeIdx));
+            });
+        }
+
+        // Init knobs on load
+        let durationKnob, volumeKnob;
+        document.addEventListener('DOMContentLoaded', () => {
+            durationKnob = initKnob('durationKnob', 'durationSelect', 'durationKnobGroup');
+            volumeKnob = initKnob('volumeKnob', 'volumeSelect', 'volumeKnobGroup');
+        });
+
+        // ── Lo-Fi Beat (Strudel) ──────────────────────────────────────────
+        let strudelReady = false;
+        let beatPlaying = false;
+        let musicVol = 0.3; // 0.0–1.0 multiplier
+
+        function setMusicVolume(val) {
+            musicVol = val / 100;
+            if (beatPlaying) {
+                try { hush(); } catch(e) {}
+                beatPlaying = false;
+                startBeat();
+            }
+        }
+
+        function initBeat() {
+            try {
+                initStrudel();
+                strudelReady = true;
+            } catch (e) {
+                console.warn('Strudel init failed:', e);
+            }
+        }
+
+        function startBeat() {
+            if (!strudelReady || beatPlaying) return;
+            const v = musicVol;
+            try {
+                stack(
+                    // Dark drone — minor 2nd cluster, slow creeping filter
+                    note("<[e2,f2,b2] ~ [e2,f2,b2] ~ [eb2,e2,bb2] ~ [eb2,e2,bb2] ~>")
+                        .sound("sawtooth").lpf(sine.range(200, 800).slow(24)).lpq(6).gain(0.16 * v).room(0.7).delay(0.3).delaytime(0.666).delayfeedback(0.45),
+                    // Tritone pad — dissonant tension, pulsing
+                    note("<[b3,f4] ~ ~ [b3,f4] [bb3,e4] ~ ~ [bb3,e4]>")
+                        .sound("sawtooth").lpf(sine.range(400, 1400).slow(16)).gain(0.09 * v).pan(sine.range(0.2, 0.8).slow(10)).room(0.6).delay(0.25).delaytime(0.5).delayfeedback(0.4),
+                    // Borg-like metallic pulse — mechanical, relentless
+                    note("[e3 ~ ~ e3] [~ ~ e3 ~] [eb3 ~ ~ eb3] [~ ~ eb3 ~]")
+                        .sound("square").lpf(600).lpq(8).gain(0.06 * v).crush(6).room(0.3).delay(0.2).delaytime(0.333).delayfeedback(0.35),
+                    // Sub bass — deep threatening rumble
+                    note("<e1 e1 eb1 eb1 e1 e1 eb1 eb1>").sound("triangle").lpf(120).gain(0.3 * v).room(0.15),
+                    // Subsonic pulse — hull stress groans
+                    note("[e0 ~ ~ ~] [~ ~ ~ e0] [eb0 ~ ~ ~] [~ ~ ~ eb0]").sound("sine").gain(0.5 * v).lpf(45).decay(0.8).sustain(0),
+                    // Eerie high tones — scanning beam, sparse
+                    note("[~ ~ b6 ~] [~ ~ ~ ~] [~ f6 ~ ~] [~ ~ ~ ~] [~ ~ ~ e7] [~ ~ ~ ~] [~ bb6 ~ ~] [~ ~ ~ ~]")
+                        .sound("sine").gain(0.025 * v).decay(0.12).sustain(0).room(0.6).delay(0.3).delaytime(0.75).delayfeedback(0.5),
+                    // Metallic warning pings — irregular, unsettling
+                    note("[~ ~ ~ ~] [~ ~ f7 ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ b7] [~ ~ ~ ~]")
+                        .sound("triangle").gain(0.018 * v).decay(0.05).sustain(0).hpf(4000).room(0.5).delay(0.2).delaytime(0.4).delayfeedback(0.3),
+                    // Static hiss — sensor interference
+                    note("e7*16").sound("square").gain(0.006 * v).crush(3).coarse(24).hpf(5000).pan(rand).room(0.2)
+                ).cpm(60).play();
+                beatPlaying = true;
+                updateMusicPlayer(true);
+                connectAnalyser();
+            } catch (e) {
+                console.warn('Beat start failed:', e);
+            }
+        }
+
+        function stopBeat() {
+            if (!beatPlaying) return;
+            try { hush(); } catch(e) {}
+            beatPlaying = false;
+            updateMusicPlayer(false);
+        }
+
+        function toggleBeat() {
+            if (beatPlaying) {
+                stopBeat();
+            } else {
+                startBeat();
+            }
+        }
+
+        function updateMusicPlayer(playing) {
+            const eq = document.getElementById('musicEq');
+            const icon = document.getElementById('musicIcon');
+            const status = document.getElementById('musicStatus');
+            const player = document.getElementById('musicPlayer');
+            if (playing) {
+                eq.classList.add('active');
+                icon.innerHTML = '&#9646;&#9646;';
+                status.textContent = 'PLAYING';
+                status.className = 'music-status playing';
+                player.classList.add('active');
+            } else {
+                eq.classList.remove('active');
+                icon.innerHTML = '&#9654;';
+                status.textContent = 'STOPPED';
+                status.className = 'music-status';
+                player.classList.remove('active');
+            }
+        }
+
+        // ── Web Audio Analyser — tap into Strudel's audio output ──────────
+        let analyserNode = null;
+        let waveformData = null;
+        let frequencyData = null;
+
+        function connectAnalyser() {
+            setTimeout(() => {
+                try {
+                    const audioCtx = typeof getAudioContext === 'function'
+                        ? getAudioContext()
+                        : (window._audioContext || new (window.AudioContext || window.webkitAudioContext)());
+                    if (!audioCtx || audioCtx.state === 'closed') return;
+
+                    analyserNode = audioCtx.createAnalyser();
+                    analyserNode.fftSize = 2048;
+                    analyserNode.smoothingTimeConstant = 0.75;
+
+                    waveformData = new Uint8Array(analyserNode.frequencyBinCount);
+                    frequencyData = new Uint8Array(analyserNode.frequencyBinCount);
+                    console.log('Audio analyser connected');
+                } catch (e) {
+                    console.warn('Analyser setup:', e.message);
+                    analyserNode = null;
+                }
+            }, 500);
+        }
+
+        // ── Pac-Man style beep on new records ────────────────────────────
+        let beepCtx = null;
+        let lastBeepTime = 0;
+        const BEEP_COOLDOWN = 400; // ms between beeps (prevents overwhelming)
+        const beepNotes = [784, 880, 988, 1047]; // G5, A5, B5, C6 — ascending chirps
+        let beepNoteIdx = 0;
+
+        function playBeep() {
+            const now = Date.now();
+            if (now - lastBeepTime < BEEP_COOLDOWN) return;
+            lastBeepTime = now;
+
+            try {
+                if (!beepCtx) beepCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (beepCtx.state === 'suspended') beepCtx.resume();
+
+                const osc = beepCtx.createOscillator();
+                const gain = beepCtx.createGain();
+                osc.connect(gain);
+                gain.connect(beepCtx.destination);
+
+                osc.type = 'sine';
+                osc.frequency.value = beepNotes[beepNoteIdx % beepNotes.length];
+                beepNoteIdx++;
+
+                const t = beepCtx.currentTime;
+                gain.gain.setValueAtTime(0, t);
+                gain.gain.linearRampToValueAtTime(0.04, t + 0.01); // very subtle
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+
+                osc.start(t);
+                osc.stop(t + 0.1);
+            } catch(e) {}
+        }
+
+        // ── Tricorder Scan Readings ──────────────────────────────────────
+        let waveActive = false;
+        let waveIntensity = 0;
+        let waveVolume = 3;
+
+        function initWaveCanvas() {
+            const canvas = document.getElementById('waveCanvas');
+            const ctx = canvas.getContext('2d');
+            const monitor = document.querySelector('.tricorder-monitor');
+            const modeLabel = document.getElementById('tricorderMode');
+            let w, h, dpr;
+            let time = 0;
+            const digits = [];
+
+            // TNG tricorder palette
+            const AMBER  = [255, 190, 60];
+            const TEAL   = [3, 218, 198];
+            const BLUE   = [120, 180, 255];
+            const RED    = [255, 100, 80];
+            const GREEN  = [80, 255, 140];
+            const LCARS  = [255, 153, 0];
+            function rgba(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a.toFixed(3)})`; }
+
+            // Scan channels — each is a different waveform type
+            const CHANNELS = [
+                { color: AMBER, type: 'sine',   freq: 2.5, amp: 0.7, speed: 1.2, label: 'BIO' },
+                { color: TEAL,  type: 'pulse',  freq: 4,   amp: 0.6, speed: 0.9, label: 'EM' },
+                { color: BLUE,  type: 'noise',  freq: 6,   amp: 0.5, speed: 1.5, label: 'SUB' },
+                { color: GREEN, type: 'saw',    freq: 3,   amp: 0.55,speed: 1.0, label: 'GEO' },
+                { color: RED,   type: 'sine2',  freq: 5,   amp: 0.45,speed: 1.8, label: 'THR' },
+                { color: LCARS, type: 'square', freq: 3.5, amp: 0.5, speed: 0.7, label: 'ION' },
+            ];
+
+            // Pseudo-random seeded by position for stable noise
+            function noise(x) {
+                const n = Math.sin(x * 127.1 + 311.7) * 43758.5453;
+                return n - Math.floor(n);
+            }
+
+            function resize() {
+                const screen = canvas.parentElement;
+                const rect = screen.getBoundingClientRect();
+                dpr = window.devicePixelRatio || 1;
+                w = rect.width; h = rect.height;
+                canvas.width = w * dpr; canvas.height = h * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+
+            // How many channels are active based on volume
+            function activeChannels() {
+                if (waveVolume >= 50) return 6;
+                if (waveVolume >= 10) return 5;
+                if (waveVolume >= 3) return 4;
+                return 2;
+            }
+
+            // Max digits based on volume
+            function maxDigits() {
+                if (waveVolume >= 50) return 600;
+                if (waveVolume >= 10) return 300;
+                if (waveVolume >= 3) return 150;
+                return 60;
+            }
+
+            // Get waveform Y value for a channel at position x
+            function waveY(ch, x, t, speed) {
+                const px = x * ch.freq * 0.02 + t * ch.speed * speed;
+                switch (ch.type) {
+                    case 'sine':
+                        return Math.sin(px) * ch.amp;
+                    case 'sine2':
+                        return (Math.sin(px) * 0.6 + Math.sin(px * 2.3 + 1.5) * 0.4) * ch.amp;
+                    case 'pulse':
+                        return (Math.sin(px) > 0.3 ? 1 : (Math.sin(px) < -0.3 ? -1 : 0)) * ch.amp * 0.8;
+                    case 'saw': {
+                        const p = ((px % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                        return (p / Math.PI - 1) * ch.amp;
+                    }
+                    case 'square':
+                        return (Math.sin(px) > 0 ? 1 : -1) * ch.amp * 0.7;
+                    case 'noise':
+                        return (noise(Math.floor(px * 3)) * 2 - 1) * ch.amp;
+                    default:
+                        return Math.sin(px) * ch.amp;
+                }
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, w, h);
+                time += 0.016;
+
+                const target = waveActive ? 1 : 0;
+                waveIntensity += (target - waveIntensity) * 0.035;
+                const t = waveIntensity;
+                const redAlert = waveActive && waveVolume >= 50;
+
+                // Tricorder monitor state
+                monitor.classList.toggle('active', t > 0.1);
+                monitor.classList.toggle('overload', redAlert && t > 0.3);
+                modeLabel.textContent = redAlert && t > 0.3 ? 'OVERLOAD' : (t > 0.5 ? 'SCANNING' : (t > 0.1 ? 'ACQUIRING' : 'STANDBY'));
+
+                // Red alert: pulsing red background wash
+                if (redAlert && t > 0.2) {
+                    const pulse = 0.06 + Math.sin(time * 5) * 0.04;
+                    ctx.fillStyle = `rgba(255,0,0,${(pulse * t).toFixed(3)})`;
+                    ctx.fillRect(0, 0, w, h);
+                }
+
+                const nCh = activeChannels();
+                const speedMult = redAlert ? (2.0 + Math.sin(time * 3) * 0.8) : (0.3 + t * 2.0);
+                const padding = 4;
+                const channelH = (h - padding * 2) / nCh;
+
+                // Scan line sweep — red alert: much faster, dual scan lines
+                const scanSpeed = redAlert ? (0.8 + Math.sin(time * 2) * 0.3) : (0.15 + t * 0.4);
+                const scanX = ((time * scanSpeed * w * 0.3) % (w + 40)) - 20;
+                const scanX2 = redAlert ? ((time * scanSpeed * w * 0.3 + w * 0.5) % (w + 40)) - 20 : -100;
+
+                // Draw each channel
+                for (let ci = 0; ci < nCh; ci++) {
+                    const ch = CHANNELS[ci];
+                    const yCenter = padding + channelH * ci + channelH * 0.5;
+                    const halfH = channelH * 0.4;
+
+                    // Red alert: overdriven amplitude — waveforms clip and jitter
+                    const ampMult = redAlert ? (1.6 + Math.sin(time * 7 + ci * 2) * 0.5) : 1.0;
+                    const jitter = redAlert ? (Math.random() - 0.5) * 3 * t : 0;
+
+                    // Channel alpha: red alert cranks brightness
+                    const chAlpha = redAlert ? (0.7 + Math.sin(time * 4 + ci) * 0.2) : (0.08 + t * 0.7);
+
+                    // Faint horizontal center line
+                    ctx.beginPath();
+                    ctx.moveTo(0, yCenter + jitter);
+                    ctx.lineTo(w, yCenter + jitter);
+                    ctx.strokeStyle = rgba(redAlert ? RED : ch.color, chAlpha * 0.15);
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+
+                    // Draw the waveform
+                    ctx.beginPath();
+                    const step = 2;
+                    for (let x = 0; x <= w; x += step) {
+                        const val = waveY(ch, x, time, speedMult) * ampMult;
+                        const y = yCenter + val * halfH + jitter;
+                        if (x === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    const lineColor = redAlert ? (ci % 2 === 0 ? RED : ch.color) : ch.color;
+                    ctx.strokeStyle = rgba(lineColor, chAlpha * 0.9);
+                    ctx.lineWidth = redAlert ? 2 : 1.5;
+                    ctx.shadowColor = rgba(lineColor, chAlpha * 0.6);
+                    ctx.shadowBlur = redAlert ? 10 : 6;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+
+                    // Brighter trace near scan line(s)
+                    if (t > 0.05) {
+                        const scanPositions = redAlert ? [scanX, scanX2] : [scanX];
+                        scanPositions.forEach(sx => {
+                            if (sx < -20) return;
+                            const glowW = redAlert ? (60 + Math.sin(time * 6) * 20) : (40 + t * 30);
+                            ctx.beginPath();
+                            for (let x = Math.max(0, sx - glowW); x <= Math.min(w, sx + glowW); x += step) {
+                                const val = waveY(ch, x, time, speedMult) * ampMult;
+                                const y = yCenter + val * halfH + jitter;
+                                if (x === Math.max(0, sx - glowW)) ctx.moveTo(x, y);
+                                else ctx.lineTo(x, y);
+                            }
+                            ctx.strokeStyle = rgba(lineColor, chAlpha * (0.5 + t * 0.5));
+                            ctx.lineWidth = redAlert ? 3.5 : 2.5;
+                            ctx.shadowColor = rgba(lineColor, chAlpha * 0.9);
+                            ctx.shadowBlur = redAlert ? 14 : 10;
+                            ctx.stroke();
+                            ctx.shadowBlur = 0;
+                        });
+                    }
+
+                    // Channel label — red alert: flicker
+                    if (!redAlert || Math.random() > 0.15) {
+                        ctx.font = '7px monospace';
+                        ctx.fillStyle = rgba(redAlert ? RED : ch.color, chAlpha * (redAlert ? 0.7 : 0.45));
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'top';
+                        ctx.fillText(ch.label, 3, yCenter - halfH - 1 + jitter);
+                    }
+
+                    // Spawn digits — red alert: spawn from everywhere, not just scan line
+                    if (waveActive && t > 0.1) {
+                        const spawnRate = redAlert ? 0.7 : (waveVolume >= 10 ? 0.18 : (waveVolume >= 3 ? 0.08 : 0.03));
+                        const spawnCount = redAlert ? 3 : 1;
+                        for (let s = 0; s < spawnCount; s++) {
+                            if (Math.random() < spawnRate && digits.length < maxDigits()) {
+                                const sx = redAlert ? (Math.random() * w) : (scanX + (Math.random() - 0.5) * 60);
+                                if (sx > 0 && sx < w) {
+                                    const val = waveY(ch, sx, time, speedMult) * ampMult;
+                                    const sy = yCenter + val * halfH;
+                                    digits.push({
+                                        x: sx, y: sy,
+                                        vx: (Math.random() - 0.5) * (redAlert ? 3 : 1.2),
+                                        vy: (redAlert ? -1 + Math.random() * 3 : 0.4 + Math.random() * 1.5),
+                                        char: Math.random() < 0.5 ? '1' : '0',
+                                        fontSize: 6 + Math.random() * (redAlert ? 6 : 4),
+                                        color: redAlert ? (Math.random() < 0.4 ? RED : ch.color) : ch.color,
+                                        alpha: 0.7 + Math.random() * 0.3,
+                                        life: 1.0,
+                                        decay: redAlert ? (0.006 + Math.random() * 0.008) : (0.008 + Math.random() * 0.012)
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Scan line(s) (vertical sweep)
+                if (t > 0.02) {
+                    const scanPositions = redAlert ? [scanX, scanX2] : [scanX];
+                    scanPositions.forEach(sx => {
+                        if (sx < -20) return;
+                        const lineAlpha = redAlert ? (0.3 + Math.sin(time * 6) * 0.15) : (0.1 + t * 0.25);
+                        const lineColor = redAlert ? [255, 80, 60] : [255, 255, 255];
+                        const spread = redAlert ? 20 : 15;
+                        const grd = ctx.createLinearGradient(sx - spread, 0, sx + spread, 0);
+                        grd.addColorStop(0, `rgba(${lineColor},0)`);
+                        grd.addColorStop(0.4, rgba(lineColor, lineAlpha * 0.3));
+                        grd.addColorStop(0.5, rgba(lineColor, lineAlpha));
+                        grd.addColorStop(0.6, rgba(lineColor, lineAlpha * 0.3));
+                        grd.addColorStop(1, `rgba(${lineColor},0)`);
+                        ctx.fillStyle = grd;
+                        ctx.fillRect(sx - spread, 0, spread * 2, h);
+                    });
+                }
+
+                // Red alert: random horizontal glitch lines
+                if (redAlert && t > 0.3) {
+                    for (let g = 0; g < 3; g++) {
+                        if (Math.random() < 0.3) {
+                            const gy = Math.random() * h;
+                            const gw = 20 + Math.random() * 80;
+                            const gx = Math.random() * (w - gw);
+                            ctx.fillStyle = `rgba(255,${Math.floor(Math.random()*80)},0,${(0.1 + Math.random() * 0.15).toFixed(2)})`;
+                            ctx.fillRect(gx, gy, gw, 1 + Math.random() * 2);
+                        }
+                    }
+                }
+
+                // Render and update dissolving digits
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for (let i = digits.length - 1; i >= 0; i--) {
+                    const d = digits[i];
+                    d.x += d.vx;
+                    d.y += d.vy;
+                    d.vx *= 0.99;
+                    d.life -= d.decay;
+                    d.alpha *= 0.995;
+
+                    if (d.life <= 0 || d.y > h + 10 || d.y < -10 || d.alpha < 0.01) {
+                        digits.splice(i, 1);
+                        continue;
+                    }
+
+                    const a = d.alpha * d.life;
+                    ctx.font = `${d.fontSize}px monospace`;
+                    ctx.fillStyle = rgba(d.color, a * 0.8);
+                    ctx.shadowColor = rgba(d.color, a * 0.4);
+                    ctx.shadowBlur = redAlert ? 5 : 3;
+                    ctx.fillText(d.char, d.x, d.y);
+                }
+                ctx.shadowBlur = 0;
+
+                requestAnimationFrame(draw);
+            }
+
+            resize();
+            window.addEventListener('resize', resize);
+            draw();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initBeat();
+            initWaveCanvas();
+            // Discover a run already in progress. Without this the page only ever
+            // polled after *it* pressed Start, so a simulator launched from the popup
+            // was invisible here.
+            pollStatus();
+        });
+
+        // ── Simulator Logic ────────────────────────────────────────────────
+        let startTime = null;
+        let dataStartTime = null;
+        let statusInterval = null;
+        let statsInterval = null;
+        let timerInterval = null;
+
+        function startSimulator() {
+            const duration = document.getElementById('durationSelect').value;
+            const volume = document.getElementById('volumeSelect').value;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('durationSelect').disabled = true;
+            document.getElementById('volumeSelect').disabled = true;
+            document.querySelectorAll('.amp-knob-group').forEach(g => g.classList.add('disabled'));
+            setBadge('STARTING', 'starting');
+            waveVolume = parseInt(volume);
+            waveActive = true;
+            if (waveVolume >= 50) document.getElementById('redAlert').classList.add('active');
+            startBeat();
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('durationNote').style.display = 'block';
+            document.getElementById('eventFeed').innerHTML = '<div class="sim-event-empty">Starting data generator...</div>';
+
+            fetch('/api/simulator/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({duration_minutes: parseInt(duration), speed_factor: parseInt(volume)})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                startTime = new Date(data.start_time);
+                dataStartTime = null;
+                resetCounters();
+                startPolling();
+            })
+            .catch(err => {
+                setBadge('FAILED', 'failed');
+                waveActive = false;
+                stopBeat();
+                document.getElementById('redAlert').classList.remove('active');
+                document.getElementById('eventFeed').innerHTML = `<div class="sim-event-empty" style="color:var(--accent-primary);">Error: ${err.message}</div>`;
+                enableControls();
+            });
+        }
+
+        // Mirror startSimulator()'s UI transitions for a run started somewhere else
+        // (popup widget, another tab, a previous page load). Everything the page
+        // shows is derived from server state, so any surface renders the same run.
+        function adoptExternalRun(data) {
+            startTime = data.started_at ? new Date(data.started_at)
+                      : new Date(Date.now() - (data.elapsed_sec || 0) * 1000);
+            dataStartTime = null;
+
+            // Mirror the settings the run was actually started with. Without this the
+            // page kept showing its own defaults (2 min) while the popup showed the
+            // real values (e.g. 5 min) — the same run described two different ways.
+            var durSel = document.getElementById('durationSelect');
+            var volSel = document.getElementById('volumeSelect');
+            if (durSel && data.duration_minutes) {
+                var dv = String(data.duration_minutes);
+                if ([].some.call(durSel.options, function(o) { return o.value === dv; })) durSel.value = dv;
+            }
+            if (volSel && data.speed_factor) {
+                var sv = String(data.speed_factor);
+                if ([].some.call(volSel.options, function(o) { return o.value === sv; })) volSel.value = sv;
+            }
+
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('durationSelect').disabled = true;
+            document.getElementById('volumeSelect').disabled = true;
+            document.querySelectorAll('.amp-knob-group').forEach(g => g.classList.add('disabled'));
+
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('durationNote').style.display = 'block';
+
+            // Drive the waveform so the display does not sit on STANDBY during a live run.
+            waveVolume = parseInt(data.speed_factor, 10) || waveVolume || 25;
+            waveActive = true;
+            startBeat();
+
+            if (!statsInterval) startPolling();
+        }
+
+        function stopSimulator() {
+            document.getElementById('stopBtn').disabled = true;
+            setBadge('STOPPING', 'starting');
+            fetch('/api/simulator/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}})
+                .then(r => r.json())
+                .catch(err => console.error('Stop error:', err));
+        }
+
+        var pipelineInterval = null;
+
+        function startPolling() {
+            pollStatus();
+            statusInterval = setInterval(pollStatus, 2000);
+            pollStats();
+            statsInterval = setInterval(pollStats, 2000);
+            timerInterval = setInterval(updateTimers, 1000);
+            pollPipeline();
+            pipelineInterval = setInterval(pollPipeline, 5000);
+        }
+
+        function stopPolling() {
+            clearInterval(statusInterval);
+            clearInterval(statsInterval);
+            clearInterval(timerInterval);
+            clearInterval(pipelineInterval);
+            statusInterval = statsInterval = timerInterval = pipelineInterval = null;
+        }
+
+        function pollStatus() {
+            fetch('/api/simulator/status')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.state === 'RUNNING') {
+                        // Adopt a run started elsewhere (e.g. the popup widget). The page
+                        // used to key everything off a start time recorded only when Start
+                        // was pressed *here*, so a run launched from the popup left this
+                        // page with empty counters and a STANDBY waveform.
+                        if (!startTime) adoptExternalRun(data);
+                        setBadge(dataStartTime ? 'GENERATING' : 'STARTING', dataStartTime ? 'running' : 'starting');
+                    } else if (data.state === 'COMPLETED') {
+                        setBadge('COMPLETED', 'completed');
+                        onRunFinished();
+                    } else if (data.state === 'FAILED') {
+                        setBadge('FAILED', 'failed');
+                        if (data.result) {
+                            document.getElementById('eventFeed').innerHTML = `<div class="sim-event-empty" style="color:var(--accent-primary);">Error: ${data.result}</div>`;
+                        }
+                        onRunFinished();
+                    }
+                });
+        }
+
+        function pollStats() {
+            // Fall back to a recent window rather than bailing out: without this the
+            // counters stayed blank for any run this page did not start.
+            const since = (startTime || new Date(Date.now() - 3600000)).toISOString();
+            fetch(`/api/simulator/live-stats?since=${encodeURIComponent(since)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+                    const s = data.stats;
+
+                    animateValue('valSessions', s.new_work_orders);
+                    animateValue('valTickets', s.completed_orders);
+                    animateValue('valCustomers', s.appointments);
+                    animateValue('valDevices', s.notes_added);
+                    animateValue('valIot', s.iot_files_generated || 0);
+
+                    const total = s.new_work_orders + s.completed_orders + s.appointments + s.notes_added + (s.iot_files_generated || 0);
+                    document.getElementById('totalEvents').textContent = total;
+
+                    if (total > 0 && !dataStartTime) {
+                        dataStartTime = new Date();
+                        setBadge('GENERATING', 'running');
+                    }
+
+                    if (dataStartTime) {
+                        const elapsed = (Date.now() - dataStartTime.getTime()) / 1000;
+                        const rate = elapsed > 0 ? (s.new_work_orders / (elapsed / 60)).toFixed(1) : '0';
+                        document.getElementById('sessionRate').textContent = rate;
+                    }
+
+                    const feed = document.getElementById('eventFeed');
+                    if (data.recent_events && data.recent_events.length > 0) {
+                        feed.innerHTML = '';
+                        data.recent_events.forEach(ev => {
+                            const item = document.createElement('div');
+                            const evType = ev.type || 'viewing';
+                            item.className = `sim-event-item sim-event-${evType}`;
+                            const ts = ev.time ? new Date(ev.time).toLocaleTimeString() : '';
+                            item.innerHTML = `
+                                <span class="sim-event-time">${ts}</span>
+                                <span class="sim-event-icon">${ev.icon}</span>
+                                <span class="sim-event-text">${ev.text}</span>
+                            `;
+                            feed.appendChild(item);
+                        });
+                    } else if (total === 0) {
+                        const dots = '.'.repeat(Math.floor((Date.now() / 500)) % 4);
+                        feed.innerHTML = `<div class="sim-event-empty">Loading reference data and starting generator${dots}</div>`;
+                    }
+                });
+        }
+
+        function pollPipeline() {
+            fetch('/api/simulator/pipeline-status')
+                .then(r => r.json())
+                .then(function(d) {
+                    var card = document.getElementById('pipelineCard');
+                    var icon = document.getElementById('pipelineIcon');
+                    var label = document.getElementById('pipelinePhaseLabel');
+                    var detail = document.getElementById('pipelineDetail');
+                    var bar = document.getElementById('pipelineBar');
+                    var elapsed = document.getElementById('pipelineElapsed');
+
+                    if (d.phase === 'idle') { card.style.display = 'none'; return; }
+                    card.style.display = '';
+
+                    var pct = Math.min(95, Math.round((d.elapsed_seconds / d.estimated_total_seconds) * 100));
+                    if (d.phase === 'pipeline_complete') { pct = 100; icon.textContent = '✅'; bar.style.background = '#00A972'; }
+                    else if (d.phase === 'pipeline_failed') { pct = 100; icon.textContent = '❌'; bar.style.background = '#FF4444'; }
+                    else { icon.textContent = '⏳'; bar.style.background = 'linear-gradient(90deg,#FF6A00,#FFAB2E)'; }
+
+                    var phaseLabels = {
+                        generating: 'Generating', uploading: 'Uploading',
+                        pipeline_queued: 'Queued', pipeline_running: 'Running',
+                        pipeline_complete: 'Complete', pipeline_failed: 'Failed'
+                    };
+                    label.textContent = phaseLabels[d.phase] || d.phase;
+                    detail.textContent = d.detail || '';
+                    bar.style.width = pct + '%';
+
+                    if (d.elapsed_seconds > 0 && d.phase !== 'pipeline_complete' && d.phase !== 'pipeline_failed') {
+                        var m = Math.floor(d.elapsed_seconds / 60);
+                        var s = d.elapsed_seconds % 60;
+                        elapsed.textContent = m + ':' + (s < 10 ? '0' : '') + s + ' elapsed';
+                    } else {
+                        elapsed.textContent = '';
+                    }
+                }).catch(function() {});
+        }
+
+        function animateValue(id, newVal) {
+            const el = document.getElementById(id);
+            const old = parseInt(el.textContent) || 0;
+            el.textContent = newVal;
+            if (newVal > old) {
+                playBeep();
+                const card = el.closest('.sim-stat-card');
+                card.classList.remove('sim-stat-flash');
+                void card.offsetWidth;
+                card.classList.add('sim-stat-flash');
+            }
+        }
+
+        function formatTime(ms) {
+            const secs = Math.floor(ms / 1000);
+            const m = Math.floor(secs / 60);
+            const s = secs % 60;
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function updateTimers() {
+            if (startTime) document.getElementById('totalTime').textContent = formatTime(Date.now() - startTime.getTime());
+            if (dataStartTime) {
+                document.getElementById('elapsedTime').textContent = formatTime(Date.now() - dataStartTime.getTime());
+            } else {
+                document.getElementById('elapsedTime').textContent = '--:--';
+            }
+        }
+
+        function onRunFinished() {
+            stopPolling();
+            if (startTime) pollStats();
+            updateTimers();
+            enableControls();
+            waveActive = false;
+            stopBeat();
+            document.getElementById('redAlert').classList.remove('active');
+        }
+
+        function enableControls() {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('durationSelect').disabled = false;
+            document.getElementById('volumeSelect').disabled = false;
+            document.querySelectorAll('.amp-knob-group').forEach(g => g.classList.remove('disabled'));
+        }
+
+        function resetCounters() {
+            ['valSessions', 'valTickets', 'valCustomers', 'valDevices', 'valIot'].forEach(id => {
+                document.getElementById(id).textContent = '0';
+            });
+            document.getElementById('totalTime').textContent = '0:00';
+            document.getElementById('elapsedTime').textContent = '--:--';
+            document.getElementById('sessionRate').textContent = '0';
+            document.getElementById('totalEvents').textContent = '0';
+        }
+
+        function setBadge(text, state) {
+            const badge = document.getElementById('statusBadge');
+            const valEl = badge.querySelector('.lcars-readout-value');
+            if (valEl) valEl.textContent = text;
+            badge.className = 'lcars-readout lcars-status-' + state;
+        }
+
+        // ── Iceberg Demo ─────────────────────────────────────────────────
+        var iceRunning = false;
+        var icePollTimer = null;
+
+        function startIcebergDemo() {
+            fetch('/api/iceberg-demo/start', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) { alert(d.error); return; }
+                    iceRunning = true;
+                    document.getElementById('iceStartBtn').disabled = true;
+                    document.getElementById('iceStopBtn').disabled = false;
+                    pollIcebergStatus();
+                    icePollTimer = setInterval(pollIcebergStatus, 2000);
+                })
+                .catch(e => alert('Failed to start: ' + e));
+        }
+
+        function stopIcebergDemo() {
+            fetch('/api/iceberg-demo/stop', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(r => r.json())
+                .then(d => {
+                    iceRunning = false;
+                    document.getElementById('iceStartBtn').disabled = false;
+                    document.getElementById('iceStopBtn').disabled = true;
+                    if (icePollTimer) { clearInterval(icePollTimer); icePollTimer = null; }
+                    resetDagHighlights();
+                })
+                .catch(e => alert('Failed to stop: ' + e));
+        }
+
+        // Track which op entries are expanded by stable key (time+op+table)
+        var iceExpandedOps = {};
+
+        function iceOpKey(op) {
+            return (op.time || '') + '|' + (op.op || '') + '|' + (op.table || '');
+        }
+
+        function iceKeyToId(key) {
+            return 'k' + Math.abs(key.split('').reduce(function(a,c){return ((a<<5)-a)+c.charCodeAt(0)|0;},0));
+        }
+
+        function toggleIceOpData(key) {
+            iceExpandedOps[key] = !iceExpandedOps[key];
+            var kid = iceKeyToId(key);
+            var panel = document.getElementById('iceOpData_' + kid);
+            if (panel) panel.classList.toggle('ice-data-open', !!iceExpandedOps[key]);
+            var chevron = document.getElementById('iceOpChev_' + kid);
+            if (chevron) chevron.classList.toggle('ice-chevron-open', !!iceExpandedOps[key]);
+        }
+
+        function renderIceDataTable(op) {
+            // For list_tables: show table names
+            if (op.op === 'list_tables' && op.data) {
+                var html = '<div class="ice-data-grid"><table class="ice-data-tbl">';
+                html += '<thead><tr><th>Table Name</th><th>Type</th></tr></thead><tbody>';
+                op.data.forEach(function(item) {
+                    html += '<tr><td>' + esc(item.name) + '</td><td>' + esc(item.type || 'table') + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+                return html;
+            }
+            // For read/write: show schema + data preview
+            if (!op.data || op.data.length === 0) return '<div class="ice-data-empty">No data preview available</div>';
+            var cols = op.schema ? op.schema.map(function(s) { return s.name; }) : Object.keys(op.data[0]);
+            var html = '';
+            // Schema bar
+            if (op.schema) {
+                html += '<div class="ice-schema-bar">';
+                html += '<span class="ice-schema-label">SCHEMA</span>';
+                op.schema.forEach(function(s) {
+                    html += '<span class="ice-schema-col">' + esc(s.name) + ' <span class="ice-schema-type">' + esc(s.type) + '</span></span>';
+                });
+                html += '</div>';
+            }
+            // Data table
+            html += '<div class="ice-data-grid"><table class="ice-data-tbl"><thead><tr>';
+            cols.forEach(function(c) { html += '<th>' + esc(c) + '</th>'; });
+            html += '</tr></thead><tbody>';
+            op.data.forEach(function(row) {
+                html += '<tr>';
+                cols.forEach(function(c) {
+                    var val = row[c];
+                    if (val === null || val === undefined) val = '<span class="ice-null">null</span>';
+                    else if (typeof val === 'number') val = '<span class="ice-num">' + val + '</span>';
+                    else val = esc(String(val));
+                    html += '<td>' + val + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            return html;
+        }
+
+        function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        // ── Code Snippet Pane ────────────────────────────────────────────
+        var ICE_CODE_SNIPPETS = {
+            connect: {
+                label: 'Catalog Connection',
+                code: [
+                    { t: 'kw', v: 'from' }, { t: 'text', v: ' pyiceberg.catalog.rest ' }, { t: 'kw', v: 'import' }, { t: 'text', v: ' RestCatalog' },
+                    { t: 'br' },
+                    { t: 'kw', v: 'from' }, { t: 'text', v: ' databricks.sdk ' }, { t: 'kw', v: 'import' }, { t: 'text', v: ' WorkspaceClient' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Databricks SDK only used for auth — NOT for data access' },
+                    { t: 'br' },
+                    { t: 'text', v: 'w = WorkspaceClient()' },
+                    { t: 'br' },
+                    { t: 'text', v: 'host = w.config.host.rstrip(' }, { t: 'str', v: '"/"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'text', v: 'token = w.config.authenticate()[' }, { t: 'str', v: '"Authorization"' }, { t: 'text', v: ']' },
+                    { t: 'br' },
+                    { t: 'text', v: 'token = token.replace(' }, { t: 'str', v: '"Bearer "' }, { t: 'text', v: ', ' }, { t: 'str', v: '""' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Unity Catalog speaks the Iceberg REST protocol' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Same API that Spark, Trino, Flink, DuckDB all speak' },
+                    { t: 'br' },
+                    { t: 'text', v: 'catalog = RestCatalog(' },
+                    { t: 'br' },
+                    { t: 'text', v: '    name=' }, { t: 'str', v: '"unity"' }, { t: 'text', v: ',' },
+                    { t: 'br' },
+                    { t: 'text', v: '    uri=' }, { t: 'fn', v: 'f"' }, { t: 'str', v: '{host}/api/2.1/unity-catalog/iceberg-rest' }, { t: 'fn', v: '"' }, { t: 'text', v: ',' },
+                    { t: 'br' },
+                    { t: 'text', v: '    warehouse=' }, { t: 'str', v: '"dba-lakebase-network"' }, { t: 'text', v: ',' },
+                    { t: 'br' },
+                    { t: 'text', v: '    token=token,' },
+                    { t: 'br' },
+                    { t: 'text', v: ')' },
+                ]
+            },
+            list_namespaces: {
+                label: 'List Namespaces',
+                code: [
+                    { t: 'comment', v: '# catalog is a PyIceberg RestCatalog connected to Unity Catalog' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Every call below is pure Apache Iceberg — zero vendor lock-in' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'text', v: 'namespaces = catalog.list_namespaces()' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: 'Found {' }, { t: 'fn', v: 'len' }, { t: 'str', v: '(namespaces)} schemas' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'kw', v: 'for' }, { t: 'text', v: ' ns ' }, { t: 'kw', v: 'in' }, { t: 'text', v: ' namespaces:' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: '  {' }, { t: 'str', v: "'.'" }, { t: 'str', v: '.join(ns)}' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Output:' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Found 2 schemas' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   network_data' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   default' },
+                ]
+            },
+            list_tables: {
+                label: 'List Tables',
+                code: [
+                    { t: 'text', v: 'schema_name = ' }, { t: 'str', v: '"network_data"' },
+                    { t: 'br' },
+                    { t: 'text', v: 'tables = catalog.list_tables(schema_name)' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: '{' }, { t: 'fn', v: 'len' }, { t: 'str', v: '(tables)} tables in {schema_name}:' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'kw', v: 'for' }, { t: 'text', v: ' namespace, table_name ' }, { t: 'kw', v: 'in' }, { t: 'text', v: ' tables:' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: '  {namespace}.{table_name}' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Output:' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# 8 tables in network_data:' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   network_data.gold_iot_device_health' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   network_data.silver_iot_telemetry' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   network_data.bronze_iot_telemetry' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#   ...' },
+                ]
+            },
+            read: {
+                label: 'Table Scan (Read)',
+                code: [
+                    { t: 'text', v: 'table_name = ' }, { t: 'str', v: '"network_data.<table_name>"' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# load_table() fetches Iceberg metadata from Unity Catalog' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# (table location, schema, partition spec, current snapshot)' },
+                    { t: 'br' },
+                    { t: 'text', v: 'table = catalog.load_table(table_name)' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# scan() plans the read — UC vends temporary S3 credentials' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# so PyIceberg reads Parquet files directly (no compute cluster)' },
+                    { t: 'br' },
+                    { t: 'text', v: 'scan = table.scan(limit=' }, { t: 'num', v: '100' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# to_arrow() executes — returns a standard PyArrow Table' },
+                    { t: 'br' },
+                    { t: 'text', v: 'arrow_table = scan.to_arrow()' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: 'Read {' }, { t: 'fn', v: 'len' }, { t: 'str', v: '(arrow_table)} rows' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: 'Columns: {arrow_table.column_names}' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(arrow_table.schema)' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Convert to pandas for analysis if needed' },
+                    { t: 'br' },
+                    { t: 'text', v: 'df = arrow_table.to_pandas()' },
+                ]
+            },
+            write: {
+                label: 'Table Append (Write)',
+                code: [
+                    { t: 'kw', v: 'import' }, { t: 'text', v: ' pyarrow ' }, { t: 'kw', v: 'as' }, { t: 'text', v: ' pa' },
+                    { t: 'br' },
+                    { t: 'kw', v: 'from' }, { t: 'text', v: ' datetime ' }, { t: 'kw', v: 'import' }, { t: 'text', v: ' datetime, timezone' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'text', v: 'now = datetime.now(timezone.utc).isoformat()' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Build a PyArrow table — same format Spark uses internally' },
+                    { t: 'br' },
+                    { t: 'text', v: 'batch = pa.table({' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"analysis_id"' }, { t: 'text', v: ':    pa.array([' }, { t: 'str', v: '"OSS-0001-0"' }, { t: 'text', v: ', ' }, { t: 'str', v: '"OSS-0001-1"' }, { t: 'text', v: ', ...]),' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"source_table"' }, { t: 'text', v: ':   pa.array([' }, { t: 'str', v: '"gold_iot_device_health"' }, { t: 'text', v: '] * ' }, { t: 'num', v: '5' }, { t: 'text', v: '),' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"analysis_type"' }, { t: 'text', v: ':  pa.array([' }, { t: 'str', v: '"health_check"' }, { t: 'text', v: ', ' }, { t: 'str', v: '"anomaly_scan"' }, { t: 'text', v: ', ...]),' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"metric_value"' }, { t: 'text', v: ':   pa.array([' }, { t: 'num', v: '87.42' }, { t: 'text', v: ', ' }, { t: 'num', v: '23.1' }, { t: 'text', v: ', ...], type=pa.float64()),' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"computed_at"' }, { t: 'text', v: ':    pa.array([now] * ' }, { t: 'num', v: '5' }, { t: 'text', v: '),' },
+                    { t: 'br' },
+                    { t: 'text', v: '    ' }, { t: 'str', v: '"engine"' }, { t: 'text', v: ':         pa.array([' }, { t: 'str', v: '"pyiceberg-oss"' }, { t: 'text', v: '] * ' }, { t: 'num', v: '5' }, { t: 'text', v: '),' },
+                    { t: 'br' },
+                    { t: 'text', v: '})' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Load table reference, then append — creates a new Iceberg snapshot' },
+                    { t: 'br' },
+                    { t: 'text', v: 'target = ' }, { t: 'str', v: '"network_data.oss_iceberg_analytics"' },
+                    { t: 'br' },
+                    { t: 'text', v: 'table = catalog.load_table(target)' },
+                    { t: 'br' },
+                    { t: 'text', v: 'table.append(batch)' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'fn', v: 'print' }, { t: 'text', v: '(' }, { t: 'fn', v: 'f"' }, { t: 'str', v: 'Wrote {' }, { t: 'fn', v: 'len' }, { t: 'str', v: '(batch)} rows to {target}' }, { t: 'fn', v: '"' }, { t: 'text', v: ')' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# ACID commit — readers see a consistent snapshot' },
+                ]
+            },
+            disconnect: {
+                label: 'Session Complete',
+                code: [
+                    { t: 'comment', v: '# Unity Catalog REST endpoint is stateless — no disconnect needed' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# OAuth token expires naturally' },
+                    { t: 'br' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# ─── What we used ───────────────────────' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# pip install pyiceberg[pyarrow]' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# pyiceberg   → Apache Iceberg Python client' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# pyarrow     → Apache Arrow columnar format' },
+                    { t: 'br' },
+                    { t: 'comment', v: '#' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Zero proprietary libraries for data access.' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# Any engine that speaks Iceberg REST' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# (Spark, Trino, Flink, DuckDB, Polaris)' },
+                    { t: 'br' },
+                    { t: 'comment', v: '# can read/write the same tables.' },
+                ]
+            }
+        };
+
+        function renderCodeSnippet(tokens) {
+            var html = '';
+            tokens.forEach(function(tok) {
+                if (tok.t === 'br') { html += '\n'; return; }
+                var cls = tok.t === 'comment' ? 'ice-c-cmt' :
+                          tok.t === 'kw' ? 'ice-c-kw' :
+                          tok.t === 'str' ? 'ice-c-str' :
+                          tok.t === 'num' ? 'ice-c-num' :
+                          tok.t === 'fn' ? 'ice-c-fn' : '';
+                html += cls ? '<span class="' + cls + '">' + esc(tok.v) + '</span>' : esc(tok.v);
+            });
+            return html;
+        }
+
+        var _iceCurrentOp = null;
+        var _iceCurrentTable = null;
+        var _iceCurrentOpData = null;
+        var _iceActiveTab = 'example';
+
+        function openIceCodePane(opType, tableName, opData) {
+            var snippet = ICE_CODE_SNIPPETS[opType];
+            if (!snippet) return;
+            _iceCurrentOp = opType;
+            _iceCurrentTable = tableName;
+            _iceCurrentOpData = opData || null;
+            _iceActiveTab = 'live';  // Default to live output
+            var label = snippet.label;
+            if (tableName && (opType === 'read' || opType === 'write')) label += ' — ' + tableName;
+            document.getElementById('iceCodeLabel').textContent = label;
+            // Show live output by default
+            renderLiveOutput();
+            document.getElementById('iceTabExample').classList.remove('ice-code-tab-active');
+            document.getElementById('iceTabSource').classList.add('ice-code-tab-active');
+            document.getElementById('iceCodePane').classList.add('ice-code-open');
+        }
+
+        function switchIceCodeTab(tab) {
+            _iceActiveTab = tab;
+            document.getElementById('iceTabExample').classList.toggle('ice-code-tab-active', tab === 'example');
+            document.getElementById('iceTabSource').classList.toggle('ice-code-tab-active', tab === 'source');
+            if (tab === 'example') {
+                var snippet = ICE_CODE_SNIPPETS[_iceCurrentOp];
+                if (snippet) {
+                    document.getElementById('iceCodeBody').innerHTML = '<pre class="ice-code-pre">' + renderCodeSnippet(snippet.code) + '</pre>';
+                }
+            } else {
+                renderLiveOutput();
+            }
+        }
+
+        function renderLiveOutput() {
+            var body = document.getElementById('iceCodeBody');
+            var op = _iceCurrentOpData;
+            if (!op) {
+                body.innerHTML = '<div class="ice-data-empty">No live data for this operation</div>';
+                return;
+            }
+            var lines = [];
+            var schema = ICEBERG_SCHEMA_NAME || 'network_data';
+
+            if (op.op === 'connect') {
+                lines.push({ cmd: 'from pyiceberg.catalog.rest import RestCatalog' });
+                lines.push({ cmd: 'catalog = RestCatalog(name="unity", uri=f"{host}/api/2.1/unity-catalog/iceberg-rest", ...)' });
+                lines.push({ out: op.detail });
+            } else if (op.op === 'list_namespaces') {
+                lines.push({ cmd: 'namespaces = catalog.list_namespaces()' });
+                lines.push({ out: op.detail });
+            } else if (op.op === 'list_tables') {
+                lines.push({ cmd: 'tables = catalog.list_tables("' + schema + '")' });
+                lines.push({ cmd: 'print(f"Found {len(tables)} tables")' });
+                lines.push({ out: op.detail });
+                if (op.data) {
+                    lines.push({ blank: true });
+                    lines.push({ cmd: 'for ns, name in tables:' });
+                    lines.push({ cmd: '    print(f"  {ns}.{name}")' });
+                    op.data.forEach(function(t) {
+                        lines.push({ out: '  ' + schema + '.' + t.name });
+                    });
+                }
+            } else if (op.op === 'read') {
+                lines.push({ cmd: 'table = catalog.load_table("' + schema + '.' + op.table + '")' });
+                lines.push({ cmd: 'scan = table.scan(limit=100)' });
+                lines.push({ cmd: 'result = scan.to_arrow()' });
+                lines.push({ blank: true });
+                lines.push({ cmd: 'print(f"Read {len(result)} rows, {len(result.schema)} columns")' });
+                lines.push({ out: op.detail });
+                if (op.schema) {
+                    lines.push({ blank: true });
+                    lines.push({ cmd: 'result.schema' });
+                    op.schema.forEach(function(s) {
+                        lines.push({ out: '  ' + s.name + ': ' + s.type });
+                    });
+                }
+                if (op.data && op.data.length > 0) {
+                    lines.push({ blank: true });
+                    lines.push({ cmd: 'result.to_pandas().head(3)' });
+                    var cols = op.schema ? op.schema.map(function(s){return s.name;}) : Object.keys(op.data[0]);
+                    // Show first 3 rows as formatted output
+                    var showCols = cols.slice(0, 6);
+                    lines.push({ out: showCols.join('  |  ') });
+                    lines.push({ out: showCols.map(function(c){return new Array(c.length+1).join('-');}).join('--|--') });
+                    op.data.slice(0, 3).forEach(function(row) {
+                        var vals = showCols.map(function(c) {
+                            var v = row[c];
+                            if (v === null || v === undefined) return 'null';
+                            var s = String(v);
+                            return s.length > c.length ? s.substring(0, c.length - 2) + '..' : s;
+                        });
+                        lines.push({ out: vals.join('  |  ') });
+                    });
+                    if (op.rows > 3) {
+                        lines.push({ out: '... (' + (op.rows - 3) + ' more rows)' });
+                    }
+                }
+            } else if (op.op === 'write') {
+                lines.push({ cmd: 'import pyarrow as pa' });
+                lines.push({ cmd: 'from datetime import datetime, timezone' });
+                lines.push({ blank: true });
+                if (op.data && op.data.length > 0) {
+                    var wCols = op.schema ? op.schema.map(function(s){return s.name;}) : Object.keys(op.data[0]);
+                    lines.push({ cmd: 'batch = pa.table({' });
+                    wCols.forEach(function(c, i) {
+                        var vals = op.data.slice(0, 3).map(function(r) {
+                            var v = r[c];
+                            if (typeof v === 'string') return '"' + (v.length > 16 ? v.substring(0,14) + '..' : v) + '"';
+                            return String(v);
+                        });
+                        var comma = i < wCols.length - 1 ? ',' : '';
+                        lines.push({ cmd: '    "' + c + '": [' + vals.join(', ') + ', ...]' + comma });
+                    });
+                    lines.push({ cmd: '})' });
+                } else {
+                    lines.push({ cmd: 'batch = pa.table({ ... })  # 5 rows' });
+                }
+                lines.push({ blank: true });
+                lines.push({ cmd: 'table = catalog.load_table("' + schema + '.' + op.table + '")' });
+                lines.push({ cmd: 'table.append(batch)' });
+                lines.push({ blank: true });
+                lines.push({ out: op.detail });
+            } else {
+                lines.push({ out: op.detail || 'Operation complete' });
+            }
+
+            // Render REPL
+            var html = '<pre class="ice-code-pre ice-repl">';
+            lines.forEach(function(line) {
+                if (line.blank) { html += '\n'; return; }
+                if (line.cmd) {
+                    html += '<span class="ice-repl-prompt">&gt;&gt;&gt; </span>' + highlightLine(line.cmd) + '\n';
+                } else if (line.out) {
+                    html += '<span class="ice-repl-out">' + esc(line.out) + '</span>\n';
+                }
+            });
+            html += '</pre>';
+            body.innerHTML = html;
+        }
+
+        var ICEBERG_SCHEMA_NAME = 'network_data';
+
+        function highlightLine(code) {
+            var h = esc(code);
+            // Strings
+            h = h.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="ice-c-str">$1</span>');
+            // Keywords
+            ['from','import','as','for','in','print'].forEach(function(kw) {
+                h = h.replace(new RegExp('\\b(' + kw + ')\\b'), '<span class="ice-c-kw">$1</span>');
+            });
+            // Numbers
+            h = h.replace(/\b(\d+\.?\d*)\b/g, '<span class="ice-c-num">$1</span>');
+            return h;
+        }
+
+        function closeIceCodePane() {
+            document.getElementById('iceCodePane').classList.remove('ice-code-open');
+        }
+
+        function pollIcebergStatus() {
+            fetch('/api/iceberg-demo/status')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('iceReads').textContent = d.reads || 0;
+                    document.getElementById('iceWrites').textContent = d.writes || 0;
+                    document.getElementById('iceErrors').textContent = d.errors || 0;
+
+                    // Update DAG node highlights
+                    setDagState('iceDagClient', d.running ? 'active' : 'idle');
+                    setDagState('iceDagRest', d.catalog_ok ? 'active' : (d.running ? 'pending' : 'idle'));
+                    setDagState('iceDagUC', d.catalog_ok ? 'active' : 'idle');
+                    setDagState('iceDagStorage', (d.reads > 0 || d.writes > 0) ? 'active' : 'idle');
+
+                    // Animate arrows when running
+                    ['iceDagArrow1','iceDagArrow2','iceDagArrow3'].forEach(id => {
+                        document.getElementById(id).classList.toggle('flowing', d.running && d.catalog_ok);
+                    });
+
+                    // Render ops log with expandable data previews
+                    var logEl = document.getElementById('iceOpsLog');
+                    if (d.ops && d.ops.length > 0) {
+                        var html = '';
+                        var ops = d.ops.slice().reverse();
+                        ops.forEach(function(op) {
+                            var key = iceOpKey(op);
+                            var kid = iceKeyToId(key);
+                            var statusIcon = op.status === 'success' ? '<span class="ice-op-ok">OK</span>' :
+                                             op.status === 'error' ? '<span class="ice-op-err">ERR</span>' :
+                                             '<span class="ice-op-run">...</span>';
+                            var opIcon = op.op === 'read' ? 'R' : op.op === 'write' ? 'W' :
+                                         op.op === 'connect' ? 'C' : op.op === 'list_namespaces' ? 'NS' :
+                                         op.op === 'list_tables' ? 'TBL' : op.op === 'create_table' ? '+T' : 'D';
+                            var opColor = op.op === 'read' ? '#60A5FA' : op.op === 'write' ? '#00A972' : '#F59E0B';
+                            var time = op.time ? op.time.split('T')[1].split('.')[0] : '';
+                            var hasData = op.data && op.data.length > 0;
+                            var isOpen = !!iceExpandedOps[key];
+
+                            html += '<div class="ice-op-entry">';
+                            html += '<div class="ice-op-row' + (hasData ? ' ice-op-expandable' : '') + '"' +
+                                (hasData ? ' onclick="toggleIceOpData(\'' + key.replace(/'/g,"\\'") + '\')"' : '') + '>';
+                            if (hasData) {
+                                html += '<span class="ice-op-chevron' + (isOpen ? ' ice-chevron-open' : '') + '" id="iceOpChev_' + kid + '">&#9656;</span>';
+                            }
+                            html += '<span class="ice-op-time">' + time + '</span>' +
+                                '<span class="ice-op-badge" style="background:' + opColor + ';">' + opIcon + '</span>' +
+                                '<span class="ice-op-table">' + esc(op.table || '') + '</span>' +
+                                (op.rows > 0 ? '<span class="ice-op-rows">' + op.rows + ' rows</span>' : '') +
+                                statusIcon +
+                                '<span class="ice-op-detail">' + esc(op.detail || '') + '</span>';
+                            // Code button — show for completed ops
+                            if (op.status === 'success' && ICE_CODE_SNIPPETS[op.op]) {
+                                // Store op data globally for REPL rendering
+                                var opDataId = '_iceOp_' + kid;
+                                window[opDataId] = op;
+                                html += '<button class="ice-op-code-btn" onclick="event.stopPropagation(); openIceCodePane(\'' + op.op + '\', \'' + esc(op.table || '').replace(/'/g, "\\'") + '\', window.' + opDataId + ')" title="View PyIceberg code">&lt;/&gt;</button>';
+                            }
+                            html += '</div>';
+                            // Expandable data panel
+                            if (hasData) {
+                                html += '<div class="ice-data-panel' + (isOpen ? ' ice-data-open' : '') + '" id="iceOpData_' + kid + '">';
+                                html += renderIceDataTable(op);
+                                html += '</div>';
+                            }
+                            html += '</div>';
+                        });
+                        logEl.innerHTML = html;
+                    }
+
+                    // Auto-stop detection
+                    if (!d.running && iceRunning) {
+                        iceRunning = false;
+                        document.getElementById('iceStartBtn').disabled = false;
+                        document.getElementById('iceStopBtn').disabled = true;
+                        if (icePollTimer) { clearInterval(icePollTimer); icePollTimer = null; }
+                        resetDagHighlights();
+                    }
+                })
+                .catch(() => {});
+        }
+
+        function setDagState(nodeId, state) {
+            var el = document.getElementById(nodeId);
+            el.className = 'ice-dag-node' + (state === 'active' ? ' ice-dag-active' : state === 'pending' ? ' ice-dag-pending' : '');
+        }
+
+        function resetDagHighlights() {
+            ['iceDagClient','iceDagRest','iceDagUC','iceDagStorage'].forEach(id => setDagState(id, 'idle'));
+            ['iceDagArrow1','iceDagArrow2','iceDagArrow3'].forEach(id => {
+                document.getElementById(id).classList.remove('flowing');
+            });
+        }
+
+        // Check initial state on page load
+        fetch('/api/iceberg-demo/status').then(r => r.json()).then(d => {
+            if (d.running) {
+                iceRunning = true;
+                document.getElementById('iceStartBtn').disabled = true;
+                document.getElementById('iceStopBtn').disabled = false;
+                icePollTimer = setInterval(pollIcebergStatus, 2000);
+                pollIcebergStatus();
+            }
+        }).catch(() => {});
+
+        // ── Migration Simulator ──────────────────────────────────────────
+        var migRunning = false;
+        var migPollTimer = null;
+
+        // All 9 step IDs across 2 tiers
+        var MIG_STEP_IDS = [
+            'create_volume', 'gen_devices', 'gen_telemetry', 'gen_incidents',
+            'migrate_devices', 'migrate_telemetry', 'migrate_incidents', 'validate', 'show_benefits'
+        ];
+
+        // Map step IDs to tiers
+        var MIG_TIER_MAP = {
+            create_volume: 'raw', gen_devices: 'raw', gen_telemetry: 'raw', gen_incidents: 'raw',
+            migrate_devices: 'ice', migrate_telemetry: 'ice', migrate_incidents: 'ice', validate: 'ice', show_benefits: 'ice'
+        };
+
+        // Tier 1 (raw) step IDs — used to check if all are done before activating the divider
+        var MIG_RAW_STEPS = ['create_volume', 'gen_devices', 'gen_telemetry', 'gen_incidents'];
+        // Tier 2 (managed Iceberg) step IDs
+        var MIG_ICE_STEPS = ['migrate_devices', 'migrate_telemetry', 'migrate_incidents', 'validate', 'show_benefits'];
+
+        function startMigration() {
+            fetch('/api/migration/start', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error) { alert(d.error); return; }
+                    migRunning = true;
+                    document.getElementById('migStartBtn').disabled = true;
+                    document.getElementById('migStopBtn').disabled = false;
+                    resetMigDag();
+                    pollMigrationStatus();
+                    migPollTimer = setInterval(pollMigrationStatus, 1500);
+                })
+                .catch(e => alert('Failed to start migration: ' + e));
+        }
+
+        function stopMigration() {
+            fetch('/api/migration/stop', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(r => r.json())
+                .then(() => {
+                    migRunning = false;
+                    document.getElementById('migStartBtn').disabled = false;
+                    document.getElementById('migStopBtn').disabled = true;
+                    if (migPollTimer) { clearInterval(migPollTimer); migPollTimer = null; }
+                })
+                .catch(e => alert('Failed to stop: ' + e));
+        }
+
+        function resetMigDag() {
+            MIG_STEP_IDS.forEach(function(id) {
+                var node = document.getElementById('migStep-' + id);
+                if (node) {
+                    node.className = 'mig-dag-node';
+                    var status = document.getElementById('migStatus-' + id);
+                    if (status) status.textContent = '';
+                }
+            });
+            // Reset arrows
+            document.querySelectorAll('#migDag .mig-dag-arrow').forEach(function(a) {
+                a.classList.remove('mig-arrow-done');
+            });
+            // Reset divider
+            var d1 = document.getElementById('migDivider1');
+            if (d1) d1.classList.remove('mig-divider-active');
+            document.getElementById('migDivider1Label').textContent = 'CTAS FROM PARQUET \u2192 MANAGED ICEBERG';
+            document.getElementById('migOpsLog').innerHTML = '<div class="ice-ops-empty">Migration in progress...</div>';
+        }
+
+        function migStepStatusDetail(step) {
+            // Build richer status text based on step type and metadata
+            var meta = step.metadata || {};
+            var detail = '';
+
+            if (step.status === 'running') return 'Running...';
+            if (step.status === 'error') return 'Error';
+            if (step.status !== 'success') return '';
+
+            // Volume path
+            if (step.id === 'create_volume' && meta.volume_path) {
+                return meta.volume_path;
+            }
+
+            // Gen steps: show row count and file size
+            if (step.id.indexOf('gen_') === 0) {
+                var parts = [];
+                if (step.rows > 0) parts.push(step.rows + ' rows');
+                if (meta.file_size_kb > 0) parts.push(meta.file_size_kb + ' KB');
+                if (step.elapsed_ms > 0) parts.push((step.elapsed_ms / 1000).toFixed(1) + 's');
+                return parts.join(', ') || 'Done';
+            }
+
+            // Migrate steps: show CLUSTER BY
+            if (step.id.indexOf('migrate_') === 0) {
+                var parts = [];
+                if (meta.cluster_by) parts.push('CLUSTER BY (' + meta.cluster_by + ')');
+                else parts.push('CTAS');
+                if (step.rows > 0) parts.push(step.rows + ' rows');
+                if (step.elapsed_ms > 0) parts.push((step.elapsed_ms / 1000).toFixed(1) + 's');
+                return parts.join(' \u00b7 ') || 'Done';
+            }
+
+            // Default: rows + time
+            var parts = [];
+            if (step.rows > 0) parts.push(step.rows + ' rows');
+            if (step.elapsed_ms > 0) parts.push((step.elapsed_ms / 1000).toFixed(1) + 's');
+            return parts.join(' \u00b7 ') || 'Done';
+        }
+
+        function pollMigrationStatus() {
+            fetch('/api/migration/status')
+                .then(r => r.json())
+                .then(d => {
+                    if (!d.steps) return;
+
+                    // Build a map for quick lookup
+                    var stepMap = {};
+                    d.steps.forEach(function(s) { stepMap[s.id] = s; });
+
+                    var allRawDone = true;
+                    var anyIceStarted = false;
+
+                    d.steps.forEach(function(step) {
+                        var node = document.getElementById('migStep-' + step.id);
+                        var statusEl = document.getElementById('migStatus-' + step.id);
+                        if (!node) return;
+
+                        // Remove all state classes
+                        node.classList.remove('mig-running', 'mig-success', 'mig-error');
+
+                        if (step.status === 'running') {
+                            node.classList.add('mig-running');
+                            if (statusEl) statusEl.textContent = 'Running...';
+                        } else if (step.status === 'success') {
+                            node.classList.add('mig-success');
+                            if (statusEl) statusEl.textContent = migStepStatusDetail(step);
+                        } else if (step.status === 'error') {
+                            node.classList.add('mig-error');
+                            if (statusEl) statusEl.textContent = 'Error';
+                        }
+
+                        // Track tier completion
+                        var tier = MIG_TIER_MAP[step.id];
+                        if (tier === 'raw' && step.status !== 'success') allRawDone = false;
+                        if (tier === 'ice' && step.status !== 'pending') anyIceStarted = true;
+                    });
+
+                    // Color arrows between completed nodes within each tier
+                    var tiers = [
+                        { containerId: 'migTier1', stepIds: MIG_RAW_STEPS },
+                        { containerId: 'migTier2', stepIds: MIG_ICE_STEPS }
+                    ];
+                    tiers.forEach(function(tier) {
+                        var container = document.getElementById(tier.containerId);
+                        if (!container) return;
+                        var arrows = container.querySelectorAll('.mig-dag-arrow');
+                        for (var i = 0; i < tier.stepIds.length - 1; i++) {
+                            var s = stepMap[tier.stepIds[i]];
+                            if (s && s.status === 'success' && arrows[i]) {
+                                arrows[i].classList.add('mig-arrow-done');
+                            }
+                        }
+                    });
+
+                    // Divider: activate when all raw steps done and managed has started
+                    var div1 = document.getElementById('migDivider1');
+                    if (allRawDone && anyIceStarted) {
+                        div1.classList.add('mig-divider-active');
+                    }
+
+                    // Render operation log
+                    renderMigLog(d.steps);
+
+                    // Auto-stop detection
+                    if (!d.running && migRunning) {
+                        migRunning = false;
+                        document.getElementById('migStartBtn').disabled = false;
+                        document.getElementById('migStopBtn').disabled = true;
+                        if (migPollTimer) { clearInterval(migPollTimer); migPollTimer = null; }
+                        // Final poll
+                        pollMigrationStatus();
+                    }
+                })
+                .catch(function() {});
+        }
+
+        function renderMigLog(steps) {
+            var logEl = document.getElementById('migOpsLog');
+            var html = '';
+            steps.forEach(function(step) {
+                if (step.status === 'pending') return;
+
+                var tier = MIG_TIER_MAP[step.id] || 'ice';
+                var badgeColor, badgeLabel;
+
+                if (step.status === 'running') {
+                    badgeColor = '#F59E0B';
+                } else if (step.status === 'error') {
+                    badgeColor = '#EF4444';
+                } else {
+                    // Success — color by tier
+                    if (tier === 'raw') badgeColor = '#60A5FA';
+                    else badgeColor = '#00A972';
+                }
+
+                // Badge labels by step
+                if (step.id === 'create_volume') badgeLabel = 'VOL';
+                else if (step.id.indexOf('gen_') === 0) badgeLabel = 'PQ';
+                else if (step.id.indexOf('migrate_') === 0) badgeLabel = 'CTAS';
+                else if (step.id === 'validate') badgeLabel = 'CHK';
+                else if (step.id === 'show_benefits') badgeLabel = 'QRY';
+                else badgeLabel = 'SQL';
+
+                var statusText = step.status === 'running' ? '...' :
+                                 step.status === 'success' ? 'OK' :
+                                 step.status === 'error' ? 'ERR' : '';
+
+                html += '<div class="mig-op-entry">';
+                html += '<span class="mig-op-badge" style="background:' + badgeColor + ';">' + badgeLabel + '</span>';
+                html += '<span class="mig-op-label">' + esc(step.label) + '</span>';
+
+                // Rich detail from metadata
+                var meta = step.metadata || {};
+                if (step.id.indexOf('gen_') === 0 && step.status === 'success') {
+                    if (step.rows > 0) html += '<span class="mig-op-detail">' + step.rows + ' rows</span>';
+                    if (meta.file_size_kb > 0) html += '<span class="mig-op-detail">' + meta.file_size_kb + ' KB</span>';
+                } else if (step.id.indexOf('migrate_') === 0 && step.status === 'success') {
+                    if (meta.cluster_by) html += '<span class="mig-op-detail">CLUSTER BY (' + esc(meta.cluster_by) + ')</span>';
+                    if (step.rows > 0) html += '<span class="mig-op-detail">' + step.rows + ' rows</span>';
+                } else {
+                    if (step.rows > 0) html += '<span class="mig-op-detail">' + step.rows + ' rows</span>';
+                }
+
+                if (step.elapsed_ms > 0) {
+                    html += '<span class="mig-op-detail">' + (step.elapsed_ms / 1000).toFixed(1) + 's</span>';
+                }
+                html += '<span class="mig-op-status ' + step.status + '">' + statusText + '</span>';
+                if (step.detail) {
+                    html += '<span class="mig-op-detail">' + esc(step.detail) + '</span>';
+                }
+                html += '</div>';
+            });
+
+            if (html) {
+                logEl.innerHTML = html;
+            }
+        }
+
+        // Check migration state on page load
+        fetch('/api/migration/status').then(r => r.json()).then(d => {
+            if (d.running) {
+                migRunning = true;
+                document.getElementById('migStartBtn').disabled = true;
+                document.getElementById('migStopBtn').disabled = false;
+                migPollTimer = setInterval(pollMigrationStatus, 1500);
+                pollMigrationStatus();
+            } else if (d.steps) {
+                // Restore completed state
+                var hasActivity = d.steps.some(function(s) { return s.status !== 'pending'; });
+                if (hasActivity) pollMigrationStatus();
+            }
+        }).catch(function() {});
+
+        // ── Scale-Up Logic ──────────────────────────────────────────────
+        let scalePollTimer = null;
+
+        function startScaleUp() {
+            const target = parseInt(document.getElementById('scaleTarget').value);
+            document.getElementById('scaleStartBtn').disabled = true;
+            document.getElementById('scaleStopBtn').disabled = false;
+            document.getElementById('scaleTarget').disabled = true;
+            document.getElementById('scaleStatus').style.display = 'block';
+            document.getElementById('scalePhaseLabel').textContent = 'Starting...';
+            document.getElementById('scaleProgressText').textContent = 'Connecting to database...';
+            document.getElementById('scaleProgressBar').style.width = '0%';
+            document.getElementById('scaleLog').innerHTML = '<div class="ice-ops-entry"><span class="ice-ops-time">' + new Date().toLocaleTimeString() + '</span> Scale-up initiated (target: ' + target.toLocaleString() + ' customers)</div>';
+
+            fetch('/api/upscale/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target_customers: target})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                scalePollTimer = setInterval(pollScaleStatus, 2000);
+            })
+            .catch(err => {
+                document.getElementById('scalePhaseLabel').textContent = 'Failed';
+                document.getElementById('scaleProgressText').textContent = err.message;
+                resetScaleControls();
+            });
+        }
+
+        function stopScaleUp() {
+            document.getElementById('scaleStopBtn').disabled = true;
+            fetch('/api/upscale/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}}).catch(() => {});
+        }
+
+        function pollScaleStatus() {
+            fetch('/api/upscale/status')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('scalePhaseLabel').textContent = 'Phase: ' + (data.phase || 'unknown');
+                document.getElementById('scaleProgressText').textContent = data.progress || '';
+                document.getElementById('scaleRowsAdded').textContent = (data.rows_added || 0).toLocaleString() + ' rows added';
+
+                // Estimate progress (rough: customers=30%, WOs=50%, equipment=15%, notes=5%)
+                const phaseProgress = {connecting: 0, customers: 15, technicians: 30, work_orders: 65, equipment: 85, notes: 95, done: 100, error: 100};
+                const pct = phaseProgress[data.phase] || 0;
+                document.getElementById('scaleProgressBar').style.width = pct + '%';
+
+                if (data.phase === 'done' || data.phase === 'error' || !data.running) {
+                    clearInterval(scalePollTimer);
+                    scalePollTimer = null;
+
+                    const logEl = document.getElementById('scaleLog');
+                    const time = new Date().toLocaleTimeString();
+                    if (data.phase === 'done') {
+                        logEl.innerHTML += '<div class="ice-ops-entry" style="color:var(--accent-primary);"><span class="ice-ops-time">' + time + '</span> ' + data.progress + '</div>';
+                        document.getElementById('scaleProgressBar').style.width = '100%';
+                        document.getElementById('scaleProgressBar').style.background = 'var(--accent-primary)';
+                    } else if (data.error) {
+                        logEl.innerHTML += '<div class="ice-ops-entry" style="color:#e53e3e;"><span class="ice-ops-time">' + time + '</span> Error: ' + data.error + '</div>';
+                        document.getElementById('scaleProgressBar').style.background = '#e53e3e';
+                    }
+                    resetScaleControls();
+                } else {
+                    // Log phase transitions
+                    const logEl = document.getElementById('scaleLog');
+                    const lastEntry = logEl.querySelector('.ice-ops-entry:last-child');
+                    const lastPhase = lastEntry ? lastEntry.getAttribute('data-phase') : '';
+                    if (data.phase && data.phase !== lastPhase) {
+                        const time = new Date().toLocaleTimeString();
+                        logEl.innerHTML += '<div class="ice-ops-entry" data-phase="' + data.phase + '"><span class="ice-ops-time">' + time + '</span> ' + data.progress + '</div>';
+                        logEl.scrollTop = logEl.scrollHeight;
+                    }
+                }
+            })
+            .catch(() => {});
+        }
+
+        function resetScaleControls() {
+            document.getElementById('scaleStartBtn').disabled = false;
+            document.getElementById('scaleStopBtn').disabled = true;
+            document.getElementById('scaleTarget').disabled = false;
+        }
+    </script>
+{% endblock %}

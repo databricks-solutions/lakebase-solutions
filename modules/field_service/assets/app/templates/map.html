@@ -1,0 +1,1572 @@
+{% extends "base.html" %}
+{% block title %}Field Map{% endblock %}
+{% block page_title %}Field Map{% endblock %}
+
+{% block head_extra %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endblock %}
+
+{% block content %}
+    <div class="map-page">
+        <!-- Controls bar -->
+        <div class="map-controls">
+            <div class="map-controls-left">
+                <label class="map-toggle">
+                    <input type="checkbox" id="showTechs" checked onchange="updateMap()">
+                    <span class="map-toggle-label">Technicians</span>
+                </label>
+                <label class="map-toggle">
+                    <input type="checkbox" id="showOrders" checked onchange="updateMap()">
+                    <span class="map-toggle-label">Work Orders</span>
+                </label>
+                <label class="map-toggle">
+                    <input type="checkbox" id="showInfra" checked onchange="toggleInfra()">
+                    <span class="map-toggle-label">Infrastructure</span>
+                </label>
+                <label class="map-toggle">
+                    <input type="checkbox" id="showTerritories" onchange="toggleTerritories()">
+                    <span class="map-toggle-label">Territories</span>
+                </label>
+                <select id="regionFilter" class="map-filter-select" onchange="updateMap()" aria-label="Region filter">
+                    <option value="">All Regions</option>
+                </select>
+            </div>
+            <div class="map-controls-right">
+                <div class="map-legend">
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#00A972"></span> Available</span>
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#FFAB2E"></span> En Route</span>
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#FF6F42"></span> On Site</span>
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#6B6B78"></span> Off Duty</span>
+                    <span class="map-legend-sep">|</span>
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#A78BFA;border-radius:2px;transform:rotate(45deg);"></span> Infrastructure</span>
+                    <span class="map-legend-item"><span class="map-legend-dot" style="background:#FF4444"></span> Critical</span>
+                </div>
+                <div class="powered-by" style="margin-left:12px;">
+                    <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                    <span>Powered by <strong>Databricks Lakebase</strong></span>
+                </div>
+            </div>
+        </div>
+        <!-- Map container -->
+        <div id="mapContainer" class="map-container"></div>
+        <!-- Stats bar -->
+        <div class="map-stats" id="mapStats">
+            <span>Technicians: <strong id="techCount">--</strong></span>
+            <span>Work Orders: <strong id="woCount">--</strong></span>
+            <span>Critical: <strong id="critCount" style="color:var(--status-breached)">--</strong></span>
+            <span>SLA At Risk: <strong id="riskCount" style="color:#FFAB2E">--</strong></span>
+            <span>SLA Breached: <strong id="breachCount" style="color:var(--status-breached)">--</strong></span>
+        </div>
+
+        <!-- ═══ Connection health indicator ═══ -->
+        <div id="mapHealth" class="map-health live">
+            <span class="map-health-dot"></span>
+            <span id="healthLabel">Live</span>
+        </div>
+
+        <!-- ═══ Stale data banner ═══ -->
+        <div id="staleBanner" class="map-stale-banner">
+            Data may be outdated — connection issues detected
+        </div>
+
+        <!-- ═══ Slide-out detail panel ═══ -->
+        <div id="detailPanel" class="map-detail-panel">
+            <button class="map-detail-close" onclick="closeDetailPanel()">&times;</button>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <style>
+        /* ── Detail panel ── */
+        .map-detail-panel {
+            position: absolute;
+            top: 0; right: -420px;
+            width: 400px; height: 100%;
+            background: var(--card-bg, #1B1B2E);
+            border-left: 1px solid var(--border, #2D2D42);
+            box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+            z-index: 1000;
+            overflow-y: auto;
+            transition: right 0.3s ease;
+            padding: 16px;
+            font-family: var(--font-body, 'Inter', sans-serif);
+        }
+        .map-detail-panel.open { right: 0; }
+        .map-detail-close {
+            position: absolute; top: 12px; right: 12px;
+            background: none; border: none; color: var(--text-muted, #888);
+            font-size: 24px; cursor: pointer; line-height: 1;
+        }
+        .map-detail-close:hover { color: var(--text-primary, #fff); }
+
+        /* Detail sections */
+        .md-header { margin-bottom: 16px; }
+        .md-name { font-size: 18px; font-weight: 700; color: var(--text-primary, #fff); margin: 0; }
+        .md-subtitle { font-size: 13px; color: var(--text-muted, #888); margin-top: 2px; }
+        .md-badge {
+            display: inline-block; padding: 2px 10px; border-radius: 4px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            margin-top: 6px;
+        }
+        .md-section { margin-top: 16px; }
+        .md-section-title {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            color: var(--text-muted, #888); letter-spacing: 0.5px;
+            margin-bottom: 8px; padding-bottom: 4px;
+            border-bottom: 1px solid var(--border, #2D2D42);
+        }
+        .md-stat-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .md-stat {
+            background: var(--input-bg, rgba(255,255,255,0.05));
+            border-radius: 6px; padding: 8px 10px;
+        }
+        .md-stat-label { font-size: 10px; color: var(--text-muted, #888); text-transform: uppercase; }
+        .md-stat-value { font-size: 16px; font-weight: 700; color: var(--text-primary, #fff); }
+        .md-stat-value.md-good { color: #00A972; }
+        .md-stat-value.md-warn { color: #FFAB2E; }
+        .md-stat-value.md-danger { color: #FF4444; }
+
+        .md-wo-list { list-style: none; margin: 0; padding: 0; }
+        .md-wo-item {
+            padding: 8px; border-radius: 6px; margin-bottom: 6px; cursor: pointer;
+            background: var(--input-bg, rgba(255,255,255,0.05));
+            border-left: 3px solid var(--text-muted);
+            transition: background 0.2s;
+        }
+        .md-wo-item:hover { background: rgba(255,255,255,0.1); }
+        .md-wo-item.md-prio-critical { border-left-color: #FF4444; }
+        .md-wo-item.md-prio-high { border-left-color: #FF6F42; }
+        .md-wo-item.md-prio-medium { border-left-color: #60A5FA; }
+        .md-wo-item-title { font-size: 13px; font-weight: 600; color: var(--text-primary, #fff); }
+        .md-wo-item-sub { font-size: 11px; color: var(--text-muted, #888); margin-top: 2px; }
+
+        .md-skill-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+        .md-skill-tag {
+            font-size: 11px; padding: 2px 8px; border-radius: 10px;
+            background: rgba(96,165,250,0.15); color: #60A5FA;
+            border: 1px solid rgba(96,165,250,0.3);
+        }
+
+        /* Action buttons */
+        .md-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+        .md-action-btn {
+            flex: 1; min-width: 100px; padding: 8px 12px; border: none; border-radius: 6px;
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            font-family: var(--font-body, 'Inter', sans-serif);
+            transition: opacity 0.2s;
+        }
+        .md-action-btn:hover { opacity: 0.85; }
+        .md-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .md-action-primary { background: #1B73E8; color: #fff; }
+        .md-action-warn { background: #FF6F42; color: #fff; }
+        .md-action-danger { background: #FF4444; color: #fff; }
+        .md-action-success { background: #00A972; color: #fff; }
+
+        .md-sla-countdown {
+            font-size: 14px; font-weight: 700; padding: 8px;
+            border-radius: 6px; text-align: center; margin-top: 8px;
+        }
+
+        /* Critical markers get a static bright glow instead of animation (perf) */
+        .map-marker-pulse > div {
+            box-shadow: 0 0 10px var(--pulse-color), 0 0 20px var(--pulse-color);
+        }
+
+        /* Legend pulse dot */
+        @keyframes legendPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .map-pulse-dot { animation: legendPulse 1.5s ease-in-out infinite; }
+
+        /* Reassign modal */
+        .md-reassign-list { max-height: 200px; overflow-y: auto; margin-top: 8px; }
+        .md-reassign-item {
+            padding: 8px; border-radius: 4px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+            transition: background 0.2s;
+        }
+        .md-reassign-item:hover { background: rgba(255,255,255,0.1); }
+        .md-reassign-name { font-size: 13px; font-weight: 600; color: var(--text-primary, #fff); }
+        .md-reassign-meta { font-size: 11px; color: var(--text-muted, #888); }
+
+        /* Toast */
+        .map-toast {
+            position: fixed; top: 16px; right: 16px; padding: 10px 16px;
+            border-radius: 8px; font-size: 13px; z-index: 9999;
+            opacity: 0; transform: translateY(-10px);
+            transition: opacity 0.3s, transform 0.3s;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            font-family: var(--font-body, 'Inter', sans-serif);
+        }
+        .map-toast.show { opacity: 1; transform: translateY(0); }
+        .map-toast-success { background: #00A972; color: #fff; }
+        .map-toast-error { background: #FF4444; color: #fff; }
+
+        /* Make map container relative for panel positioning */
+        .map-page { position: relative; overflow: hidden; }
+
+        /* ── Connection Health Indicator ── */
+        .map-health {
+            position: absolute; bottom: 8px; right: 8px; z-index: 800;
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 10px; border-radius: 16px;
+            background: var(--card-bg, rgba(27,27,46,0.9));
+            border: 1px solid var(--border, #2D2D42);
+            font-size: 11px; font-weight: 600;
+            font-family: var(--font-body, 'Inter', sans-serif);
+            backdrop-filter: blur(8px);
+            transition: all 0.3s ease;
+        }
+        .map-health-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            transition: background 0.3s;
+        }
+        .map-health.live .map-health-dot { background: #00A972; }
+        .map-health.delayed .map-health-dot { background: #FFAB2E; }
+        .map-health.disconnected .map-health-dot { background: #FF4444; }
+        .map-health.live { color: #00A972; }
+        .map-health.delayed { color: #FFAB2E; }
+        .map-health.disconnected { color: #FF4444; }
+
+        /* ── Stale Data Banner ── */
+        .map-stale-banner {
+            position: absolute; top: 0; left: 0; right: 0; z-index: 900;
+            background: rgba(255,68,68,0.15); border-bottom: 1px solid rgba(255,68,68,0.3);
+            color: #FF6F42; text-align: center; padding: 6px;
+            font-size: 12px; font-weight: 600;
+            font-family: var(--font-body, 'Inter', sans-serif);
+            display: none;
+        }
+        .map-stale-banner.show { display: block; }
+
+        /* ── Route Fallback Toast ── */
+        .map-toast-warn { background: #FF6F42; color: #fff; }
+
+        /* ── Territory Polygons ── */
+        .territory-label {
+            background: none !important; border: none !important; box-shadow: none !important;
+            font-size: 10px; font-weight: 700; color: var(--text-muted, #888);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        /* ══ MOBILE RESPONSIVE ══ */
+
+        /* Tablet: < 1024px */
+        @media (max-width: 1024px) {
+            .map-detail-panel {
+                width: 50vw;
+                right: -52vw;
+            }
+            .map-controls-right .powered-by { display: none; }
+            .map-legend { font-size: 11px; }
+        }
+
+        /* Phone: < 768px */
+        @media (max-width: 768px) {
+            .map-controls {
+                flex-direction: column; gap: 6px; padding: 6px 8px;
+            }
+            .map-controls-left {
+                display: flex; flex-wrap: wrap; gap: 4px;
+            }
+            .map-controls-right {
+                display: flex; flex-wrap: wrap; gap: 4px;
+            }
+            .map-controls-right .powered-by { display: none; }
+            .map-legend { flex-wrap: wrap; gap: 4px; font-size: 10px; }
+            .map-legend-sep { display: none; }
+
+            /* Bottom sheet instead of sidebar */
+            .map-detail-panel {
+                position: absolute;
+                top: auto; right: 0; left: 0;
+                bottom: -80vh;
+                width: 100%; height: 75vh;
+                border-left: none;
+                border-top: 1px solid var(--border, #2D2D42);
+                border-radius: 16px 16px 0 0;
+                box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+                transition: bottom 0.3s ease;
+            }
+            .map-detail-panel.open {
+                right: 0;
+                bottom: 0;
+            }
+            /* Drag handle for bottom sheet */
+            .map-detail-panel::before {
+                content: '';
+                display: block;
+                width: 40px; height: 4px;
+                background: var(--text-muted, #555);
+                border-radius: 2px;
+                margin: 8px auto 12px;
+            }
+
+            .map-stats {
+                font-size: 11px; gap: 6px; padding: 4px 8px;
+                flex-wrap: wrap;
+            }
+
+            /* Larger touch targets */
+            .map-toggle { padding: 4px 8px; }
+            .map-toggle-label { font-size: 12px; }
+            .map-filter-select { font-size: 12px; padding: 4px 8px; min-height: 36px; }
+            .md-action-btn { min-height: 40px; font-size: 13px; }
+            .md-wo-item { padding: 10px; }
+        }
+
+        /* Small phone: < 480px */
+        @media (max-width: 480px) {
+            .map-detail-panel { height: 85vh; }
+            .map-legend-item { font-size: 9px; }
+            .md-stat-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+        }
+    </style>
+
+    <script>
+        // ── Map init ────────────────────────────────────────────────────
+        var map = L.map('mapContainer', {
+            zoomControl: true,
+            attributionControl: false
+        }).setView([39.8, -98.5], 4);
+
+        function getTheme() {
+            return document.documentElement.getAttribute('data-theme') || 'trekkie';
+        }
+        function addTileLayer() {
+            var theme = getTheme();
+            var tileUrl = (theme === 'dbx-light')
+                ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+            L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
+        }
+        addTileLayer();
+
+        // ── Marker state ────────────────────────────────────────────────
+        var techMarkerMap = {};
+        var orderMarkerMap = {};
+        var infraMarkerMap = {};
+        var infraData = [];
+        var allData = { technicians: [], work_orders: [] };
+        var POLL_MS = 10000;
+        var lastPollTime = 0;
+
+        // ── Infrastructure–WO linkage ─────────────────────────────────────
+        var infraWoMap = {};   // infraId → { count, maxPriority }
+        var LINK_RADIUS_KM = 5;
+        var PRIO_RANK = { critical: 1, high: 2, medium: 3, low: 4 };
+
+        function approxDistKm(lat1, lng1, lat2, lng2) {
+            var dLat = (lat2 - lat1) * 111.32;
+            var dLng = (lng2 - lng1) * 111.32 * Math.cos(lat1 * Math.PI / 180);
+            return Math.sqrt(dLat * dLat + dLng * dLng);
+        }
+
+        function nearestInfra(lat, lng) {
+            var best = null, bestDist = Infinity;
+            for (var i = 0; i < infraData.length; i++) {
+                var d = approxDistKm(lat, lng, infraData[i].lat, infraData[i].lng);
+                if (d < bestDist) { bestDist = d; best = infraData[i]; }
+            }
+            return bestDist <= LINK_RADIUS_KM ? best : null;
+        }
+
+        // ── Connection lines ─────────────────────────────────────────────
+        var connectionLines = [];
+        function clearConnectionLines() {
+            connectionLines.forEach(function(line) { map.removeLayer(line); });
+            connectionLines = [];
+        }
+        function drawConnectionLine(fromLatLng, toLatLng, color, dashed) {
+            var line = L.polyline([fromLatLng, toLatLng], {
+                color: color, weight: 3, opacity: 0.8,
+                dashArray: dashed ? '8, 10' : null
+            }).addTo(map);
+            connectionLines.push(line);
+            return line;
+        }
+        // Client-side route cache (avoid re-fetching same route)
+        var _routeCache = {};
+
+        function drawSequentialRoute(startLatLng, stops, color) {
+            // Draw road-following route via backend proxy (Mapbox → OSRM → crow-flies)
+            if (!stops.length) return;
+            if (stops.length > 5) stops = stops.slice(0, 5);
+
+            // Add numbered stop markers (instant visual feedback)
+            stops.forEach(function(stop, i) {
+                var pos = [stop.lat, stop.lng];
+                var stopMarker = L.marker(pos, {
+                    icon: L.divIcon({
+                        className: 'route-stop-marker',
+                        html: '<div style="width:22px;height:22px;border-radius:50%;background:' + color + ';color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,0.9);box-shadow:0 0 8px rgba(0,0,0,0.4);">' + (i + 1) + '</div>',
+                        iconSize: [22, 22],
+                        iconAnchor: [11, 11]
+                    }),
+                    zIndexOffset: 500
+                }).addTo(map);
+                connectionLines.push(stopMarker);
+            });
+
+            // Loading indicator
+            var routeLoadingMarker = L.marker(startLatLng, {
+                icon: L.divIcon({
+                    className: '',
+                    html: '<div style="background:rgba(0,0,0,0.7);color:#60A5FA;padding:4px 8px;border-radius:4px;font-size:11px;white-space:nowrap;font-weight:600;">&#8987; Loading route...</div>',
+                    iconSize: [120, 24], iconAnchor: [60, -15]
+                }),
+                zIndexOffset: 1000
+            }).addTo(map);
+            connectionLines.push(routeLoadingMarker);
+
+            // Build waypoints for backend proxy: lat1,lng1,lat2,lng2,...
+            var waypoints = startLatLng[0] + ',' + startLatLng[1];
+            stops.forEach(function(s) { waypoints += ',' + s.lat + ',' + s.lng; });
+
+            // Check client-side cache
+            if (_routeCache[waypoints]) {
+                if (routeLoadingMarker) map.removeLayer(routeLoadingMarker);
+                _renderBackendRoute(_routeCache[waypoints], color);
+                return;
+            }
+
+            // Routing chain: backend proxy (Mapbox→OSRM) → direct OSRM → straight lines
+            fetch('/api/map/route?waypoints=' + encodeURIComponent(waypoints))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) throw new Error(data.error);
+
+                    // If backend returned a real road route, use it
+                    if (!data.fallback && data.source !== 'straight_line') {
+                        if (routeLoadingMarker) map.removeLayer(routeLoadingMarker);
+                        _routeCache[waypoints] = data;
+                        var keys = Object.keys(_routeCache);
+                        if (keys.length > 50) delete _routeCache[keys[0]];
+                        _renderBackendRoute(data, color);
+                        return;
+                    }
+
+                    // Backend couldn't reach routing APIs — try OSRM directly from browser
+                    var osrmCoords = [];
+                    osrmCoords.push(startLatLng[1] + ',' + startLatLng[0]);
+                    stops.forEach(function(s) { osrmCoords.push(s.lng + ',' + s.lat); });
+                    var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' + osrmCoords.join(';') + '?overview=full&geometries=geojson&steps=true';
+
+                    return fetch(osrmUrl).then(function(r2) { return r2.json(); }).then(function(osrmData) {
+                        if (routeLoadingMarker) map.removeLayer(routeLoadingMarker);
+                        if (osrmData.code === 'Ok' && osrmData.routes && osrmData.routes.length) {
+                            var route = osrmData.routes[0];
+                            // Convert to backend format
+                            var converted = {
+                                geometry: route.geometry,
+                                distance_km: +(route.distance / 1000).toFixed(1),
+                                duration_min: +(route.duration / 60).toFixed(1),
+                                steps: [],
+                                source: 'osrm'
+                            };
+                            // Parse steps
+                            (route.legs || []).forEach(function(leg) {
+                                (leg.steps || []).forEach(function(step) {
+                                    if (step.distance < 10) return;
+                                    var m = step.maneuver || {};
+                                    var name = step.name || '';
+                                    var modifier = m.modifier || '';
+                                    var type = m.type || '';
+                                    var text = '';
+                                    if (type === 'depart') text = 'Head ' + modifier + (name ? ' on ' + name : '');
+                                    else if (type === 'arrive') text = 'Arrive at destination';
+                                    else if (type === 'turn' || type === 'end of road') text = 'Turn ' + modifier + (name ? ' onto ' + name : '');
+                                    else if (type === 'merge') text = 'Merge' + (name ? ' onto ' + name : '');
+                                    else if (type === 'fork') text = 'Keep ' + modifier + (name ? ' onto ' + name : '');
+                                    else if (type === 'new name') text = 'Continue onto ' + name;
+                                    else if (type.indexOf('ramp') !== -1) text = 'Take ramp' + (name ? ' onto ' + name : '');
+                                    else if (type === 'roundabout') text = 'Roundabout' + (name ? ', exit to ' + name : '');
+                                    else text = (type.replace(/_/g, ' ') + ' ' + (name || modifier)).trim();
+                                    converted.steps.push({ instruction: text, distance_km: +(step.distance / 1000).toFixed(2) });
+                                });
+                            });
+                            _routeCache[waypoints] = converted;
+                            _renderBackendRoute(converted, color);
+                        } else {
+                            throw new Error('OSRM failed');
+                        }
+                    });
+                })
+                .catch(function() {
+                    if (routeLoadingMarker) map.removeLayer(routeLoadingMarker);
+                    showMapToast('warn', 'Road route unavailable — showing direct path');
+                    // Last resort: straight dashed lines
+                    var prev = startLatLng;
+                    stops.forEach(function(stop) {
+                        var pos = [stop.lat, stop.lng];
+                        var line = L.polyline([prev, pos], {
+                            color: '#FF6F42', weight: 3, opacity: 0.5, dashArray: '8,6'
+                        }).addTo(map);
+                        connectionLines.push(line);
+                        prev = pos;
+                    });
+                });
+        }
+
+        function _renderBackendRoute(data, color) {
+            // data comes from /api/map/route: { geometry, distance_km, duration_min, steps, source }
+            var distKm = data.distance_km;
+            var durMin = data.duration_min;
+            var isFallback = data.source === 'straight_line';
+
+            // Draw road-following polyline from GeoJSON geometry
+            var coords = data.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+            var lineStyle = isFallback
+                ? { color: '#FF6F42', weight: 3, opacity: 0.5, dashArray: '8,6' }
+                : { color: color, weight: 4, opacity: 0.85 };
+            var line = L.polyline(coords, lineStyle).addTo(map);
+            connectionLines.push(line);
+
+            var sourceLabel = data.source === 'mapbox' ? 'Mapbox' : data.source === 'osrm' ? 'OSRM' : 'Direct';
+            var etaText = durMin ? ' — ETA ' + Math.round(durMin) + ' min' : '';
+            line.bindTooltip(sourceLabel + ': ' + distKm + ' km' + etaText, {sticky: true, opacity: 0.9});
+
+            // Show turn-by-turn directions in detail panel
+            var steps = data.steps || [];
+            if (steps.length > 0) {
+                var directionsEl = document.getElementById('routeDirections');
+                if (directionsEl) {
+                    directionsEl.style.display = '';
+                    var headerExtra = data.source === 'mapbox' ? ' via Mapbox' : data.source === 'osrm' ? ' via OSRM' : '';
+                    directionsEl.innerHTML = '<div class="md-section-title">Turn-by-Turn (' + distKm + ' km, ' + Math.round(durMin) + ' min' + headerExtra + ')</div>' +
+                        '<div style="max-height:200px;overflow-y:auto;">' +
+                        steps.map(function(s, i) {
+                            return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-primary,#3A3A42);font-size:12px;">' +
+                                '<span style="color:#60A5FA;font-weight:700;min-width:20px;">' + (i+1) + '</span>' +
+                                '<span style="flex:1;color:var(--text-primary);">' + s.instruction + '</span>' +
+                                '<span style="color:var(--text-muted);white-space:nowrap;">' + s.distance_km + 'km</span>' +
+                            '</div>';
+                        }).join('') + '</div>';
+
+                    // "Open in Google Maps" button
+                    if (data.geometry && data.geometry.coordinates.length >= 2) {
+                        var start = data.geometry.coordinates[0];
+                        var end = data.geometry.coordinates[data.geometry.coordinates.length - 1];
+                        var gmapsUrl = 'https://www.google.com/maps/dir/' + start[1] + ',' + start[0] + '/' + end[1] + ',' + end[0];
+                        directionsEl.innerHTML += '<a href="' + gmapsUrl + '" target="_blank" rel="noopener" ' +
+                            'style="display:inline-block;margin-top:8px;padding:6px 12px;background:#1B73E8;color:#fff;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;">' +
+                            'Open in Google Maps &rarr;</a>';
+                    }
+                }
+            }
+        }
+        function zoomToConnections(centerLatLng) {
+            // Fit the map to show all connection lines + center point
+            if (!connectionLines.length) {
+                if (centerLatLng) map.setView(centerLatLng, Math.max(map.getZoom(), 11));
+                return;
+            }
+            var bounds = L.latLngBounds([centerLatLng]);
+            connectionLines.forEach(function(item) {
+                if (item.getBounds) bounds.extend(item.getBounds());
+                else if (item.getLatLng) bounds.extend(item.getLatLng());
+            });
+            map.fitBounds(bounds.pad(0.3), { maxZoom: 14 });
+        }
+
+        function techColor(status) {
+            var c = { available: '#00A972', en_route: '#FFAB2E', on_site: '#FF6F42', off_duty: '#6B6B78' };
+            return c[status] || '#6B6B78';
+        }
+        function orderColor(priority) {
+            var c = { critical: '#FF4444', high: '#FF6F42', medium: '#60A5FA', low: '#9B9BA7' };
+            return c[priority] || '#9B9BA7';
+        }
+
+        function createCircleIcon(color, size, pulse) {
+            var cls = 'map-marker' + (pulse ? ' map-marker-pulse' : '');
+            return L.divIcon({
+                className: cls,
+                html: '<div style="--pulse-color:' + color + ';width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';border:2px solid rgba(255,255,255,0.8);box-shadow:0 0 6px ' + color + ';cursor:pointer;"></div>',
+                iconSize: [size, size],
+                iconAnchor: [size/2, size/2]
+            });
+        }
+        function createOrderIcon(color, pulse) {
+            var cls = 'map-marker' + (pulse ? ' map-marker-pulse' : '');
+            return L.divIcon({
+                className: cls,
+                html: '<div style="--pulse-color:' + color + ';width:12px;height:12px;border-radius:2px;background:' + color + ';border:1.5px solid rgba(255,255,255,0.7);box-shadow:0 0 4px ' + color + ';transform:rotate(45deg);cursor:pointer;"></div>',
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+        }
+
+        // ── Infrastructure icons ──────────────────────────────────────────
+        function infraStatusColor(status) {
+            return status === 'critical' ? '#FF4444' : status === 'maintenance_due' ? '#FFAB2E' : '#00A972';
+        }
+        function createInfraIcon(color, status, woCount, woMaxPriority) {
+            var border = infraStatusColor(status);
+            var glow = status === 'critical' ? 'box-shadow:0 0 8px ' + border + ',0 0 16px ' + border + ';' : '';
+            var badge = '';
+            if (woCount > 0) {
+                var badgeColor = orderColor(woMaxPriority || 'low');
+                badge = '<div style="position:absolute;top:-8px;right:-10px;min-width:16px;height:16px;border-radius:8px;background:' + badgeColor + ';color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;border:1.5px solid var(--bg-primary,#1a1a2e);font-family:Inter,sans-serif;">' + woCount + '</div>';
+            }
+            return L.divIcon({
+                className: 'map-marker',
+                html: '<div style="position:relative;width:18px;height:18px;background:' + color + ';border:2.5px solid ' + border + ';border-radius:3px;' + glow + 'cursor:pointer;display:flex;align-items:center;justify-content:center;">' +
+                    '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>' + badge + '</div>',
+                iconSize: [18, 18],
+                iconAnchor: [9, 9]
+            });
+        }
+
+        function loadInfrastructure() {
+            fetch('/api/map/infrastructure')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    infraData = data.infrastructure || [];
+                    renderInfra();
+                });
+        }
+
+        function renderInfra() {
+            var show = document.getElementById('showInfra').checked;
+            // Remove existing
+            Object.keys(infraMarkerMap).forEach(function(id) {
+                map.removeLayer(infraMarkerMap[id]);
+                delete infraMarkerMap[id];
+            });
+            if (!show) return;
+            infraData.forEach(function(item) {
+                var linked = infraWoMap[item.id];
+                var woCount = linked ? linked.count : 0;
+                var maxPrio = linked ? linked.maxPriority : null;
+                var marker = L.marker([item.lat, item.lng], {
+                    icon: createInfraIcon(item.color, item.status, woCount, maxPrio),
+                    zIndexOffset: -100
+                }).addTo(map);
+                marker.on('click', function() { openInfraDetail(item); });
+                infraMarkerMap[item.id] = marker;
+            });
+        }
+
+        function updateInfraBadges() {
+            var show = document.getElementById('showInfra').checked;
+            if (!show) return;
+            infraData.forEach(function(item) {
+                if (!infraMarkerMap[item.id]) return;
+                var linked = infraWoMap[item.id];
+                var woCount = linked ? linked.count : 0;
+                var maxPrio = linked ? linked.maxPriority : null;
+                infraMarkerMap[item.id].setIcon(createInfraIcon(item.color, item.status, woCount, maxPrio));
+            });
+        }
+
+        function toggleInfra() { renderInfra(); }
+
+        function openInfraDetail(item) {
+            var statusColor = infraStatusColor(item.status);
+            var statusLabel = item.status === 'maintenance_due' ? 'Maintenance Due' : item.status === 'critical' ? 'Critical' : 'Healthy';
+            var html = '<div class="md-header">' +
+                '<p class="md-name">' + item.name + '</p>' +
+                '<p class="md-subtitle">' + item.id + ' &bull; ' + item.region + '</p>' +
+                '<span class="md-badge" style="background:' + statusColor + ';color:#fff;">' + statusLabel + '</span>' +
+                '<span class="md-badge" style="background:' + item.color + ';color:#fff;margin-left:6px;">' + item.type_label + '</span>' +
+                '</div>';
+
+            if (item.status !== 'healthy') {
+                var msg = item.status === 'critical' ? 'Immediate attention required — service degradation detected.' :
+                    'Scheduled maintenance window approaching. Preventive action recommended.';
+                var bg = item.status === 'critical' ? 'rgba(255,68,68,0.1)' : 'rgba(255,171,46,0.1)';
+                var border = item.status === 'critical' ? 'rgba(255,68,68,0.3)' : 'rgba(255,171,46,0.3)';
+                html += '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:8px;padding:10px 12px;margin-bottom:12px;">' +
+                    '<div style="font-size:11px;color:' + statusColor + ';font-weight:600;text-transform:uppercase;margin-bottom:4px;">Maintenance Alert</div>' +
+                    '<div style="font-size:13px;color:var(--text-primary);">' + msg + '</div></div>';
+            }
+
+            html += '<div class="md-section"><div class="md-section-title">Location</div>' +
+                '<div style="font-size:13px;color:var(--text-primary);">' +
+                item.lat.toFixed(4) + ', ' + item.lng.toFixed(4) +
+                '</div></div>';
+
+            html += '<div id="infraIotData"><div style="color:var(--text-muted);font-size:12px;padding:8px 0;">Loading IoT diagnostics...</div></div>';
+            html += '<div id="infraLinkedData"><div style="color:var(--text-muted);font-size:12px;padding:8px 0;">Loading linked work orders...</div></div>';
+
+            html += '<div class="md-section"><div class="md-section-title">Actions</div>' +
+                '<div class="md-actions">';
+            if (item.status !== 'healthy') {
+                html += '<button class="md-action-btn" style="background:var(--accent-primary);color:#fff;" onclick="showMapToast(\'success\',\'Maintenance ticket created for ' + item.id + '\')">Create Work Order</button>';
+            }
+            html += '<button class="md-action-btn" onclick="showMapToast(\'success\',\'Dispatching nearest tech to ' + item.name + '\')">Dispatch Technician</button>';
+            html += '</div></div>';
+
+            document.getElementById('detailContent').innerHTML = html;
+            document.getElementById('detailPanel').classList.add('open');
+            clearConnectionLines();
+            var infraPos = [item.lat, item.lng];
+
+            // Load IoT telemetry diagnostics
+            fetch('/api/map/infrastructure/' + item.id + '/iot-telemetry')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('infraIotData');
+                    if (!el) return;
+                    if (!data.available) {
+                        el.innerHTML = '<div class="md-section"><div class="md-section-title">IoT Diagnostics</div>' +
+                            '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">IoT data not available — run the simulator to generate telemetry</div></div>';
+                        return;
+                    }
+                    var h = '<div class="md-section"><div class="md-section-title">IoT Diagnostics</div>';
+                    if (data.summary) {
+                        var s = data.summary;
+                        var score = parseFloat(s.iot_health_score) || 0;
+                        var scoreColor = score >= 75 ? '#00A972' : score >= 45 ? '#FFAB2E' : '#FF4444';
+                        h += '<div style="margin-bottom:10px;">' +
+                            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                            '<span style="font-size:20px;font-weight:700;color:' + scoreColor + ';">' + Math.round(score) + '</span>' +
+                            '<span style="font-size:11px;color:var(--text-muted);">/ 100 Health Score</span></div>' +
+                            '<div style="background:var(--bg-tertiary);border-radius:4px;height:6px;overflow:hidden;">' +
+                            '<div style="width:' + score + '%;height:100%;background:' + scoreColor + ';border-radius:4px;transition:width 0.3s;"></div></div></div>';
+                        h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">';
+                        var metrics = [
+                            { label: 'Signal', value: (parseFloat(s.avg_signal_dbm) || 0).toFixed(0) + ' dBm' },
+                            { label: 'Throughput', value: (parseFloat(s.avg_throughput_mbps) || 0).toFixed(0) + ' Mbps' },
+                            { label: 'Latency', value: (parseFloat(s.avg_latency_ms) || 0).toFixed(1) + ' ms' },
+                            { label: 'Pkt Loss', value: (parseFloat(s.avg_packet_loss_pct) || 0).toFixed(2) + '%' },
+                            { label: 'Temp', value: (parseFloat(s.avg_temperature_c) || 0).toFixed(0) + '\u00B0C' },
+                            { label: 'Battery', value: (parseFloat(s.avg_battery_pct) || 0).toFixed(0) + '%' },
+                        ];
+                        metrics.forEach(function(m) {
+                            h += '<div style="background:var(--bg-tertiary);border-radius:6px;padding:6px 8px;text-align:center;">' +
+                                '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">' + m.label + '</div>' +
+                                '<div style="font-size:13px;font-weight:600;color:var(--text-primary);">' + m.value + '</div></div>';
+                        });
+                        h += '</div>';
+                        if (s.last_reading_time) {
+                            h += '<div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Last reading: ' + s.last_reading_time.replace('T', ' ').substring(0, 19) + ' UTC</div>';
+                        }
+                    }
+                    if (data.devices && data.devices.length) {
+                        h += '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin:8px 0 4px;">Device Readings (' + data.devices.length + ')</div>';
+                        h += '<ul class="md-wo-list" style="max-height:150px;overflow-y:auto;">';
+                        data.devices.forEach(function(d) {
+                            var devScore = parseFloat(d.battery_pct) || 50;
+                            var devColor = devScore >= 60 ? '#00A972' : devScore >= 30 ? '#FFAB2E' : '#FF4444';
+                            h += '<li class="md-wo-item">' +
+                                '<div class="md-wo-item-title">' + d.device_id + ' <span style="font-size:10px;color:' + devColor + ';">' + d.device_type + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + (parseFloat(d.signal_strength_dbm) || 0).toFixed(0) + ' dBm &bull; ' +
+                                (parseFloat(d.latency_ms) || 0).toFixed(1) + 'ms &bull; ' +
+                                (parseFloat(d.battery_pct) || 0).toFixed(0) + '% batt</div></li>';
+                        });
+                        h += '</ul>';
+                    }
+                    h += '</div>';
+                    el.innerHTML = h;
+                }).catch(function() {
+                    var el = document.getElementById('infraIotData');
+                    if (el) el.innerHTML = '';
+                });
+
+            // Load data-driven linked WOs and techs from the database
+            fetch('/api/map/infrastructure/' + item.id + '/linked')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('infraLinkedData');
+                    if (!el) return;
+                    var wos = data.work_orders || [];
+                    var techs = data.techs || [];
+
+                    if (!wos.length && !techs.length) {
+                        el.innerHTML = '<div class="md-section"><div class="md-section-title">Linked Work Orders</div><div style="color:var(--text-muted);font-size:12px;">No active work orders near this asset</div></div>';
+                        return;
+                    }
+
+                    var h = '';
+                    // Work orders near this asset
+                    if (wos.length) {
+                        h += '<div class="md-section"><div class="md-section-title">Nearby Work Orders (' + wos.length + ')</div><ul class="md-wo-list">';
+                        wos.forEach(function(wo) {
+                            h += '<li class="md-wo-item md-prio-' + wo.priority + '" style="cursor:pointer;" onclick="openOrderDetail(' + wo.id + ')">' +
+                                '<div class="md-wo-item-title">' + wo.number + ' <span style="font-size:11px;color:' + orderColor(wo.priority) + ';">' + wo.priority + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + wo.category + ' &bull; ' + wo.distance_km + ' km' +
+                                (wo.tech_name ? ' &bull; ' + wo.tech_name : ' &bull; <span style="color:#FFAB2E;">Unassigned</span>') + '</div></li>';
+                            // Draw line: infrastructure → work order
+                            if (wo.lat && wo.lng) {
+                                drawConnectionLine(infraPos, [wo.lat, wo.lng], orderColor(wo.priority), false);
+                            }
+                        });
+                        h += '</ul></div>';
+                    }
+
+                    // Assigned techs for those WOs
+                    if (techs.length) {
+                        h += '<div class="md-section"><div class="md-section-title">Assigned Technicians (' + techs.length + ')</div><ul class="md-wo-list">';
+                        techs.forEach(function(t) {
+                            var sc = t.status === 'available' ? '#00A972' : t.status === 'en_route' ? '#FFAB2E' : '#FF6F42';
+                            h += '<li class="md-wo-item" style="cursor:pointer;" onclick="openTechDetail(' + t.id + ')">' +
+                                '<div class="md-wo-item-title">' + t.name + ' <span style="font-size:11px;color:' + sc + ';">' + t.status.replace('_', ' ') + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + t.cert + ' &bull; ' + t.employee_id + '</div></li>';
+                            // Draw line: infrastructure → assigned tech
+                            if (t.lat && t.lng) {
+                                drawConnectionLine(infraPos, [t.lat, t.lng], sc, true);
+                            }
+                        });
+                        h += '</ul></div>';
+                    }
+
+                    el.innerHTML = h;
+                    zoomToConnections(infraPos);
+                }).catch(function() {});
+        }
+
+        function openInfraDetailById(infraId) {
+            var item = infraData.find(function(i) { return i.id === infraId; });
+            if (item) { openInfraDetail(item); }
+        }
+
+        // Load infrastructure on page load
+        loadInfrastructure();
+
+        // ── Velocity-predicted animation ────────────────────────────────
+        function startContinuousAnimation(entry) {
+            if (entry.animId) cancelAnimationFrame(entry.animId);
+            function tick() {
+                if (entry.velLat === 0 && entry.velLng === 0) {
+                    entry.animId = requestAnimationFrame(tick);
+                    return;
+                }
+                var now = performance.now();
+                var dt = (now - entry.lastFrame) / 1000;
+                entry.lastFrame = now;
+                if (dt > 0.5) dt = 0;
+                var pos = entry.marker.getLatLng();
+                entry.marker.setLatLng([pos.lat + entry.velLat * dt, pos.lng + entry.velLng * dt]);
+                entry.animId = requestAnimationFrame(tick);
+            }
+            entry.lastFrame = performance.now();
+            entry.animId = requestAnimationFrame(tick);
+        }
+
+        // ── Data loading ────────────────────────────────────────────────
+        var fetchInFlight = false;
+        function loadMapData() {
+            if (fetchInFlight) return;
+            fetchInFlight = true;
+            fetch('/api/map/data')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    fetchInFlight = false;
+                    if (data.error) { _consecutiveFailures++; return; }
+                    _consecutiveFailures = 0;
+                    _lastSuccessTime = Date.now();
+                    var now = performance.now();
+                    var elapsed = (now - lastPollTime) / 1000;
+                    if (elapsed < 0.1) elapsed = 1;
+                    lastPollTime = now;
+                    allData = data;
+                    // Region filter
+                    var regions = {};
+                    data.technicians.forEach(function(t) { regions[t.region] = true; });
+                    var select = document.getElementById('regionFilter');
+                    Object.keys(regions).sort().forEach(function(r) {
+                        if (!select.querySelector('option[value="' + r + '"]')) {
+                            var opt = document.createElement('option');
+                            opt.value = r; opt.textContent = r;
+                            select.appendChild(opt);
+                        }
+                    });
+                    updateMap(elapsed);
+                })
+                .catch(function() { fetchInFlight = false; _consecutiveFailures++; });
+        }
+
+        function isSlaAtRisk(sla_due) {
+            if (!sla_due) return false;
+            var due = new Date(sla_due);
+            var now = new Date();
+            return due > now && due < new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        }
+        function isSlaBreached(sla_due) {
+            if (!sla_due) return false;
+            return new Date(sla_due) <= new Date();
+        }
+
+        function updateMap(elapsed) {
+            var showTechs = document.getElementById('showTechs').checked;
+            var showOrders = document.getElementById('showOrders').checked;
+            var regionFilter = document.getElementById('regionFilter').value;
+            // Use server-side stats (unbiased, counts ALL open WOs)
+            var s = allData.stats || {};
+            var techCount = s.total_techs || 0, woCount = s.total_open || 0;
+            var critCount = s.critical || 0, riskCount = s.sla_at_risk || 0, breachCount = s.sla_breached || 0;
+
+            // ── Technician markers ──
+            var seenTechs = {};
+            if (showTechs) {
+                allData.technicians.forEach(function(t) {
+                    if (regionFilter && t.region !== regionFilter) return;
+                    seenTechs[t.id] = true;
+                    techCount++;
+                    var isMoving = t.status === 'en_route';
+
+                    if (techMarkerMap[t.id]) {
+                        var entry = techMarkerMap[t.id];
+                        var dLat = t.lat - entry.prevLat;
+                        var dLng = t.lng - entry.prevLng;
+                        if (Math.abs(dLat) > 0.00001 || Math.abs(dLng) > 0.00001) {
+                            entry.velLat = dLat / elapsed;
+                            entry.velLng = dLng / elapsed;
+                        } else {
+                            entry.velLat = 0; entry.velLng = 0;
+                        }
+                        entry.marker.setLatLng([t.lat, t.lng]);
+                        entry.prevLat = t.lat; entry.prevLng = t.lng;
+                        entry.lastFrame = performance.now();
+                        entry.marker.setIcon(createCircleIcon(techColor(t.status), 14, false));
+                        entry.techData = t;
+                    } else {
+                        var marker = L.marker([t.lat, t.lng], {
+                            icon: createCircleIcon(techColor(t.status), 14, false)
+                        }).addTo(map);
+                        marker.on('click', function() { openTechDetail(t.id); });
+                        var entry = {
+                            marker: marker, prevLat: t.lat, prevLng: t.lng,
+                            velLat: 0, velLng: 0, lastFrame: performance.now(),
+                            animId: null, techData: t
+                        };
+                        techMarkerMap[t.id] = entry;
+                        startContinuousAnimation(entry);
+                    }
+                    // Re-bind click with latest data
+                    techMarkerMap[t.id].marker.off('click');
+                    techMarkerMap[t.id].marker.on('click', (function(id) {
+                        return function() { openTechDetail(id); };
+                    })(t.id));
+                });
+            }
+            Object.keys(techMarkerMap).forEach(function(id) {
+                if (!seenTechs[id]) {
+                    if (techMarkerMap[id].animId) cancelAnimationFrame(techMarkerMap[id].animId);
+                    map.removeLayer(techMarkerMap[id].marker);
+                    delete techMarkerMap[id];
+                }
+            });
+
+            // ── Work order markers (skip device-linked WOs) ──
+            var seenOrders = {};
+            infraWoMap = {};  // reset each tick
+            if (showOrders) {
+                allData.work_orders.forEach(function(o) {
+                    // Check if this WO is linked to a nearby infrastructure asset
+                    var linked = nearestInfra(o.lat, o.lng);
+                    if (linked) {
+                        // Track for infra badge — don't create a WO marker
+                        if (!infraWoMap[linked.id]) infraWoMap[linked.id] = { count: 0, maxPriority: 'low' };
+                        infraWoMap[linked.id].count++;
+                        if ((PRIO_RANK[o.priority] || 4) < (PRIO_RANK[infraWoMap[linked.id].maxPriority] || 4)) {
+                            infraWoMap[linked.id].maxPriority = o.priority;
+                        }
+                        // Remove existing marker if it had one before
+                        if (orderMarkerMap[o.id]) {
+                            map.removeLayer(orderMarkerMap[o.id].marker);
+                            delete orderMarkerMap[o.id];
+                        }
+                        return;
+                    }
+
+                    seenOrders[o.id] = true;
+                    var shouldPulse = o.priority === 'critical' || isSlaBreached(o.sla_due);
+
+                    if (orderMarkerMap[o.id]) {
+                        orderMarkerMap[o.id].marker.setIcon(createOrderIcon(orderColor(o.priority), shouldPulse));
+                        orderMarkerMap[o.id].data = o;
+                    } else {
+                        var marker = L.marker([o.lat, o.lng], {
+                            icon: createOrderIcon(orderColor(o.priority), shouldPulse)
+                        }).addTo(map);
+                        marker.on('click', function() { openOrderDetail(o.id); });
+                        orderMarkerMap[o.id] = { marker: marker, data: o };
+                    }
+                    // Re-bind click
+                    orderMarkerMap[o.id].marker.off('click');
+                    orderMarkerMap[o.id].marker.on('click', (function(id) {
+                        return function() { openOrderDetail(id); };
+                    })(o.id));
+                });
+            }
+            Object.keys(orderMarkerMap).forEach(function(id) {
+                if (!seenOrders[id]) {
+                    map.removeLayer(orderMarkerMap[id].marker);
+                    delete orderMarkerMap[id];
+                }
+            });
+
+            // Update infrastructure icons with WO badges
+            updateInfraBadges();
+
+            document.getElementById('techCount').textContent = techCount;
+            document.getElementById('woCount').textContent = woCount;
+            document.getElementById('critCount').textContent = critCount;
+            document.getElementById('riskCount').textContent = riskCount;
+            document.getElementById('breachCount').textContent = breachCount;
+        }
+
+        // ── Detail Panel ────────────────────────────────────────────────
+        var detailPanel = document.getElementById('detailPanel');
+        var detailContent = document.getElementById('detailContent');
+
+        function closeDetailPanel() {
+            detailPanel.classList.remove('open');
+            clearConnectionLines();
+        }
+
+        function openTechDetail(techId) {
+            detailContent.innerHTML = '<div style="padding:40px;text-align:center;">' +
+                '<span class="loading-spinner"></span>' +
+                '<div style="color:var(--text-muted);margin-top:12px;font-size:13px;">Loading technician details...</div></div>';
+            detailPanel.classList.add('open');
+
+            fetch('/api/technicians/' + techId)
+                .then(function(r) { return r.json(); })
+                .then(function(t) {
+                    if (t.error) { detailContent.innerHTML = '<p style="color:#FF4444;">' + t.error + '</p>'; return; }
+
+                    var statusColor = techColor(t.status);
+                    var ratingClass = t.rating >= 4.5 ? 'md-good' : t.rating >= 3.5 ? 'md-warn' : 'md-danger';
+                    var ftfrClass = t.ftfr >= 85 ? 'md-good' : t.ftfr >= 70 ? 'md-warn' : 'md-danger';
+
+                    var html = '<div class="md-header">' +
+                        '<p class="md-name">' + t.name + '</p>' +
+                        '<p class="md-subtitle">' + t.employee_id + ' &bull; ' + t.region + ' &bull; ' + t.cert_level + '</p>' +
+                        '<span class="md-badge" style="background:' + statusColor + ';color:#fff;">' + t.status.replace('_', ' ') + '</span>' +
+                        '</div>';
+
+                    // En route destination banner
+                    if (t.status === 'en_route' && t.active_orders && t.active_orders.length) {
+                        var dest = t.active_orders[0];
+                        html += '<div style="background:rgba(255,171,46,0.1);border:1px solid rgba(255,171,46,0.3);border-radius:8px;padding:10px 12px;margin-bottom:12px;">' +
+                            '<div style="font-size:11px;color:#FFAB2E;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Heading to</div>' +
+                            '<div style="font-size:13px;color:var(--text-primary);font-weight:500;">' + (dest.address || 'Work order location') + '</div>' +
+                            '<div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + dest.number + ' &bull; ' + dest.category + (dest.customer ? ' &bull; ' + dest.customer : '') + '</div>' +
+                            '</div>';
+                    }
+
+                    // Performance stats
+                    html += '<div class="md-section"><div class="md-section-title">Performance</div>' +
+                        '<div class="md-stat-grid">' +
+                        '<div class="md-stat"><div class="md-stat-label">Rating</div><div class="md-stat-value ' + ratingClass + '">' + (t.rating ? t.rating.toFixed(1) + '/5' : '--') + '</div></div>' +
+                        '<div class="md-stat"><div class="md-stat-label">First Fix Rate</div><div class="md-stat-value ' + ftfrClass + '">' + (t.ftfr ? t.ftfr.toFixed(0) + '%' : '--') + '</div></div>' +
+                        '<div class="md-stat"><div class="md-stat-label">Jobs MTD</div><div class="md-stat-value">' + (t.jobs_mtd || 0) + '</div></div>' +
+                        '<div class="md-stat"><div class="md-stat-label">Avg Resolution</div><div class="md-stat-value">' + (t.avg_resolution_hours ? t.avg_resolution_hours + 'h' : '--') + '</div></div>' +
+                        '</div></div>';
+
+                    // Skills
+                    if (t.skills && t.skills.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Skills & Certifications</div>' +
+                            '<div class="md-skill-tags">';
+                        t.skills.forEach(function(s) {
+                            html += '<span class="md-skill-tag">' + s.name + (s.level ? ' (' + s.level + ')' : '') + '</span>';
+                        });
+                        html += '</div></div>';
+                    }
+
+                    // Contact
+                    html += '<div class="md-section"><div class="md-section-title">Contact</div>' +
+                        '<div style="font-size:13px;color:var(--text-primary);">' +
+                        (t.phone ? '<div>' + t.phone + '</div>' : '') +
+                        (t.email ? '<div style="color:var(--text-muted);font-size:12px;">' + t.email + '</div>' : '') +
+                        (t.hire_date ? '<div style="color:var(--text-muted);font-size:12px;margin-top:4px;">Hired: ' + t.hire_date + '</div>' : '') +
+                        '</div></div>';
+
+                    // Pre-compute route order (nearest-neighbor from tech position)
+                    var routeOrdered = [];
+                    if (t.active_orders && t.active_orders.length) {
+                        var remaining = t.active_orders.slice();
+                        var cur = t.lat && t.lng ? [t.lat, t.lng] : null;
+                        while (remaining.length) {
+                            if (cur) {
+                                var ni = 0, nd = Infinity;
+                                for (var ri = 0; ri < remaining.length; ri++) {
+                                    if (remaining[ri].lat && remaining[ri].lng) {
+                                        var dd = Math.pow(remaining[ri].lat - cur[0], 2) + Math.pow(remaining[ri].lng - cur[1], 2);
+                                        if (dd < nd) { nd = dd; ni = ri; }
+                                    }
+                                }
+                                routeOrdered.push(remaining.splice(ni, 1)[0]);
+                                var last = routeOrdered[routeOrdered.length - 1];
+                                cur = last.lat && last.lng ? [last.lat, last.lng] : cur;
+                            } else {
+                                routeOrdered.push(remaining.shift());
+                            }
+                        }
+                    }
+
+                    // Active work orders (optimized route order with stop numbers + leg distances)
+                    if (routeOrdered.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Optimized Service Route (' + routeOrdered.length + ' stops)</div>' +
+                            '<ul class="md-wo-list">';
+                        var prevPos = t.lat && t.lng ? [t.lat, t.lng] : null;
+                        routeOrdered.forEach(function(wo, idx) {
+                            var slaHtml = '';
+                            if (wo.sla_due) {
+                                if (isSlaBreached(wo.sla_due)) slaHtml = '<span style="color:#FF4444;font-size:11px;"> SLA BREACHED</span>';
+                                else if (isSlaAtRisk(wo.sla_due)) slaHtml = '<span style="color:#FFAB2E;font-size:11px;"> SLA at risk</span>';
+                            }
+                            // Compute leg distance from previous stop
+                            var legDist = '';
+                            if (prevPos && wo.lat && wo.lng) {
+                                var d = approxDistKm(prevPos[0], prevPos[1], wo.lat, wo.lng);
+                                legDist = '<span style="color:var(--text-muted);font-size:11px;float:right;">' + d.toFixed(1) + ' km</span>';
+                                prevPos = [wo.lat, wo.lng];
+                            }
+                            var stopBadge = '<span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:#60A5FA;color:#fff;font-size:10px;font-weight:700;text-align:center;line-height:20px;margin-right:6px;">' + (idx + 1) + '</span>';
+                            html += '<li class="md-wo-item md-prio-' + wo.priority + '" onclick="openOrderDetail(' + wo.id + ')">' +
+                                '<div class="md-wo-item-title">' + stopBadge + wo.number + ' <span style="font-size:11px;color:' + orderColor(wo.priority) + ';">' + wo.priority + '</span>' + slaHtml + legDist + '</div>' +
+                                '<div class="md-wo-item-sub">' + wo.category + ' &bull; ' + wo.status + (wo.customer ? ' &bull; ' + wo.customer : '') + '</div>' +
+                                '</li>';
+                        });
+                        html += '</ul></div>';
+                        // Placeholder for turn-by-turn directions (populated after OSRM response)
+                        html += '<div id="routeDirections" class="md-section" style="display:none;"></div>';
+                    }
+
+                    // Recent completions
+                    if (t.recent_completions && t.recent_completions.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Recent Completions</div>' +
+                            '<ul class="md-wo-list">';
+                        t.recent_completions.slice(0, 5).forEach(function(c) {
+                            html += '<li class="md-wo-item">' +
+                                '<div class="md-wo-item-title">' + c.number + ' <span style="font-size:11px;color:var(--text-muted);">' + c.category + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + (c.resolved_at ? new Date(c.resolved_at).toLocaleDateString() : '') +
+                                (c.rating ? ' &bull; ' + c.rating.toFixed(1) + ' stars' : '') + '</div>' +
+                                '</li>';
+                        });
+                        html += '</ul></div>';
+                    }
+
+                    // Nearby infrastructure
+                    if (t.nearby_infrastructure && t.nearby_infrastructure.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Nearby Infrastructure</div>' +
+                            '<ul class="md-wo-list">';
+                        t.nearby_infrastructure.forEach(function(inf) {
+                            var sColor = inf.status === 'critical' ? '#FF4444' : inf.status === 'maintenance_due' ? '#FFAB2E' : '#00A972';
+                            html += '<li class="md-wo-item" style="cursor:pointer;" onclick="openInfraDetailById(\'' + inf.id + '\')">' +
+                                '<div class="md-wo-item-title">' + inf.name + ' <span style="font-size:11px;color:' + sColor + ';">' + inf.status.replace('_', ' ') + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + inf.type_label + ' &bull; ' + inf.distance_km + ' km away</div>' +
+                                '</li>';
+                        });
+                        html += '</ul></div>';
+                    }
+
+                    detailContent.innerHTML = html;
+
+                    // Draw optimized service route: tech → stop 1 → stop 2 → ...
+                    // Uses the nearest-neighbor chain computed above (greedy TSP)
+                    clearConnectionLines();
+                    var techPos = t.lat && t.lng ? [t.lat, t.lng] : null;
+                    if (techPos && routeOrdered.length) {
+                        var routeStops = routeOrdered.filter(function(wo) {
+                            return wo.lat && wo.lng;
+                        });
+                        // Keep nearest-neighbor chain order — do NOT re-sort by raw distance
+                        // Cap at 8 stops to keep routing API fast
+                        if (routeStops.length > 8) routeStops = routeStops.slice(0, 8);
+                        if (routeStops.length) {
+                            drawSequentialRoute(techPos, routeStops, '#60A5FA');
+                            // Auto-zoom to fit tech + their stops
+                            var bounds = L.latLngBounds([techPos]);
+                            routeStops.forEach(function(s) { bounds.extend([s.lat, s.lng]); });
+                            map.fitBounds(bounds.pad(0.15), {maxZoom: 14});
+
+                            // Geofence circles around each stop (100m radius)
+                            routeStops.forEach(function(s) {
+                                var circle = L.circle([s.lat, s.lng], {
+                                    radius: 100, color: '#60A5FA', weight: 1,
+                                    opacity: 0.3, fillOpacity: 0.05, dashArray: '4,4'
+                                }).addTo(map);
+                                connectionLines.push(circle);
+                            });
+                        }
+                    }
+
+                    // Breadcrumb trail (recent GPS positions)
+                    if (techPos) {
+                        fetch('/api/map/breadcrumbs/' + t.id + '?hours=8&limit=200')
+                            .then(function(r) { return r.json(); })
+                            .then(function(bc) {
+                                if (bc.points && bc.points.length > 1) {
+                                    var trail = bc.points.map(function(p) { return [p.lat, p.lng]; });
+                                    var trailLine = L.polyline(trail, {
+                                        color: '#6B6B78', weight: 2, opacity: 0.4,
+                                        dashArray: '2,4'
+                                    }).addTo(map);
+                                    trailLine.bindTooltip('Trail: ' + bc.count + ' points, avg ' + bc.avg_speed_kmh + ' km/h', {sticky: true});
+                                    connectionLines.push(trailLine);
+                                }
+                            }).catch(function() {});
+                    }
+                });
+        }
+
+        function openOrderDetail(woId) {
+            detailContent.innerHTML = '<div style="color:var(--text-muted);padding:40px;text-align:center;">Loading...</div>';
+            detailPanel.classList.add('open');
+
+            fetch('/api/work-orders/' + woId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) { detailContent.innerHTML = '<p style="color:#FF4444;">' + data.error + '</p>'; return; }
+                    var wo = data.work_order;
+                    var prioColor = orderColor(wo.priority);
+
+                    var html = '<div class="md-header">' +
+                        '<p class="md-name">' + wo.work_order_number + '</p>' +
+                        '<p class="md-subtitle">' + wo.category + ' &bull; ' + (wo.title || wo.reported_issue || '').substring(0, 80) + '</p>' +
+                        '<span class="md-badge" style="background:' + prioColor + ';color:#fff;">' + wo.priority + '</span>' +
+                        ' <span class="md-badge" style="border:1px solid var(--text-muted);color:var(--text-muted);">' + wo.status + '</span>' +
+                        '</div>';
+
+                    // SLA Countdown
+                    if (wo.sla_due_at) {
+                        var due = new Date(wo.sla_due_at);
+                        var now = new Date();
+                        var diff = due - now;
+                        var breached = diff <= 0;
+                        var atRisk = !breached && diff < 2 * 60 * 60 * 1000;
+                        var hours = Math.abs(Math.floor(diff / 3600000));
+                        var mins = Math.abs(Math.floor((diff % 3600000) / 60000));
+                        var label = breached ? 'BREACHED ' + hours + 'h ' + mins + 'm ago' :
+                                    hours + 'h ' + mins + 'm remaining';
+                        var bg = breached ? 'rgba(255,68,68,0.2)' : atRisk ? 'rgba(255,171,46,0.2)' : 'rgba(0,169,114,0.2)';
+                        var fg = breached ? '#FF4444' : atRisk ? '#FFAB2E' : '#00A972';
+                        html += '<div class="md-sla-countdown" style="background:' + bg + ';color:' + fg + ';">' +
+                            'SLA: ' + label + '</div>';
+                    }
+
+                    // Customer info
+                    html += '<div class="md-section"><div class="md-section-title">Customer</div>' +
+                        '<div style="font-size:13px;">' +
+                        '<div style="font-weight:600;color:var(--text-primary);">' + (wo.customer_name || 'Unknown') + '</div>' +
+                        (wo.customer_tier ? '<span class="md-badge" style="border:1px solid #60A5FA;color:#60A5FA;margin-top:4px;">' + wo.customer_tier + '</span> ' : '') +
+                        (wo.account_number ? '<span style="color:var(--text-muted);font-size:12px;">#' + wo.account_number + '</span>' : '') +
+                        (wo.customer_phone ? '<div style="color:var(--text-muted);font-size:12px;margin-top:4px;">' + wo.customer_phone + '</div>' : '') +
+                        '</div></div>';
+
+                    // Assigned tech (clickable link to tech detail)
+                    html += '<div class="md-section"><div class="md-section-title">Assigned Technician</div>';
+                    if (wo.tech_name) {
+                        var techClickable = wo.assigned_technician_id ? ' style="cursor:pointer;text-decoration:underline;text-decoration-color:var(--text-muted);" onclick="openTechDetail(' + wo.assigned_technician_id + ')"' : '';
+                        html += '<div style="font-size:13px;">' +
+                            '<span' + techClickable + ' style="font-weight:600;color:var(--accent-primary, #60A5FA);cursor:pointer;">' + wo.tech_name + '</span>' +
+                            (wo.tech_employee_id ? ' <span style="color:var(--text-muted);font-size:12px;">' + wo.tech_employee_id + '</span>' : '') +
+                            (wo.certification_level ? ' &bull; <span style="color:var(--text-muted);font-size:12px;">' + wo.certification_level + '</span>' : '') +
+                            '</div>';
+                    } else {
+                        html += '<div style="color:#FFAB2E;font-size:13px;font-weight:600;">Unassigned</div>';
+                    }
+                    html += '</div>';
+
+                    // SLA Policy
+                    if (wo.sla_name) {
+                        html += '<div class="md-section"><div class="md-section-title">SLA Policy</div>' +
+                            '<div class="md-stat-grid">' +
+                            '<div class="md-stat"><div class="md-stat-label">Policy</div><div class="md-stat-value" style="font-size:13px;">' + wo.sla_name + '</div></div>' +
+                            '<div class="md-stat"><div class="md-stat-label">Response</div><div class="md-stat-value">' + (wo.response_hours || '--') + 'h</div></div>' +
+                            '<div class="md-stat"><div class="md-stat-label">Resolution</div><div class="md-stat-value">' + (wo.resolution_hours || '--') + 'h</div></div>' +
+                            (wo.penalty_per_hour ? '<div class="md-stat"><div class="md-stat-label">Penalty</div><div class="md-stat-value md-danger">$' + wo.penalty_per_hour + '/hr</div></div>' : '') +
+                            '</div></div>';
+                    }
+
+                    // Notes
+                    if (data.notes && data.notes.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Activity Log (' + data.notes.length + ')</div>' +
+                            '<ul class="md-wo-list">';
+                        data.notes.slice(0, 8).forEach(function(n) {
+                            html += '<li class="md-wo-item">' +
+                                '<div class="md-wo-item-title" style="font-size:12px;">' + n.author + ' <span style="color:var(--text-muted);font-weight:400;">' + n.type + '</span></div>' +
+                                '<div class="md-wo-item-sub">' + n.content.substring(0, 100) + '</div>' +
+                                '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">' + new Date(n.time).toLocaleString() + '</div>' +
+                                '</li>';
+                        });
+                        html += '</ul></div>';
+                    }
+
+                    // Parts
+                    if (data.parts && data.parts.length) {
+                        html += '<div class="md-section"><div class="md-section-title">Parts Used</div>' +
+                            '<ul class="md-wo-list">';
+                        data.parts.forEach(function(p) {
+                            html += '<li class="md-wo-item"><div class="md-wo-item-title" style="font-size:12px;">' + p.name + '</div>' +
+                                '<div class="md-wo-item-sub">Qty: ' + p.qty + ' &bull; ' + p.action + (p.manufacturer ? ' &bull; ' + p.manufacturer : '') + '</div></li>';
+                        });
+                        html += '</ul></div>';
+                    }
+
+                    // Linked infrastructure asset(s)
+                    if (data.nearby_infrastructure && data.nearby_infrastructure.length) {
+                        var primary = data.nearby_infrastructure[0];
+                        var sColor0 = primary.status === 'critical' ? '#FF4444' : primary.status === 'maintenance_due' ? '#FFAB2E' : '#00A972';
+                        html += '<div class="md-section"><div class="md-section-title">Linked Asset</div>' +
+                            '<div class="md-wo-item" style="cursor:pointer;padding:8px 10px;background:rgba(96,165,250,0.08);border-radius:6px;border-left:3px solid #60A5FA;margin-bottom:8px;" onclick="openInfraDetailById(\'' + primary.id + '\')">' +
+                            '<div class="md-wo-item-title" style="font-weight:600;">' + primary.name + ' <span style="font-size:11px;color:' + sColor0 + ';">' + primary.status.replace('_', ' ') + '</span></div>' +
+                            '<div class="md-wo-item-sub">' + primary.type_label + ' &bull; ' + primary.distance_km + ' km</div>' +
+                            '</div>';
+                        if (data.nearby_infrastructure.length > 1) {
+                            html += '<div class="md-section-title" style="margin-top:8px;font-size:11px;color:var(--text-muted);">Nearby Infrastructure</div>' +
+                                '<ul class="md-wo-list">';
+                            data.nearby_infrastructure.slice(1).forEach(function(inf) {
+                                var sColor = inf.status === 'critical' ? '#FF4444' : inf.status === 'maintenance_due' ? '#FFAB2E' : '#00A972';
+                                html += '<li class="md-wo-item" style="cursor:pointer;" onclick="openInfraDetailById(\'' + inf.id + '\')">' +
+                                    '<div class="md-wo-item-title">' + inf.name + ' <span style="font-size:11px;color:' + sColor + ';">' + inf.status.replace('_', ' ') + '</span></div>' +
+                                    '<div class="md-wo-item-sub">' + inf.type_label + ' &bull; ' + inf.distance_km + ' km away</div>' +
+                                    '</li>';
+                            });
+                            html += '</ul>';
+                        }
+                        html += '</div>';
+                    }
+
+                    // Actions
+                    if (wo.status !== 'completed' && wo.status !== 'cancelled') {
+                        html += '<div class="md-actions">';
+                        html += '<button class="md-action-btn md-action-primary" onclick="startReassign(' + wo.work_order_id + ')">Reassign</button>';
+                        if (wo.priority !== 'critical') {
+                            html += '<button class="md-action-btn md-action-warn" onclick="doEscalate(' + wo.work_order_id + ')">Escalate</button>';
+                        }
+                        html += '<button class="md-action-btn md-action-success" onclick="doCloseOrder(' + wo.work_order_id + ')">Close Out</button>';
+                        html += '</div>';
+                    }
+
+                    detailContent.innerHTML = html;
+
+                    // Draw data-driven connection line: WO → linked infrastructure asset
+                    clearConnectionLines();
+                    var woPos = wo.latitude && wo.longitude ? [parseFloat(wo.latitude), parseFloat(wo.longitude)] : null;
+                    if (woPos && data.nearby_infrastructure && data.nearby_infrastructure.length) {
+                        var asset = data.nearby_infrastructure[0];
+                        if (asset.lat && asset.lng) {
+                            drawConnectionLine(woPos, [asset.lat, asset.lng], '#60A5FA', false);
+                        }
+                        zoomToConnections(woPos);
+                    } else if (woPos) {
+                        zoomToConnections(woPos);
+                    }
+                });
+        }
+
+        // ── Map Actions ─────────────────────────────────────────────────
+        function startReassign(woId) {
+            fetch('/api/map/available-techs?wo_id=' + woId)
+                .then(function(r) { return r.json(); })
+                .then(function(techs) {
+                    if (!techs.length) { showMapToast('error', 'No available technicians'); return; }
+                    var html = '<div class="md-section"><div class="md-section-title">Select Technician</div>' +
+                        '<div class="md-reassign-list">';
+                    techs.forEach(function(t) {
+                        html += '<div class="md-reassign-item" onclick="doReassign(' + woId + ',' + t.id + ')">' +
+                            '<div><div class="md-reassign-name">' + t.name + '</div>' +
+                            '<div class="md-reassign-meta">' + t.region + ' &bull; ' + t.cert +
+                            (t.rating ? ' &bull; ' + t.rating.toFixed(1) + ' stars' : '') + '</div></div>' +
+                            '<div style="color:#60A5FA;font-size:12px;font-weight:600;">Select</div></div>';
+                    });
+                    html += '</div><button class="md-action-btn" style="margin-top:8px;background:var(--border);color:var(--text-primary);width:100%;" onclick="openOrderDetail(' + woId + ')">Cancel</button></div>';
+
+                    // Replace actions area
+                    var actionsEl = detailContent.querySelector('.md-actions');
+                    if (actionsEl) {
+                        actionsEl.outerHTML = html;
+                    }
+                });
+        }
+
+        function doReassign(woId, techId) {
+            fetch('/api/map/reassign', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: woId, technician_id: techId})
+            }).then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    showMapToast('success', 'Work order reassigned');
+                    openOrderDetail(woId);
+                } else {
+                    showMapToast('error', res.error || 'Reassign failed');
+                }
+            });
+        }
+
+        function doEscalate(woId) {
+            fetch('/api/map/escalate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: woId})
+            }).then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    showMapToast('success', res.number + ' escalated to critical');
+                    openOrderDetail(woId);
+                } else {
+                    showMapToast('error', res.error || 'Escalation failed');
+                }
+            });
+        }
+
+        function doCloseOrder(woId) {
+            fetch('/api/map/close', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({work_order_id: woId})
+            }).then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success) {
+                    showMapToast('success', res.number + ' completed');
+                    closeDetailPanel();
+                } else {
+                    showMapToast('error', res.error || 'Close failed');
+                }
+            });
+        }
+
+        function showMapToast(type, text) {
+            var toast = document.createElement('div');
+            toast.className = 'map-toast map-toast-' + type;
+            var icon = type === 'success' ? '&#10003; ' : type === 'warn' ? '&#9888; ' : '&#10007; ';
+            toast.innerHTML = icon + text;
+            document.body.appendChild(toast);
+            requestAnimationFrame(function() { toast.classList.add('show'); });
+            setTimeout(function() {
+                toast.classList.remove('show');
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 3000);
+        }
+
+        // ── Connection Health Tracking ────────────────────────────────
+        var _lastSuccessTime = Date.now();
+        var _consecutiveFailures = 0;
+
+        function updateHealthIndicator() {
+            var el = document.getElementById('mapHealth');
+            var label = document.getElementById('healthLabel');
+            var banner = document.getElementById('staleBanner');
+            var elapsed = Math.round((Date.now() - _lastSuccessTime) / 1000);
+
+            if (_consecutiveFailures >= 3) {
+                el.className = 'map-health disconnected';
+                label.textContent = 'Disconnected';
+                banner.classList.add('show');
+            } else if (elapsed > 15) {
+                el.className = 'map-health delayed';
+                label.textContent = 'Delayed \u2022 ' + elapsed + 's ago';
+                banner.classList.remove('show');
+            } else {
+                el.className = 'map-health live';
+                label.textContent = 'Live \u2022 ' + elapsed + 's ago';
+                banner.classList.remove('show');
+            }
+        }
+
+        // ── Territory Visualization ──────────────────────────────────
+        var territoryLayers = [];
+        var territoryLabels = [];
+        var territoriesData = [];
+        var territoriesLoaded = false;
+
+        function utilizationColor(util) {
+            // Green (under capacity) → Yellow → Red (overloaded)
+            if (util < 0.5) return { fill: '#00A97233', border: '#00A972' };
+            if (util < 0.8) return { fill: '#FFAB2E22', border: '#FFAB2E' };
+            return { fill: '#FF444422', border: '#FF4444' };
+        }
+
+        function loadTerritories() {
+            fetch('/api/map/territories')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    territoriesData = data.territories || [];
+                    territoriesLoaded = true;
+                    renderTerritories();
+                }).catch(function() { /* territories are optional */ });
+        }
+
+        function renderTerritories() {
+            // Clear existing
+            territoryLayers.forEach(function(l) { map.removeLayer(l); });
+            territoryLabels.forEach(function(l) { map.removeLayer(l); });
+            territoryLayers = [];
+            territoryLabels = [];
+
+            var show = document.getElementById('showTerritories').checked;
+            if (!show || !territoriesData.length) return;
+
+            territoriesData.forEach(function(t) {
+                var colors = utilizationColor(t.utilization);
+                var gj = t.geojson;
+                if (!gj || !gj.geometry) return;
+
+                var layer = L.geoJSON(gj, {
+                    style: {
+                        fillColor: colors.fill,
+                        color: colors.border,
+                        weight: 1.5,
+                        opacity: 0.6,
+                        fillOpacity: 0.15,
+                    }
+                }).addTo(map);
+
+                layer.bindTooltip(
+                    '<strong>' + t.name + '</strong><br>' +
+                    t.active_techs + ' active techs / ' + t.total_techs + ' total<br>' +
+                    'Utilization: ' + Math.round(t.utilization * 100) + '%',
+                    { sticky: true, opacity: 0.9 }
+                );
+                territoryLayers.push(layer);
+
+                // Territory name label at center
+                var labelMarker = L.marker([t.center.lat, t.center.lng], {
+                    icon: L.divIcon({
+                        className: 'territory-label',
+                        html: t.name,
+                        iconSize: [80, 14],
+                        iconAnchor: [40, 7]
+                    }),
+                    interactive: false,
+                    zIndexOffset: -200
+                }).addTo(map);
+                territoryLabels.push(labelMarker);
+            });
+        }
+
+        function toggleTerritories() {
+            if (!territoriesLoaded) loadTerritories();
+            else renderTerritories();
+        }
+
+        // ── Init ────────────────────────────────────────────────────────
+        loadMapData();
+        setInterval(loadMapData, POLL_MS);
+        setInterval(updateHealthIndicator, 2000);
+        setTimeout(function() { map.invalidateSize(); }, 200);
+
+        // Close panel on Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeDetailPanel();
+        });
+
+        // Touch: swipe down to close bottom sheet on mobile
+        (function() {
+            var panel = document.getElementById('detailPanel');
+            var startY = 0;
+            panel.addEventListener('touchstart', function(e) {
+                startY = e.touches[0].clientY;
+            }, { passive: true });
+            panel.addEventListener('touchmove', function(e) {
+                var dy = e.touches[0].clientY - startY;
+                if (dy > 80) closeDetailPanel();
+            }, { passive: true });
+        })();
+    </script>
+{% endblock %}

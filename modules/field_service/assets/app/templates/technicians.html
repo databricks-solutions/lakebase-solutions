@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% block title %}Technicians{% endblock %}
+{% block page_title %}Technician Roster{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Technician Roster</h1>
+                <p class="subtitle page-description dbx-only">Field workforce management — skills, availability, and performance metrics.</p>
+            </div>
+            <div class="powered-by" style="margin-top:8px;">
+                <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                <span>Powered by <strong>Databricks Lakebase</strong></span>
+            </div>
+        </div>
+
+        <!-- Summary stats -->
+        <div class="tech-roster-stats" id="rosterStats">
+            <div class="tech-roster-stat">
+                <span class="tech-roster-stat-value" id="rsTotalActive">--</span>
+                <span class="tech-roster-stat-label">Active Technicians</span>
+            </div>
+            <div class="tech-roster-stat">
+                <span class="tech-roster-stat-value" id="rsAvailable" style="color:var(--status-completed)">--</span>
+                <span class="tech-roster-stat-label">Available Now</span>
+            </div>
+            <div class="tech-roster-stat">
+                <span class="tech-roster-stat-value" id="rsAvgRating">--</span>
+                <span class="tech-roster-stat-label">Avg Rating</span>
+            </div>
+            <div class="tech-roster-stat">
+                <span class="tech-roster-stat-value" id="rsAvgFTFR">--</span>
+                <span class="tech-roster-stat-label">Avg Fix Rate</span>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="tech-roster-filters">
+            <input type="text" id="techSearch" class="tech-search-input" placeholder="Search by name, ID, or skill..." oninput="filterTechs()">
+            <select id="statusFilter" class="tech-filter-select" onchange="filterTechs()">
+                <option value="">All Statuses</option>
+                <option value="available">Available</option>
+                <option value="en_route">En Route</option>
+                <option value="on_site">On Site</option>
+                <option value="off_duty">Off Duty</option>
+            </select>
+            <select id="regionFilter" class="tech-filter-select" onchange="filterTechs()">
+                <option value="">All Regions</option>
+            </select>
+            <select id="certFilter" class="tech-filter-select" onchange="filterTechs()">
+                <option value="">All Levels</option>
+                <option value="lead">Lead</option>
+                <option value="senior">Senior</option>
+                <option value="standard">Standard</option>
+                <option value="junior">Junior</option>
+            </select>
+        </div>
+
+        <!-- Tech grid -->
+        <div class="tech-roster-grid" id="techGrid">
+            <div style="text-align:center; color:var(--text-muted); padding:40px;">Loading technicians...</div>
+        </div>
+
+        <!-- Slide-Out Detail Panel -->
+        <div id="techSlideout" class="tech-slideout" style="display:none;">
+            <div class="tech-slideout-backdrop" onclick="closeTechDetail()"></div>
+            <div class="tech-slideout-content">
+                <div class="tech-slideout-header">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div class="tech-detail-avatar" id="tdAvatar"></div>
+                        <div>
+                            <h2 id="tdName" style="margin:0;font-size:18px;"></h2>
+                            <div id="tdMeta" style="font-size:12px;color:var(--text-muted);margin-top:2px;"></div>
+                        </div>
+                    </div>
+                    <button class="tech-slideout-close" onclick="closeTechDetail()">&times;</button>
+                </div>
+
+                <div class="td-section">
+                    <div class="td-section-title">Performance</div>
+                    <div class="td-metrics-grid" id="tdMetrics"></div>
+                </div>
+
+                <div class="td-section">
+                    <div class="td-section-title">Skills & Certifications</div>
+                    <div id="tdSkills" class="td-skills-list"></div>
+                </div>
+
+                <div class="td-section">
+                    <div class="td-section-title">Active Work Orders</div>
+                    <div id="tdWorkOrders"></div>
+                </div>
+
+                <div class="td-actions">
+                    <a id="tdAssignLink" href="/dispatch" class="td-action-btn td-btn-primary">Assign Work Order</a>
+                    <a id="tdMapLink" href="/map" class="td-action-btn">View on Map</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var allTechs = [];
+
+        function statusBadgeColor(status) {
+            var map = { available: 'var(--status-completed)', en_route: 'var(--status-open)',
+                        on_site: 'var(--status-at-risk)', off_duty: 'var(--text-muted)',
+                        on_leave: 'var(--text-muted)', training: 'var(--status-assigned)' };
+            return map[status] || 'var(--text-muted)';
+        }
+
+        function certBadge(level) {
+            var colors = { lead: 'var(--status-breached)', senior: 'var(--status-at-risk)',
+                           standard: 'var(--status-assigned)', junior: 'var(--text-muted)' };
+            return '<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;border:1px solid ' + (colors[level] || 'var(--text-muted)') + ';color:' + (colors[level] || 'var(--text-muted)') + ';">' + level + '</span>';
+        }
+
+        function ratingStars(rating) {
+            if (!rating) return '<span style="color:var(--text-muted)">N/A</span>';
+            var full = Math.floor(rating);
+            var stars = '';
+            for (var i = 0; i < 5; i++) {
+                stars += '<span style="color:' + (i < full ? '#FFAB2E' : 'var(--text-muted)') + ';">&#9733;</span>';
+            }
+            return stars + ' <span style="font-size:12px;color:var(--text-secondary);">' + rating.toFixed(1) + '</span>';
+        }
+
+        function loadRoster() {
+            fetch('/api/technicians/roster')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    allTechs = data.technicians;
+
+                    // Stats
+                    document.getElementById('rsTotalActive').textContent = allTechs.length;
+                    document.getElementById('rsAvailable').textContent = allTechs.filter(function(t) { return t.status === 'available'; }).length;
+                    var ratings = allTechs.filter(function(t) { return t.rating; }).map(function(t) { return t.rating; });
+                    document.getElementById('rsAvgRating').textContent = ratings.length ? (ratings.reduce(function(a,b){return a+b;},0) / ratings.length).toFixed(1) : '--';
+                    var ftfrs = allTechs.filter(function(t) { return t.ftfr; }).map(function(t) { return t.ftfr; });
+                    document.getElementById('rsAvgFTFR').textContent = ftfrs.length ? (ftfrs.reduce(function(a,b){return a+b;},0) / ftfrs.length).toFixed(0) + '%' : '--';
+
+                    // Populate region filter
+                    var regions = {};
+                    allTechs.forEach(function(t) { regions[t.region] = true; });
+                    var sel = document.getElementById('regionFilter');
+                    Object.keys(regions).sort().forEach(function(r) {
+                        var opt = document.createElement('option');
+                        opt.value = r;
+                        opt.textContent = r;
+                        sel.appendChild(opt);
+                    });
+
+                    filterTechs();
+                });
+        }
+
+        function filterTechs() {
+            var search = document.getElementById('techSearch').value.toLowerCase();
+            var status = document.getElementById('statusFilter').value;
+            var region = document.getElementById('regionFilter').value;
+            var cert = document.getElementById('certFilter').value;
+
+            var filtered = allTechs.filter(function(t) {
+                if (status && t.status !== status) return false;
+                if (region && t.region !== region) return false;
+                if (cert && t.cert_level !== cert) return false;
+                if (search) {
+                    var hay = (t.name + ' ' + t.employee_id + ' ' + t.skills).toLowerCase();
+                    if (hay.indexOf(search) === -1) return false;
+                }
+                return true;
+            });
+
+            renderGrid(filtered);
+        }
+
+        function renderGrid(techs) {
+            var grid = document.getElementById('techGrid');
+            if (techs.length === 0) {
+                grid.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:40px;">No technicians match the current filters.</div>';
+                return;
+            }
+
+            grid.innerHTML = techs.map(function(t) {
+                var initials = (t.first_name[0] || '') + (t.last_name[0] || '');
+                var skills = t.skills ? t.skills.split(', ').slice(0, 3).map(function(s) {
+                    return '<span class="tech-skill-tag">' + s + '</span>';
+                }).join('') : '';
+                var moreSkills = t.skills ? t.skills.split(', ').length - 3 : 0;
+                if (moreSkills > 0) skills += '<span class="tech-skill-tag tech-skill-more">+' + moreSkills + '</span>';
+
+                return '<div class="tech-roster-card" onclick="openTechDetail(' + t.id + ')" style="cursor:pointer;">' +
+                    '<div class="tech-card-header">' +
+                        '<div class="tech-avatar" style="background:' + statusBadgeColor(t.status) + ';">' + initials + '</div>' +
+                        '<div class="tech-card-info">' +
+                            '<div class="tech-card-name">' + t.name + '</div>' +
+                            '<div class="tech-card-id">' + t.employee_id + ' &bull; ' + t.region + '</div>' +
+                        '</div>' +
+                        '<span class="tech-status-badge" style="background:' + statusBadgeColor(t.status) + ';">' + t.status.replace('_', ' ') + '</span>' +
+                    '</div>' +
+                    '<div class="tech-card-body">' +
+                        '<div class="tech-card-metrics">' +
+                            '<div class="tech-metric">' +
+                                '<span class="tech-metric-label">Rating</span>' +
+                                '<span class="tech-metric-value">' + ratingStars(t.rating) + '</span>' +
+                            '</div>' +
+                            '<div class="tech-metric">' +
+                                '<span class="tech-metric-label">Fix Rate</span>' +
+                                '<span class="tech-metric-value">' + (t.ftfr ? t.ftfr.toFixed(0) + '%' : 'N/A') + '</span>' +
+                            '</div>' +
+                            '<div class="tech-metric">' +
+                                '<span class="tech-metric-label">Jobs MTD</span>' +
+                                '<span class="tech-metric-value">' + (t.jobs_mtd || 0) + '</span>' +
+                            '</div>' +
+                            '<div class="tech-metric">' +
+                                '<span class="tech-metric-label">Active</span>' +
+                                '<span class="tech-metric-value">' + t.active_orders + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="tech-card-level">' + certBadge(t.cert_level) + ' &bull; ' + t.shift + ' shift</div>' +
+                        '<div class="tech-card-skills">' + skills + '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        /* -- Tech Detail Slide-Out -- */
+        function openTechDetail(techId) {
+            document.getElementById('techSlideout').style.display = 'flex';
+            // Load tech details
+            fetch('/api/technicians/' + techId)
+                .then(function(r) { return r.json(); })
+                .then(function(t) {
+                    if (t.error) return;
+                    var initials = ((t.first_name || '')[0] || '') + ((t.last_name || '')[0] || '');
+                    document.getElementById('tdAvatar').textContent = initials;
+                    document.getElementById('tdAvatar').style.background = statusBadgeColor(t.status);
+                    document.getElementById('tdName').textContent = (t.first_name || '') + ' ' + (t.last_name || '');
+                    document.getElementById('tdMeta').innerHTML =
+                        (t.employee_id || '') + ' &middot; ' + (t.region || '') + ' &middot; ' +
+                        certBadge(t.certification_level || '') + ' &middot; ' +
+                        '<span style="color:' + statusBadgeColor(t.status) + ';">' + (t.status || '').replace('_',' ') + '</span>';
+
+                    // Metrics
+                    document.getElementById('tdMetrics').innerHTML =
+                        '<div class="td-metric"><div class="td-metric-val">' + ratingStars(t.avg_rating) + '</div><div class="td-metric-label">Rating</div></div>' +
+                        '<div class="td-metric"><div class="td-metric-val">' + (t.first_time_fix_rate ? t.first_time_fix_rate.toFixed(0) + '%' : 'N/A') + '</div><div class="td-metric-label">Fix Rate</div></div>' +
+                        '<div class="td-metric"><div class="td-metric-val">' + (t.completed_this_month || 0) + '</div><div class="td-metric-label">Completed MTD</div></div>' +
+                        '<div class="td-metric"><div class="td-metric-val">' + (t.active_work_orders || 0) + '</div><div class="td-metric-label">Active WOs</div></div>';
+
+                    // Skills
+                    var skillsHtml = '';
+                    if (t.skills && t.skills.length) {
+                        skillsHtml = t.skills.map(function(s) {
+                            var pColor = s.proficiency === 'expert' ? 'var(--accent-success, #00875A)' :
+                                         s.proficiency === 'intermediate' ? 'var(--lcars-sky, #2563EB)' : 'var(--text-muted)';
+                            var pct = s.proficiency === 'expert' ? 100 : s.proficiency === 'intermediate' ? 66 : 33;
+                            var expWarn = s.expires_soon ? ' <span style="color:var(--error, #CC2211);font-size:10px;">&#9888; Expires ' + s.expires_at + '</span>' : '';
+                            return '<div class="td-skill-row">' +
+                                '<span class="td-skill-name">' + s.skill_name + expWarn + '</span>' +
+                                '<div class="td-skill-bar-track"><div class="td-skill-bar" style="width:' + pct + '%;background:' + pColor + ';"></div></div>' +
+                                '<span class="td-skill-level" style="color:' + pColor + ';">' + s.proficiency + '</span>' +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        skillsHtml = '<div style="color:var(--text-muted);font-size:12px;">No skills data available</div>';
+                    }
+                    document.getElementById('tdSkills').innerHTML = skillsHtml;
+
+                    // Active WOs
+                    var woHtml = '';
+                    if (t.work_orders && t.work_orders.length) {
+                        woHtml = t.work_orders.map(function(w) {
+                            return '<div class="td-wo-item">' +
+                                '<strong>' + w.number + '</strong>' +
+                                '<span class="badge priority-' + w.priority + '" style="font-size:9px;padding:1px 5px;">' + w.priority + '</span>' +
+                                '<span style="font-size:11px;color:var(--text-muted);">' + w.category + '</span>' +
+                                '<span class="badge status-' + w.status + '" style="font-size:9px;padding:1px 5px;">' + w.status + '</span>' +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        woHtml = '<div style="color:var(--text-muted);font-size:12px;">No active work orders</div>';
+                    }
+                    document.getElementById('tdWorkOrders').innerHTML = woHtml;
+                });
+        }
+        function closeTechDetail() {
+            document.getElementById('techSlideout').style.display = 'none';
+        }
+
+        loadRoster();
+        setInterval(loadRoster, 30000);
+    </script>
+
+    <style>
+        /* -- Tech Slide-Out -- */
+        .tech-slideout {
+            position:fixed;top:0;left:0;right:0;bottom:0;z-index:9000;display:flex;justify-content:flex-end;
+        }
+        .tech-slideout-backdrop {
+            position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);
+        }
+        .tech-slideout-content {
+            position:relative;width:420px;max-width:90vw;background:var(--bg-primary);
+            padding:24px;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,0.2);
+            animation:techSlideIn 0.25s ease;
+        }
+        @keyframes techSlideIn { from{transform:translateX(100%)} to{transform:translateX(0)} }
+        .tech-slideout-header {
+            display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;
+        }
+        .tech-slideout-close {
+            background:none;border:none;font-size:24px;color:var(--text-muted);cursor:pointer;
+        }
+        .tech-detail-avatar {
+            width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+            font-weight:bold;font-size:18px;color:#fff;flex-shrink:0;
+        }
+        .td-section { margin-bottom:20px; }
+        .td-section-title {
+            font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);
+            margin-bottom:8px;font-family:'Arial Narrow',Arial,sans-serif;
+        }
+        .td-metrics-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+        .td-metric {
+            background:var(--bg-secondary);border:1px solid var(--border-color, var(--border));
+            border-radius:6px;padding:10px;text-align:center;
+        }
+        .td-metric-val { font-size:16px;font-weight:600;color:var(--text-primary); }
+        .td-metric-label { font-size:10px;color:var(--text-muted);margin-top:2px; }
+        .td-skill-row { display:flex;align-items:center;gap:8px;padding:4px 0; }
+        .td-skill-name { flex:1;font-size:12px;min-width:0; }
+        .td-skill-bar-track { width:60px;height:4px;background:var(--bg-secondary);border-radius:2px;flex-shrink:0; }
+        .td-skill-bar { height:100%;border-radius:2px; }
+        .td-skill-level { font-size:10px;font-weight:600;width:80px;text-align:right;flex-shrink:0; }
+        .td-wo-item {
+            display:flex;align-items:center;gap:8px;padding:6px 0;
+            border-bottom:1px solid var(--border-color, var(--border));font-size:12px;
+        }
+        .td-actions { display:flex;gap:10px;margin-top:20px; }
+        .td-action-btn {
+            padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;
+            border:1px solid var(--border-color, var(--border));color:var(--text-primary);
+            background:var(--bg-secondary);text-align:center;flex:1;
+        }
+        .td-btn-primary { background:var(--accent-secondary);color:#fff;border-color:var(--accent-secondary); }
+        .td-action-btn:hover { opacity:0.85; }
+        /* Reuse badges from dispatch */
+        .badge { display:inline-block;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:bold;text-transform:uppercase;font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:0.5px; }
+        .priority-emergency { background:var(--lcars-mars, #FF4444);color:#fff; }
+        .priority-high { background:var(--lcars-sunflower, #FFAB2E);color:#000; }
+        .priority-medium { background:var(--lcars-butterscotch, #FF6F42);color:#000; }
+        .priority-low { background:var(--lcars-gray, #6B6B78);color:#000; }
+        .status-open { background:var(--lcars-violet, #8B5CF6);color:#fff; }
+        .status-assigned { background:var(--lcars-sky, #60A5FA);color:#000; }
+        .status-in_progress { background:var(--lcars-butterscotch, #FF6F42);color:#000; }
+    </style>
+{% endblock %}

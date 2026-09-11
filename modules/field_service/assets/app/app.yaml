@@ -1,0 +1,50 @@
+# Field-service Databricks App runtime config — TEMPLATE.
+#
+# This committed file is a sanitized template: it carries NO real workspace
+# hosts, IDs, emails, or URLs. The module's `app` deploy step renders the live
+# app.yaml at deploy time from the deployment's provisioning results (endpoint
+# host, Genie space ids, warehouse id, catalog, serving-endpoint names, dashboard
+# URL, etc.) and injects the PG connection secrets from the standalone secret
+# scope via `valueFrom`. Placeholder tokens below are overwritten at deploy.
+command:
+- python
+- app.py
+env:
+# ── Lakebase / Postgres connection (native PG auth via the secret scope) ──
+- name: PGHOST
+  value: __INJECTED_AT_DEPLOY__
+- name: PGDATABASE
+  value: __INJECTED_AT_DEPLOY__
+- name: PGUSER
+  valueFrom: pguser
+- name: PGPASSWORD
+  valueFrom: pgpassword
+# ── Genie spaces (ids injected from the genie step's results) ──
+- name: GENIE_SPACE_POSTGRES
+  value: __INJECTED_AT_DEPLOY__
+- name: GENIE_SPACE_FIELD_OPS
+  value: __INJECTED_AT_DEPLOY__
+- name: GENIE_SPACE_NETWORK_HEALTH
+  value: __INJECTED_AT_DEPLOY__
+- name: GENIE_SPACE_SLA_WORKFORCE
+  value: __INJECTED_AT_DEPLOY__
+# ── Analytics / pipeline / agent (injected from their steps' results) ──
+- name: SQL_WAREHOUSE_ID
+  value: __INJECTED_AT_DEPLOY__
+- name: PIPELINE_CATALOG
+  value: __INJECTED_AT_DEPLOY__
+- name: AGENT_ENDPOINT_NAME
+  value: __INJECTED_AT_DEPLOY__
+- name: DASHBOARD_EMBED_URL
+  value: __INJECTED_AT_DEPLOY__
+- name: NOTEBOOK_PATH
+  value: __INJECTED_AT_DEPLOY__
+# ── Identity (injected from the deployment context) ──
+- name: LAKEBASE_PROJECT_ID
+  value: __INJECTED_AT_DEPLOY__
+- name: LAKEBASE_TYPE
+  value: autoscaling
+- name: INSTANCE_NAME
+  value: __INJECTED_AT_DEPLOY__
+- name: APP_NAME
+  value: __INJECTED_AT_DEPLOY__

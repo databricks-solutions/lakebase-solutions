@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "my-postgres-data.monitoring.active_connections"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.blocking_queries"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.cache_hit_ratio"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.connection_stats"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.database_size_stats"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.long_running_queries"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.maintenance_recommendations"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.pg_stat_statements"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.pg_stat_statements_info"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.query_performance_log"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.replication_lag_history"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.replication_status"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.table_size_stats"
+      },
+      {
+        "identifier": "my-postgres-data.monitoring.table_stats"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "01f106e7b7d716b98ccc6fbb664156f1",
+        "content": [
+          " - Total bytes should always be evaluated and converted to gigabytes"
+        ]
+      }
+    ]
+  }
+}

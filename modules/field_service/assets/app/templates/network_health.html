@@ -1,0 +1,943 @@
+{% extends "base.html" %}
+{% block title %}Network Health{% endblock %}
+{% block page_title %}Network Health & Maintenance{% endblock %}
+
+{% block content %}
+    <style>
+        .source-badge {
+            display:inline-flex;align-items:center;gap:4px;
+            padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;
+            letter-spacing:0.3px;text-transform:uppercase;vertical-align:middle;
+            margin-left:8px;
+        }
+        .source-badge-uc {
+            background:rgba(255,106,0,0.12);color:#FF6A00;border:1px solid rgba(255,106,0,0.25);
+        }
+        .source-badge-pg {
+            background:rgba(0,169,114,0.12);color:#00A972;border:1px solid rgba(0,169,114,0.25);
+        }
+        .source-badge img { height:12px;width:12px;opacity:0.85; }
+        .section-loading {
+            display:flex;align-items:center;justify-content:center;gap:8px;
+            padding:40px 20px;color:var(--text-muted);font-size:13px;
+        }
+        /* ── Blast Radius ── */
+        @keyframes blastPulse {
+            0%, 100% { r: attr(r); opacity: 0.9; }
+            50% { opacity: 1; }
+        }
+        .blast-panel {
+            position:absolute;top:8px;right:8px;width:250px;z-index:10;
+            background:var(--bg-secondary,#1E1E24);border:1px solid var(--border-primary,#3A3A42);
+            border-radius:8px;padding:14px;font-size:12px;color:var(--text-primary,#E8E8ED);
+            box-shadow:0 8px 24px rgba(0,0,0,0.4);
+        }
+        .blast-panel-header {
+            display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+        }
+        .blast-panel-title {
+            font-size:13px;font-weight:700;color:#FF6A00;
+        }
+        .blast-panel-close {
+            background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;
+        }
+        .blast-panel-close:hover { color:var(--text-primary); }
+        .blast-stat {
+            display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-primary,#2A2A32);
+        }
+        .blast-stat:last-child { border-bottom:none; }
+        .blast-stat-label { color:var(--text-secondary,#8E8EA0); }
+        .blast-stat-value { font-weight:600; }
+        .blast-tier {
+            display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;
+            background:rgba(255,106,0,0.15);color:#FF6A00;margin-bottom:8px;text-transform:uppercase;
+        }
+        .incident-row { cursor:pointer;transition:background 0.15s; }
+        .incident-row:hover { background:var(--bg-tertiary,#2A2A32) !important; }
+    </style>
+
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Network Health & Maintenance</h1>
+                <p class="subtitle page-description dbx-only">Infrastructure risk, outage analytics, and IoT health — combining Managed Iceberg pipeline data with Lakebase operational context.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+                <button onclick="loadAll()" style="padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">Refresh</button>
+                <span id="nhLastUpdate" style="font-size:11px;color:var(--text-muted);"></span>
+            </div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="analytics-kpis" id="nhKpis">
+            <div class="analytics-kpi analytics-kpi-danger">
+                <div class="analytics-kpi-label">Critical Nodes</div>
+                <div class="analytics-kpi-value" id="nhCritical">--</div>
+                <div class="analytics-kpi-sub">Immediate attention</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">High Risk</div>
+                <div class="analytics-kpi-value" id="nhHighRisk">--</div>
+                <div class="analytics-kpi-sub">Critical + High</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Avg Health Score</div>
+                <div class="analytics-kpi-value" id="nhAvgHealth">--</div>
+                <div class="analytics-kpi-sub">Network-wide</div>
+            </div>
+            <div class="analytics-kpi analytics-kpi-warn">
+                <div class="analytics-kpi-label">Active Incidents</div>
+                <div class="analytics-kpi-value" id="nhActiveIncidents">--</div>
+                <div class="analytics-kpi-sub">Open / Investigating</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Regions Monitored</div>
+                <div class="analytics-kpi-value" id="nhRegions">--</div>
+                <div class="analytics-kpi-sub">With health data</div>
+            </div>
+        </div>
+
+        <!-- ═══ Lakebase Section (loads instantly) ═══ -->
+
+        <!-- Customer Impact + Network Repairs -->
+        <div class="analytics-charts-row" style="margin-top:20px;">
+            <div class="analytics-chart-card">
+                <div class="analytics-chart-title">Customer Impact by Region <span class="source-badge source-badge-pg">Lakebase</span></div>
+                <div id="customerImpact" style="min-height:150px;">
+                    <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading...</span></div>
+                </div>
+            </div>
+            <div class="analytics-chart-card">
+                <div class="analytics-chart-title">Network-Linked Repairs (7 Days) <span class="source-badge source-badge-pg">Lakebase</span></div>
+                <div id="networkWOs" style="min-height:150px;">
+                    <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading...</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Correlated Network Incidents -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header">Correlated Incidents (Alarm → Root Cause) <span class="source-badge source-badge-pg">Lakebase</span></div>
+            <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;" id="incidentKpis">
+                <div class="section-loading"><span class="loading-spinner sm"></span><span>Loading incidents...</span></div>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="incidentTable">
+                    <thead>
+                        <tr>
+                            <th>Incident</th>
+                            <th>Severity</th>
+                            <th>Classification</th>
+                            <th>Region</th>
+                            <th>Status</th>
+                            <th>Nodes</th>
+                            <th>Customers</th>
+                            <th>Alarms</th>
+                            <th>MTTR</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidentBody">
+                        <tr><td colspan="9" style="text-align:center;color:var(--text-muted);"><span class="loading-spinner sm" style="margin-right:8px;"></span>Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ═══ Unity Catalog + Iceberg Section (warehouse — may take a moment) ═══ -->
+
+        <!-- Maintenance Risk Table -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header">Top Maintenance Risk Nodes <span class="source-badge source-badge-uc"><img src="/static/unity-catalog-icon-full-color.webp" alt="">UC + Iceberg</span></div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="riskTable">
+                    <thead>
+                        <tr>
+                            <th>Node</th>
+                            <th>Type</th>
+                            <th>Region</th>
+                            <th>Risk Score</th>
+                            <th>Risk Level</th>
+                            <th>Health</th>
+                            <th>Days Since Maint</th>
+                            <th>Outages</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="riskBody">
+                        <tr><td colspan="9" class="section-loading"><span class="loading-spinner sm"></span><span>Waiting for SQL Warehouse...</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Network Topology + Outage Summary -->
+        <div class="analytics-charts-row" style="margin-top:20px;">
+            <div class="analytics-chart-card" style="flex:2;">
+                <div class="analytics-chart-title">Network Topology & Dependencies <span class="source-badge source-badge-uc"><img src="/static/unity-catalog-icon-full-color.webp" alt="">UC + Iceberg</span></div>
+                <div id="topoGraph" style="min-height:420px;position:relative;overflow:hidden;">
+                    <svg id="topoSvg" width="100%" height="420"></svg>
+                </div>
+                <div id="topoLegend" style="display:flex;gap:16px;padding:8px 12px;font-size:11px;color:var(--text-muted,#6B6B78);flex-wrap:wrap;">
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#00A972;margin-right:4px;"></span>Healthy</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFAB2E;margin-right:4px;"></span>Degraded</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF4444;margin-right:4px;"></span>Critical</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FF6A00;margin-right:4px;"></span>Blast Radius</span>
+                    <span style="margin-left:auto;font-size:10px;">Click a node to see impact blast radius</span>
+                </div>
+            </div>
+            <div class="analytics-chart-card" style="flex:1;">
+                <div class="analytics-chart-title">Recent Outages (7 Days) <span class="source-badge source-badge-uc"><img src="/static/unity-catalog-icon-full-color.webp" alt="">UC + Iceberg</span></div>
+                <div id="outageList" style="min-height:200px;max-height:400px;overflow-y:auto;">
+                    <div class="section-loading"><span class="loading-spinner sm"></span><span>Waiting for SQL Warehouse...</span></div>
+                </div>
+                <div style="margin-top:12px;">
+                    <div class="analytics-chart-title" style="margin-bottom:8px;">Regional Summary <span class="source-badge source-badge-uc"><img src="/static/unity-catalog-icon-full-color.webp" alt="">UC + Iceberg</span></div>
+                    <div id="regionalHealth">
+                        <div class="section-loading"><span class="loading-spinner sm"></span><span>Waiting for SQL Warehouse...</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IoT Device Health -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header">IoT Device Health by Infrastructure <span class="source-badge source-badge-uc"><img src="/static/unity-catalog-icon-full-color.webp" alt="">UC + Iceberg</span></div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="iotTable">
+                    <thead>
+                        <tr>
+                            <th>Infrastructure</th>
+                            <th>Devices</th>
+                            <th>Avg Battery</th>
+                            <th>Avg Signal</th>
+                            <th>Critical</th>
+                            <th>Warning</th>
+                            <th>Healthy</th>
+                        </tr>
+                    </thead>
+                    <tbody id="iotBody">
+                        <tr><td colspan="7" class="section-loading"><span class="loading-spinner sm"></span><span>Waiting for SQL Warehouse...</span></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="nhToast" style="display:none;position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--accent-success, #00875A);color:#fff;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.2);"></div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+    <script>
+        function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+        // ── Module-level state for blast radius ──
+        var pgRegionData = {};       // regionName → {customers, active_wos, active_repairs}
+        var _graphNodes = [];
+        var _graphLinks = [];
+        var _nodeSelection = null;
+        var _linkSelection = null;
+        var _svgSelection = null;
+        var _blastActive = false;
+        var _blastSourceId = null;
+        var _healthColorFn = null;
+        var _usTopoCache = null;
+        var _projection = null;
+        var _regionPaths = null;
+
+        var REGION_CENTERS = {
+            'PNW': [-120.5, 45.5], 'SW': [-111.5, 34.5], 'SC': [-95.5, 32.0],
+            'SE': [-82.0, 33.5],   'MW': [-87.5, 41.0],  'NE': [-74.5, 41.5]
+        };
+
+        // FIPS code → region code (us-atlas uses FIPS as feature id)
+        var STATE_FIPS_TO_REGION = {
+            '53':'PNW','41':'PNW','16':'PNW',
+            '04':'SW','35':'SW','32':'SW','49':'SW',
+            '48':'SC','40':'SC','05':'SC','22':'SC',
+            '12':'SE','13':'SE','37':'SE','45':'SE','51':'SE',
+            '17':'MW','39':'MW','26':'MW','18':'MW','55':'MW',
+            '36':'NE','34':'NE','42':'NE','25':'NE','09':'NE'
+        };
+
+        function nhToast(msg, isError) {
+            var t = document.getElementById('nhToast');
+            t.textContent = msg;
+            t.style.background = isError ? 'var(--error, #CC2211)' : 'var(--accent-success, #00875A)';
+            t.style.display = '';
+            setTimeout(function(){ t.style.display='none'; }, 4000);
+        }
+
+        function createWOFromNode(nodeName, nodeType, region, category) {
+            var priority = category === 'repair' ? 'high' : 'medium';
+            var title = category === 'repair'
+                ? 'Repair: ' + nodeName + ' (' + nodeType + ')'
+                : 'Scheduled Maintenance: ' + nodeName + ' (' + nodeType + ')';
+            var desc = category === 'repair'
+                ? 'Network node ' + nodeName + ' in ' + region + ' flagged as high risk. Requires immediate inspection and repair.'
+                : 'Preventive maintenance for ' + nodeName + ' in ' + region + '. Node type: ' + nodeType + '.';
+
+            fetch('/api/dispatch/create-work-order', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    title: title,
+                    description: desc,
+                    category: category === 'repair' ? 'repair' : 'maintenance',
+                    subcategory: category === 'repair' ? 'equipment_failure' : 'firmware_update',
+                    priority: priority,
+                    region: region
+                })
+            }).then(function(r){ return r.json(); }).then(function(d) {
+                if (d.error) { nhToast('Error: ' + d.error, true); return; }
+                nhToast('Work Order WO-' + d.work_order_id + ' created');
+            }).catch(function(){ nhToast('Network error', true); });
+        }
+
+        function riskBadge(level) {
+            var colors = {
+                critical: 'var(--status-breached)', high: 'var(--status-at-risk)',
+                medium: 'var(--status-open)', low: 'var(--status-completed)'
+            };
+            var c = colors[level] || 'var(--text-muted)';
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid ' + c + ';color:' + c + ';">' + level + '</span>';
+        }
+
+        function healthBar(score) {
+            if (score === null || score === undefined) return '--';
+            var pct = Math.min(Math.max(score, 0), 100);
+            var color = pct >= 80 ? 'var(--status-completed)' : pct >= 60 ? 'var(--status-at-risk)' : 'var(--status-breached)';
+            return '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<div style="flex:1;height:6px;background:var(--bg-secondary);border-radius:3px;min-width:60px;">' +
+                '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;"></div></div>' +
+                '<span style="font-size:12px;font-weight:600;color:' + color + ';">' + Math.round(pct) + '</span></div>';
+        }
+
+        // ── Lakebase PG data (fast) ───────────────────────────────────
+        function loadPgData() {
+            fetch('/api/network-health/pg-summary')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+
+                    // Store PG data for blast radius panel (key by both name and code)
+                    var ciData = data.customer_impact || [];
+                    pgRegionData = {};
+                    ciData.forEach(function(ci) {
+                        var entry = { customers: ci.customers, active_wos: ci.active_wos, active_repairs: ci.active_repairs };
+                        pgRegionData[ci.region] = entry;
+                        if (ci.region_code) pgRegionData[ci.region_code] = entry;
+                    });
+
+                    // Customer impact by region
+                    var ciEl = document.getElementById('customerImpact');
+                    if (ciData.length === 0) {
+                        ciEl.innerHTML = '<div style="color:var(--text-muted);padding:20px;">No customer data.</div>';
+                    } else {
+                        ciEl.innerHTML = '<table class="dispatch-table"><thead><tr>' +
+                            '<th>Region</th><th>Customers</th><th>Active WOs</th><th>Active Repairs</th><th>Impact</th></tr></thead><tbody>' +
+                            ciData.map(function(ci) {
+                                var impact = ci.active_repairs > 100 ? 'high' : ci.active_repairs > 20 ? 'medium' : 'low';
+                                var impactColor = impact === 'high' ? 'var(--status-breached)' : impact === 'medium' ? 'var(--status-at-risk)' : 'var(--status-completed)';
+                                return '<tr>' +
+                                    '<td><strong>' + ci.region + '</strong></td>' +
+                                    '<td>' + (ci.customers || 0).toLocaleString() + '</td>' +
+                                    '<td>' + (ci.active_wos || 0).toLocaleString() + '</td>' +
+                                    '<td style="font-weight:600;color:' + impactColor + ';">' + (ci.active_repairs || 0).toLocaleString() + '</td>' +
+                                    '<td><span style="color:' + impactColor + ';font-weight:600;text-transform:uppercase;font-size:11px;">' + impact + '</span></td>' +
+                                '</tr>';
+                            }).join('') + '</tbody></table>';
+                    }
+
+                    // Network-linked work orders
+                    var nwEl = document.getElementById('networkWOs');
+                    var nwData = data.network_work_orders || [];
+                    if (nwData.length === 0) {
+                        nwEl.innerHTML = '<div style="color:var(--text-muted);padding:20px;">No repair WOs in last 7 days.</div>';
+                    } else {
+                        var totalRepairs = nwData.reduce(function(s, w) { return s + w.count; }, 0);
+                        var totalBreached = nwData.reduce(function(s, w) { return s + w.sla_breached; }, 0);
+                        nwEl.innerHTML = '<div style="display:flex;gap:16px;margin-bottom:12px;">' +
+                            '<div style="padding:8px 14px;background:var(--bg-secondary);border-radius:6px;"><strong>' + totalRepairs.toLocaleString() + '</strong> total repairs</div>' +
+                            '<div style="padding:8px 14px;background:var(--bg-secondary);border-radius:6px;color:var(--status-breached);"><strong>' + totalBreached.toLocaleString() + '</strong> SLA breached</div>' +
+                        '</div>' +
+                        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+                        nwData.map(function(w) {
+                            var priColor = w.priority === 'critical' ? 'var(--status-breached)' : w.priority === 'high' ? 'var(--status-at-risk)' : 'var(--text-secondary)';
+                            return '<div style="padding:6px 12px;background:var(--bg-secondary);border-radius:6px;border-left:3px solid ' + priColor + ';">' +
+                                '<span style="font-weight:600;color:' + priColor + ';">' + w.priority + '</span> ' +
+                                '<span>' + w.count + ' WOs</span>' +
+                                (w.sla_breached > 0 ? '<span style="color:var(--status-breached);margin-left:4px;">(' + w.sla_breached + ' breached)</span>' : '') +
+                            '</div>';
+                        }).join('') + '</div>';
+                    }
+                })
+                .catch(function() {});
+        }
+
+        // ── Warehouse data (UC + Iceberg — may be slow on cold start) ─
+        function loadWarehouseData() {
+            fetch('/api/network-health/summary')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) {
+                        document.getElementById('riskBody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--status-breached);">Error: ' + data.error + '</td></tr>';
+                        return;
+                    }
+
+                    // KPIs (warehouse-derived)
+                    var kpis = data.kpis || {};
+                    document.getElementById('nhCritical').textContent = kpis.critical_nodes || 0;
+                    document.getElementById('nhHighRisk').textContent = kpis.high_risk_nodes || 0;
+                    document.getElementById('nhAvgHealth').textContent = kpis.avg_health || '--';
+                    document.getElementById('nhRegions').textContent = kpis.regions_monitored || (data.regional_summary || []).length;
+                    document.getElementById('nhLastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+                    // Risk table
+                    var risk = data.maintenance_risk || [];
+                    var tbody = document.getElementById('riskBody');
+                    if (risk.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No maintenance risk data available. Start the data simulator to populate pipeline tables.</td></tr>';
+                    } else {
+                        tbody.innerHTML = risk.map(function(r) {
+                            var riskCat = r.risk_category || 'unknown';
+                            var showActions = (riskCat === 'critical' || riskCat === 'high');
+                            var actionsHtml = showActions ?
+                                '<button onclick="createWOFromNode(\'' + esc(r.name||r.node_id) + '\',\'' + esc(r.type||'') + '\',\'' + esc(r.region||'') + '\',\'repair\')" style="padding:2px 6px;border:1px solid var(--error,#CC2211);border-radius:4px;background:none;color:var(--error,#CC2211);font-size:10px;font-weight:600;cursor:pointer;margin-right:4px;" title="Create repair work order">Repair WO</button>' +
+                                '<button onclick="createWOFromNode(\'' + esc(r.name||r.node_id) + '\',\'' + esc(r.type||'') + '\',\'' + esc(r.region||'') + '\',\'maintenance\')" style="padding:2px 6px;border:1px solid var(--accent-secondary,#00875A);border-radius:4px;background:none;color:var(--accent-secondary,#00875A);font-size:10px;font-weight:600;cursor:pointer;" title="Schedule maintenance">Maint</button>' :
+                                '<span style="color:var(--text-muted);font-size:11px;">--</span>';
+                            return '<tr>' +
+                                '<td><strong>' + (r.name || r.node_id) + '</strong></td>' +
+                                '<td>' + (r.type || '') + '</td>' +
+                                '<td>' + (r.region || '') + '</td>' +
+                                '<td style="font-weight:600;">' + (r.risk_score != null ? Math.round(r.risk_score) : '--') + '</td>' +
+                                '<td>' + riskBadge(riskCat) + '</td>' +
+                                '<td>' + healthBar(r.health_score) + '</td>' +
+                                '<td>' + (r.days_since_maint || '--') + '</td>' +
+                                '<td>' + (r.total_outages || 0) + '</td>' +
+                                '<td>' + actionsHtml + '</td>' +
+                            '</tr>';
+                        }).join('');
+                    }
+
+                    // Regional health
+                    var regional = data.regional_summary || [];
+                    var regEl = document.getElementById('regionalHealth');
+                    if (regional.length === 0) {
+                        regEl.innerHTML = '<div style="color:var(--text-muted);padding:20px;">No regional data available.</div>';
+                    } else {
+                        regEl.innerHTML = regional.map(function(r) {
+                            return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+                                '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
+                                    '<strong>' + r.region + '</strong>' +
+                                    '<span style="font-size:12px;color:var(--text-secondary);">' + (r.total_nodes || 0) + ' nodes</span>' +
+                                '</div>' +
+                                healthBar(r.avg_health) +
+                                '<div style="display:flex;gap:12px;margin-top:4px;font-size:11px;color:var(--text-secondary);">' +
+                                    '<span style="color:var(--status-completed);">' + (r.healthy || 0) + ' healthy</span>' +
+                                    '<span style="color:var(--status-at-risk);">' + (r.degraded || 0) + ' degraded</span>' +
+                                    '<span style="color:var(--status-breached);">' + (r.critical || 0) + ' critical</span>' +
+                                    '<span>' + (r.outages || 0) + ' outages</span>' +
+                                '</div>' +
+                            '</div>';
+                        }).join('');
+                    }
+
+                    // Outage list
+                    var outages = data.outage_summary || [];
+                    var outEl = document.getElementById('outageList');
+                    if (outages.length === 0) {
+                        outEl.innerHTML = '<div style="color:var(--text-muted);padding:20px;">No recent outage data.</div>';
+                    } else {
+                        outEl.innerHTML = outages.map(function(o) {
+                            var sevColor = o.severity === 'critical' ? 'var(--status-breached)' :
+                                          o.severity === 'major' ? 'var(--status-at-risk)' : 'var(--text-secondary)';
+                            return '<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">' +
+                                '<div>' +
+                                    '<span style="font-weight:600;">' + o.region + '</span>' +
+                                    ' <span style="font-size:11px;color:var(--text-secondary);">' + o.date + '</span>' +
+                                '</div>' +
+                                '<div style="display:flex;gap:8px;align-items:center;">' +
+                                    '<span style="font-size:11px;color:' + sevColor + ';font-weight:600;">' + (o.severity || '') + '</span>' +
+                                    '<span style="font-size:12px;">' + o.count + ' outages</span>' +
+                                    '<span style="font-size:11px;color:var(--text-secondary);">' + (o.avg_repair_hours ? o.avg_repair_hours.toFixed(1) + 'h MTTR' : '') + '</span>' +
+                                '</div>' +
+                            '</div>';
+                        }).join('');
+                    }
+
+                    // Topology graph
+                    renderTopology(data.maintenance_risk || [], regional);
+
+                    // IoT health
+                    var iot = data.iot_health || [];
+                    var iotBody = document.getElementById('iotBody');
+                    if (iot.length === 0) {
+                        iotBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No IoT health data available.</td></tr>';
+                    } else {
+                        iotBody.innerHTML = iot.map(function(d) {
+                            return '<tr>' +
+                                '<td>' + d.infra_id + '</td>' +
+                                '<td>' + (d.device_count || 0) + '</td>' +
+                                '<td>' + (d.avg_battery != null ? Math.round(d.avg_battery) + '%' : '--') + '</td>' +
+                                '<td>' + (d.avg_signal != null ? Math.round(d.avg_signal) + ' dBm' : '--') + '</td>' +
+                                '<td style="color:var(--status-breached);font-weight:600;">' + (d.critical || 0) + '</td>' +
+                                '<td style="color:var(--status-at-risk);">' + (d.warning || 0) + '</td>' +
+                                '<td style="color:var(--status-completed);">' + (d.healthy || 0) + '</td>' +
+                            '</tr>';
+                        }).join('');
+                    }
+                })
+                .catch(function(err) {
+                    document.getElementById('riskBody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--status-breached);">Failed to load warehouse data.</td></tr>';
+                });
+        }
+
+        // ── Network Topology Map (D3 geo — US map with nodes) ──────
+        function renderTopology(nodes, regions) {
+            clearBlastRadius();
+            var svg = d3.select('#topoSvg');
+            svg.selectAll('*').remove();
+            _svgSelection = svg;
+
+            _healthColorFn = function(h) {
+                if (h >= 80) return '#00A972';
+                if (h >= 60) return '#FFAB2E';
+                return '#FF4444';
+            };
+
+            if (!nodes || nodes.length === 0) {
+                svg.append('text').attr('x', '50%').attr('y', '50%')
+                   .attr('text-anchor', 'middle').attr('fill', 'var(--text-muted,#6B6B78)')
+                   .attr('font-size', '13px').text('No topology data available. Start the simulator to populate pipeline tables.');
+                return;
+            }
+
+            var w = svg.node().getBoundingClientRect().width || 700;
+            var h = 420;
+
+            // Load TopoJSON (cached after first fetch)
+            var topoPromise = _usTopoCache
+                ? Promise.resolve(_usTopoCache)
+                : fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) { _usTopoCache = data; return data; });
+
+            topoPromise.then(function(us) {
+                // Projection
+                _projection = d3.geoAlbersUsa().fitSize([w - 20, h - 20], topojson.feature(us, us.objects.states));
+                _projection.translate([w / 2, h / 2]);
+                var path = d3.geoPath().projection(_projection);
+
+                // Region health lookup
+                var regionHealthMap = {};
+                (regions || []).forEach(function(r) { regionHealthMap[r.region] = r.avg_health || 50; });
+
+                // ── Draw state boundaries ──
+                var states = topojson.feature(us, us.objects.states).features;
+                var stateGroup = svg.append('g').attr('class', 'states-layer');
+                stateGroup.selectAll('path').data(states).enter().append('path')
+                    .attr('d', path)
+                    .attr('fill', function(d) {
+                        var reg = STATE_FIPS_TO_REGION[d.id];
+                        if (!reg) return 'var(--bg-tertiary, #2A2A32)';
+                        return _healthColorFn(regionHealthMap[reg] || 50);
+                    })
+                    .attr('fill-opacity', function(d) { return STATE_FIPS_TO_REGION[d.id] ? 0.18 : 0.06; })
+                    .attr('stroke', 'var(--border-primary, #3A3A42)')
+                    .attr('stroke-width', 0.5)
+                    .attr('stroke-opacity', 0.5);
+                _regionPaths = stateGroup.selectAll('path');
+
+                // ── Build node data ──
+                _graphNodes = [];
+                _graphLinks = [];
+                var regionHubs = {};
+
+                (regions || []).forEach(function(r) {
+                    var center = REGION_CENTERS[r.region];
+                    if (!center) return;
+                    var projected = _projection(center);
+                    if (!projected) return;
+                    var hub = {
+                        id: 'hub-' + r.region, label: r.region, type: 'region',
+                        health: r.avg_health || 50, size: 16, isHub: true,
+                        x: projected[0], y: projected[1], region: r.region
+                    };
+                    regionHubs[r.region] = hub;
+                    _graphNodes.push(hub);
+                });
+
+                var regionNodeCounts = {};
+                nodes.forEach(function(n) {
+                    var region = n.region || '';
+                    var center = REGION_CENTERS[region];
+                    if (!center) return;
+                    var projected = _projection(center);
+                    if (!projected) return;
+
+                    if (!regionNodeCounts[region]) regionNodeCounts[region] = 0;
+                    var i = regionNodeCounts[region]++;
+                    var angle = i * 2.399963;  // golden angle
+                    var radius = 18 + 10 * Math.sqrt(i);
+
+                    var nodeId = n.node_name || n.node_id || ('node-' + _graphNodes.length);
+                    _graphNodes.push({
+                        id: nodeId, label: n.node_name || nodeId,
+                        type: n.node_type || 'unknown', region: region,
+                        health: n.health_score || n.recent_avg_health || 50,
+                        risk: (n.risk_category || '').toLowerCase(),
+                        size: Math.max(5, Math.min(12, 3 + Math.sqrt(n.device_count || 1) * 2)),
+                        outages: n.recent_outage_count || 0,
+                        daysSinceMaint: n.days_since_maintenance || 0,
+                        x: projected[0] + radius * Math.cos(angle),
+                        y: projected[1] + radius * Math.sin(angle)
+                    });
+
+                    if (regionHubs[region]) {
+                        _graphLinks.push({ source: nodeId, target: 'hub-' + region });
+                    }
+                });
+
+                // Backbone links between adjacent hubs
+                var hubOrder = ['PNW','MW','NE','SE','SC','SW'];
+                for (var i = 0; i < hubOrder.length; i++) {
+                    var nextIdx = (i + 1) % hubOrder.length;
+                    if (regionHubs[hubOrder[i]] && regionHubs[hubOrder[nextIdx]]) {
+                        _graphLinks.push({ source: 'hub-' + hubOrder[i], target: 'hub-' + hubOrder[nextIdx], backbone: true });
+                    }
+                }
+
+                // Node lookup for positioning links
+                var nodeById = {};
+                _graphNodes.forEach(function(n) { nodeById[n.id] = n; });
+
+                // ── Draw links ──
+                var linksGroup = svg.append('g').attr('class', 'links-layer');
+                linksGroup.selectAll('line').data(_graphLinks).enter().append('line')
+                    .attr('x1', function(d) { return (nodeById[d.source] || {}).x || 0; })
+                    .attr('y1', function(d) { return (nodeById[d.source] || {}).y || 0; })
+                    .attr('x2', function(d) { return (nodeById[d.target] || {}).x || 0; })
+                    .attr('y2', function(d) { return (nodeById[d.target] || {}).y || 0; })
+                    .attr('stroke', function(d) { return d.backbone ? 'var(--text-muted, #6B6B78)' : 'var(--border-primary, #3A3A42)'; })
+                    .attr('stroke-width', function(d) { return d.backbone ? 1.5 : 0.5; })
+                    .attr('stroke-dasharray', function(d) { return d.backbone ? '6,4' : 'none'; })
+                    .attr('opacity', function(d) { return d.backbone ? 0.4 : 0.15; });
+                _linkSelection = linksGroup.selectAll('line');
+
+                // ── Draw nodes ──
+                _nodeSelection = svg.append('g').attr('class', 'nodes-layer')
+                    .selectAll('g').data(_graphNodes).enter().append('g')
+                    .attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; })
+                    .attr('cursor', 'pointer');
+
+                _nodeSelection.append('circle')
+                    .attr('r', function(d) { return d.size; })
+                    .attr('fill', function(d) { return _healthColorFn(d.health); })
+                    .attr('stroke', function(d) { return d.isHub ? '#fff' : 'none'; })
+                    .attr('stroke-width', function(d) { return d.isHub ? 2 : 0; })
+                    .attr('opacity', function(d) { return d.isHub ? 0.95 : 0.85; });
+
+                _nodeSelection.filter(function(d) { return d.isHub; }).append('text')
+                    .attr('text-anchor', 'middle').attr('dy', function(d) { return d.size + 14; })
+                    .attr('fill', 'var(--text-primary,#E8E8ED)').attr('font-size', '11px').attr('font-weight', '700')
+                    .attr('paint-order', 'stroke').attr('stroke', 'var(--bg-primary,#111116)').attr('stroke-width', 3)
+                    .text(function(d) { return d.label; });
+
+                _nodeSelection.filter(function(d) { return !d.isHub; }).append('title')
+                    .text(function(d) { return d.label + '\nType: ' + d.type + '\nHealth: ' + Math.round(d.health) + '%\nOutages: ' + d.outages + '\nDays since maint: ' + d.daysSinceMaint; });
+
+                // ── Click handler for blast radius ──
+                _nodeSelection.on('click', function(event, d) {
+                    event.stopPropagation();
+                    if (_blastActive && _blastSourceId === d.id) {
+                        clearBlastRadius();
+                    } else {
+                        activateBlastRadius(d);
+                    }
+                });
+
+                svg.on('click', function(event) {
+                    if (event.target === svg.node() && _blastActive) clearBlastRadius();
+                });
+
+            }).catch(function(err) {
+                svg.append('text').attr('x', '50%').attr('y', '50%')
+                   .attr('text-anchor', 'middle').attr('fill', 'var(--text-muted,#6B6B78)')
+                   .attr('font-size', '13px').text('Failed to load map data.');
+            });
+        }
+
+        // ── Blast Radius: Compute affected nodes ────────────────────
+        function computeBlastRadius(clickedNode) {
+            var affected = new Set();
+            var affectedRegions = [];
+            var tier = 'leaf';
+            var nodeType = (clickedNode.type || '').toLowerCase();
+
+            affected.add(clickedNode.id);
+
+            if (nodeType === 'backbone') {
+                // Backbone failure → all hubs + all nodes in all regions
+                tier = 'Backbone Cascade';
+                _graphNodes.forEach(function(n) { affected.add(n.id); });
+                _graphNodes.forEach(function(n) {
+                    if (n.isHub && affectedRegions.indexOf(n.label) === -1) affectedRegions.push(n.label);
+                });
+            } else if (clickedNode.isHub || nodeType === 'region') {
+                // Regional hub → all nodes in this region
+                tier = 'Regional Cascade';
+                var hubRegion = clickedNode.label || clickedNode.region;
+                affectedRegions.push(hubRegion);
+                _graphNodes.forEach(function(n) {
+                    if (n.region === hubRegion || n.label === hubRegion) affected.add(n.id);
+                });
+            } else if (nodeType === 'olt') {
+                // OLT → self + all ONUs in same region
+                tier = 'OLT Cascade';
+                var oltRegion = clickedNode.region;
+                if (oltRegion && affectedRegions.indexOf(oltRegion) === -1) affectedRegions.push(oltRegion);
+                _graphNodes.forEach(function(n) {
+                    if (n.region === oltRegion && (n.type || '').toLowerCase() === 'onu') affected.add(n.id);
+                });
+            } else {
+                // Leaf node (ONU, etc) — only itself
+                tier = 'Leaf Node';
+                if (clickedNode.region) affectedRegions.push(clickedNode.region);
+            }
+
+            return { affectedIds: affected, affectedRegions: affectedRegions, tier: tier };
+        }
+
+        // ── Blast Radius: Activate ──────────────────────────────────
+        function activateBlastRadius(nodeData) {
+            clearBlastRadius();
+            _blastActive = true;
+            _blastSourceId = nodeData.id;
+
+            var result = computeBlastRadius(nodeData);
+            var affected = result.affectedIds;
+
+            // Dim non-affected nodes
+            _nodeSelection.select('circle').transition().duration(300)
+                .attr('opacity', function(d) { return affected.has(d.id) ? 1 : 0.08; })
+                .attr('fill', function(d) {
+                    if (d.id === nodeData.id) return '#FF4444';
+                    if (affected.has(d.id)) return '#FF6A00';
+                    return _healthColorFn(d.health);
+                })
+                .attr('stroke', function(d) {
+                    if (d.id === nodeData.id) return '#FF4444';
+                    if (d.isHub && affected.has(d.id)) return '#FF6A00';
+                    if (d.isHub) return '#fff';
+                    return 'none';
+                })
+                .attr('stroke-width', function(d) {
+                    if (d.id === nodeData.id) return 3;
+                    if (d.isHub) return 2;
+                    return 0;
+                });
+
+            // Dim non-affected labels
+            _nodeSelection.select('text').transition().duration(300)
+                .attr('opacity', function(d) { return affected.has(d.id) ? 1 : 0.08; })
+                .attr('fill', function(d) {
+                    if (affected.has(d.id)) return '#FF6A00';
+                    return 'var(--text-primary,#E8E8ED)';
+                });
+
+            // Dim/highlight links
+            _linkSelection.transition().duration(300)
+                .attr('opacity', function(d) {
+                    var srcId = typeof d.source === 'object' ? d.source.id : d.source;
+                    var tgtId = typeof d.target === 'object' ? d.target.id : d.target;
+                    return (affected.has(srcId) && affected.has(tgtId)) ? 0.8 : 0.05;
+                })
+                .attr('stroke', function(d) {
+                    var srcId = typeof d.source === 'object' ? d.source.id : d.source;
+                    var tgtId = typeof d.target === 'object' ? d.target.id : d.target;
+                    if (affected.has(srcId) && affected.has(tgtId)) return '#FF6A00';
+                    return d.backbone ? 'var(--text-muted,#6B6B78)' : 'var(--border-primary,#3A3A42)';
+                })
+                .attr('stroke-width', function(d) {
+                    var srcId = typeof d.source === 'object' ? d.source.id : d.source;
+                    var tgtId = typeof d.target === 'object' ? d.target.id : d.target;
+                    return (affected.has(srcId) && affected.has(tgtId)) ? 2.5 : (d.backbone ? 2 : 1);
+                });
+
+            // Highlight affected region polygons on the map
+            if (_regionPaths) {
+                _regionPaths.transition().duration(300)
+                    .attr('fill-opacity', function(d) {
+                        var stateRegion = STATE_FIPS_TO_REGION[d.id];
+                        if (!stateRegion) return 0.03;
+                        if (result.affectedRegions.indexOf(stateRegion) !== -1) return 0.35;
+                        return 0.06;
+                    });
+            }
+
+            // Shockwave ripple from source node
+            var srcNode = _graphNodes.find(function(n) { return n.id === nodeData.id; });
+            if (srcNode && _svgSelection) {
+                _svgSelection.append('circle')
+                    .attr('cx', srcNode.x).attr('cy', srcNode.y)
+                    .attr('r', nodeData.size)
+                    .attr('fill', 'none').attr('stroke', '#FF6A00').attr('stroke-width', 2).attr('opacity', 0.6)
+                    .transition().duration(800).ease(d3.easeCubicOut)
+                    .attr('r', 80).attr('opacity', 0).attr('stroke-width', 0.5)
+                    .remove();
+            }
+
+            // Build info panel
+            var affectedNodes = _graphNodes.filter(function(n) { return affected.has(n.id); });
+            var totalCustomers = 0, totalWOs = 0;
+            result.affectedRegions.forEach(function(reg) {
+                var rd = pgRegionData[reg];
+                if (rd) { totalCustomers += rd.customers || 0; totalWOs += rd.active_wos || 0; }
+            });
+
+            var riskCounts = {critical:0, high:0, medium:0, low:0};
+            affectedNodes.forEach(function(n) {
+                var r = (n.risk || '').toLowerCase();
+                if (riskCounts[r] !== undefined) riskCounts[r]++;
+            });
+
+            var panelHtml = '<div class="blast-panel" id="blastPanel">' +
+                '<div class="blast-panel-header">' +
+                    '<span class="blast-panel-title">Impact Blast Radius</span>' +
+                    '<button class="blast-panel-close" onclick="clearBlastRadius()">&times;</button>' +
+                '</div>' +
+                '<div style="margin-bottom:8px;">' +
+                    '<strong style="font-size:13px;">' + esc(nodeData.label || nodeData.id) + '</strong>' +
+                    '<span style="margin-left:6px;padding:1px 6px;border-radius:3px;font-size:10px;background:var(--bg-tertiary,#2A2A32);color:var(--text-secondary);">' + esc(nodeData.type || 'unknown') + '</span>' +
+                '</div>' +
+                '<div class="blast-tier">' + result.tier + '</div>' +
+                '<div style="margin-bottom:6px;">' +
+                    '<div class="blast-stat"><span class="blast-stat-label">Nodes Affected</span><span class="blast-stat-value" style="color:#FF6A00;">' + affected.size + '</span></div>' +
+                    '<div class="blast-stat"><span class="blast-stat-label">Customers at Risk</span><span class="blast-stat-value">' + (totalCustomers > 0 ? '~' + totalCustomers.toLocaleString() : 'Loading...') + '</span></div>' +
+                    '<div class="blast-stat"><span class="blast-stat-label">Active Work Orders</span><span class="blast-stat-value">' + totalWOs.toLocaleString() + '</span></div>' +
+                    '<div class="blast-stat"><span class="blast-stat-label">Regions</span><span class="blast-stat-value">' + (result.affectedRegions.join(', ') || '--') + '</span></div>' +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">' +
+                    '<span style="color:var(--status-breached);font-weight:600;">' + riskCounts.critical + '</span> critical &nbsp;' +
+                    '<span style="color:var(--status-at-risk);font-weight:600;">' + riskCounts.high + '</span> high &nbsp;' +
+                    '<span style="font-weight:600;">' + riskCounts.medium + '</span> med &nbsp;' +
+                    '<span style="color:var(--status-completed);font-weight:600;">' + riskCounts.low + '</span> low' +
+                '</div>' +
+            '</div>';
+
+            // Remove old panel if any, then insert
+            var oldPanel = document.getElementById('blastPanel');
+            if (oldPanel) oldPanel.remove();
+            document.getElementById('topoGraph').insertAdjacentHTML('beforeend', panelHtml);
+        }
+
+        // ── Blast Radius: Clear ─────────────────────────────────────
+        function clearBlastRadius() {
+            _blastActive = false;
+            _blastSourceId = null;
+
+            var panel = document.getElementById('blastPanel');
+            if (panel) panel.remove();
+
+            if (!_nodeSelection || !_linkSelection) return;
+
+            _nodeSelection.select('circle').transition().duration(300)
+                .attr('opacity', function(d) { return d.isHub ? 0.9 : 0.85; })
+                .attr('fill', function(d) { return _healthColorFn ? _healthColorFn(d.health) : '#6B6B78'; })
+                .attr('stroke', function(d) { return d.isHub ? '#fff' : 'none'; })
+                .attr('stroke-width', function(d) { return d.isHub ? 2 : 0; });
+
+            _nodeSelection.select('text').transition().duration(300)
+                .attr('opacity', 1)
+                .attr('fill', 'var(--text-primary,#E8E8ED)');
+
+            _linkSelection.transition().duration(300)
+                .attr('opacity', function(d) { return d.backbone ? 0.4 : 0.15; })
+                .attr('stroke', function(d) { return d.backbone ? 'var(--text-muted,#6B6B78)' : 'var(--border-primary,#3A3A42)'; })
+                .attr('stroke-width', function(d) { return d.backbone ? 1.5 : 0.5; });
+
+            if (_regionPaths) {
+                _regionPaths.transition().duration(300)
+                    .attr('fill-opacity', function(d) { return STATE_FIPS_TO_REGION[d.id] ? 0.18 : 0.06; });
+            }
+        }
+
+        // ── Incident cross-link: highlight region on graph ──────────
+        function highlightIncidentRegion(regionName) {
+            if (!regionName || !_graphNodes.length) return;
+            // Find the hub node for this region
+            var hubNode = _graphNodes.find(function(n) {
+                return n.isHub && n.label === regionName;
+            });
+            if (!hubNode) {
+                // Try partial match
+                hubNode = _graphNodes.find(function(n) {
+                    return n.isHub && regionName.indexOf(n.label) !== -1;
+                });
+            }
+            if (hubNode) {
+                document.getElementById('topoGraph').scrollIntoView({behavior:'smooth', block:'center'});
+                setTimeout(function() { activateBlastRadius(hubNode); }, 300);
+            }
+        }
+
+        // ── Correlated incidents (Lakebase PG — fast) ─────────────────
+        function loadIncidents() {
+            fetch('/api/network-health/incidents?limit=20')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    var summary = data.summary || {};
+
+                    // Update KPI for active incidents
+                    document.getElementById('nhActiveIncidents').textContent = summary.active_incidents || 0;
+
+                    var kpiEl = document.getElementById('incidentKpis');
+                    kpiEl.innerHTML = [
+                        '<div style="padding:6px 14px;background:var(--bg-secondary);border-radius:6px;"><strong style="color:var(--status-breached);">' + (summary.active_incidents || 0) + '</strong> active</div>',
+                        '<div style="padding:6px 14px;background:var(--bg-secondary);border-radius:6px;"><strong style="color:var(--status-breached);">' + (summary.critical_active || 0) + '</strong> critical</div>',
+                        '<div style="padding:6px 14px;background:var(--bg-secondary);border-radius:6px;"><strong>' + (summary.customers_affected || 0).toLocaleString() + '</strong> customers affected</div>',
+                        '<div style="padding:6px 14px;background:var(--bg-secondary);border-radius:6px;">Avg MTTR: <strong>' + (summary.avg_mttr_minutes || 0) + ' min</strong></div>',
+                    ].join('');
+
+                    var incidents = data.incidents || [];
+                    var tbody = document.getElementById('incidentBody');
+                    if (incidents.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No incidents.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = incidents.map(function(inc) {
+                        var sevColor = inc.severity === 'critical' ? 'var(--status-breached)' :
+                                       inc.severity === 'major' ? 'var(--status-at-risk)' : 'var(--text-secondary)';
+                        var statusBadge = inc.status === 'resolved' ? '<span style="color:var(--status-completed);">resolved</span>' :
+                                          '<span style="color:' + sevColor + ';font-weight:600;">' + inc.status + '</span>';
+                        return '<tr class="incident-row" onclick="highlightIncidentRegion(\'' + esc(inc.region || '') + '\')">' +
+                            '<td><strong>' + inc.incident_number + '</strong></td>' +
+                            '<td><span style="color:' + sevColor + ';font-weight:600;">' + inc.severity + '</span></td>' +
+                            '<td>' + (inc.classification || '').replace(/_/g, ' ') + '</td>' +
+                            '<td>' + (inc.region || '') + '</td>' +
+                            '<td>' + statusBadge + '</td>' +
+                            '<td>' + (inc.affected_nodes || 0) + '</td>' +
+                            '<td>' + (inc.affected_customers || 0).toLocaleString() + '</td>' +
+                            '<td>' + (inc.raw_alarm_count || 0) + '</td>' +
+                            '<td>' + (inc.mttr_minutes ? inc.mttr_minutes + 'min' : '--') + '</td>' +
+                        '</tr>';
+                    }).join('');
+                })
+                .catch(function() {});
+        }
+
+        // ── Load all — PG fires instantly, warehouse loads in background ──
+        function loadAll() {
+            loadPgData();
+            loadIncidents();
+            loadWarehouseData();
+        }
+
+        loadAll();
+        setInterval(loadPgData, 30000);
+        setInterval(loadIncidents, 60000);
+        setInterval(loadWarehouseData, 120000);
+    </script>
+{% endblock %}

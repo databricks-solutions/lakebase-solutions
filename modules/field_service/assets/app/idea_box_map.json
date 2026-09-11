@@ -1,0 +1,951 @@
+{
+  "_comment": "IDEA data-id -> box map. Join key for the AsBuilt overlay. Regenerate via /tmp/build_boxmap.py only when check_upstream.py reports drift.",
+  "source_url": "https://amralieg.github.io/interactive-databricks-enterprise-architecture/app/index.html",
+  "idea_release": "DAIS 2026",
+  "cloud_view": "azure",
+  "box_count": 132,
+  "bands": [
+    "ingest",
+    "apps",
+    "work",
+    "gov",
+    "data",
+    "infra",
+    "serve"
+  ],
+  "regions": [
+    "platform",
+    "usecases",
+    "sources",
+    "external_ingestion",
+    "teams",
+    "consumers",
+    "cloud"
+  ],
+  "boxes": {
+    "a1": {
+      "name": "Lakeflow Connect",
+      "band": "ingest",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a2": {
+      "name": "Auto Loader",
+      "band": "ingest",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a3": {
+      "name": "Zerobus",
+      "band": "ingest",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a4": {
+      "name": "Lakebridge",
+      "band": "ingest",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a5": {
+      "name": "SQL Warehouses",
+      "band": "serve",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a6": {
+      "name": "Lakehouse//RT",
+      "band": "serve",
+      "region": "platform",
+      "stage": "beta",
+      "kind": "pcard"
+    },
+    "a7": {
+      "name": "Lakebase",
+      "band": "serve",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a8": {
+      "name": "Model Serving",
+      "band": "serve",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a9": {
+      "name": "AI Search",
+      "band": "serve",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a10": {
+      "name": "AI/BI",
+      "band": "apps",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a11": {
+      "name": "Apps",
+      "band": "apps",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a12": {
+      "name": "Lakewatch",
+      "band": "apps",
+      "region": "platform",
+      "stage": "privpre",
+      "kind": "pcard"
+    },
+    "a13": {
+      "name": "CustomerLake",
+      "band": "apps",
+      "region": "platform",
+      "stage": "privpre",
+      "kind": "pcard"
+    },
+    "a14": {
+      "name": "Genie",
+      "band": "work",
+      "region": "platform",
+      "stage": null,
+      "kind": "phead"
+    },
+    "a15": {
+      "name": "ONE",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a16": {
+      "name": "AGENTS",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a17": {
+      "name": "CODE",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a18": {
+      "name": "ZeroOps",
+      "band": "work",
+      "region": "platform",
+      "stage": "privpre",
+      "kind": "schip"
+    },
+    "a19": {
+      "name": "App Builder",
+      "band": "work",
+      "region": "platform",
+      "stage": "privpre",
+      "kind": "schip"
+    },
+    "a20": {
+      "name": "Lakeflow Designer",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "schip"
+    },
+    "a21": {
+      "name": "Agent Bricks",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "phead"
+    },
+    "a22": {
+      "name": "OMNIGENT",
+      "band": "work",
+      "region": "platform",
+      "stage": "beta",
+      "kind": "pcol"
+    },
+    "a23": {
+      "name": "KNOWLEDGE",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a24": {
+      "name": "DOC PARSE",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a25": {
+      "name": "CLASSIFY",
+      "band": "work",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcol"
+    },
+    "a26": {
+      "name": "Genie Ontology",
+      "band": "work",
+      "region": "platform",
+      "stage": "pubpre",
+      "kind": "foot-chip"
+    },
+    "a27": {
+      "name": "Agentic Dev",
+      "band": "work",
+      "region": "platform",
+      "stage": null,
+      "kind": "other"
+    },
+    "a28": {
+      "name": "Unity Catalog",
+      "band": "gov",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a29": {
+      "name": "Unity AI Gateway",
+      "band": "gov",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a30": {
+      "name": "Lakehouse",
+      "band": "data",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a31": {
+      "name": "Lakebase",
+      "band": "data",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a32": {
+      "name": "Lakeflow",
+      "band": "data",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "pcard"
+    },
+    "a33": {
+      "name": "OpenSharing",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a34": {
+      "name": "Apache Spark",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a35": {
+      "name": "MLflow",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a36": {
+      "name": "Unity Catalog OSS",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a37": {
+      "name": "Delta Lake",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a38": {
+      "name": "Apache Iceberg",
+      "band": "infra",
+      "region": "platform",
+      "stage": "ga",
+      "kind": "fmt"
+    },
+    "a39": {
+      "name": "LTAP",
+      "band": "infra",
+      "region": "platform",
+      "stage": "soon",
+      "kind": "fmt"
+    },
+    "a40": {
+      "name": "BRONZE",
+      "band": "infra",
+      "region": "platform",
+      "stage": null,
+      "kind": "mstage"
+    },
+    "a41": {
+      "name": "SILVER",
+      "band": "infra",
+      "region": "platform",
+      "stage": null,
+      "kind": "mstage"
+    },
+    "a42": {
+      "name": "GOLD",
+      "band": "infra",
+      "region": "platform",
+      "stage": null,
+      "kind": "mstage"
+    },
+    "a43": {
+      "name": "Customer & Revenue Agent",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a44": {
+      "name": "Operations & Supply Agent",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a45": {
+      "name": "Risk & Compliance Agent",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a46": {
+      "name": "Finance & Margin Agent",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a47": {
+      "name": "Customer Segmentation",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a48": {
+      "name": "Churn & Retention",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a49": {
+      "name": "Fraud & Financial Crime",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a50": {
+      "name": "Demand Forecasting",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a51": {
+      "name": "Personalisation",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a52": {
+      "name": "Customer Service Agents",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a53": {
+      "name": "Document Intelligence",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a54": {
+      "name": "Predictive Maintenance",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a55": {
+      "name": "Supply Chain Visibility",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a56": {
+      "name": "Regulatory Reporting",
+      "band": null,
+      "region": "usecases",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a57": {
+      "name": "Business Applications",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a58": {
+      "name": "Operational Databases",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a59": {
+      "name": "Data Warehouses",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a60": {
+      "name": "Mainframe & Legacy",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a61": {
+      "name": "Files & Object Stores",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a62": {
+      "name": "Logs & Telemetry",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a63": {
+      "name": "SaaS Applications",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a64": {
+      "name": "APIs & Webhooks",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a65": {
+      "name": "Documents & Contracts",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a66": {
+      "name": "Images & Video",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a67": {
+      "name": "Audio & Speech",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a68": {
+      "name": "Other Binary Files",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a69": {
+      "name": "Event Streams",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a70": {
+      "name": "Device & Sensor Data",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a71": {
+      "name": "Change Data Capture",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a72": {
+      "name": "Market & Reference Data",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a73": {
+      "name": "Partner Feeds",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a74": {
+      "name": "Public & Open Data",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a75": {
+      "name": "Azure Synapse",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a76": {
+      "name": "Azure SQL Database",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a77": {
+      "name": "Hive Metastore",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a78": {
+      "name": "Other",
+      "band": null,
+      "region": "sources",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a79": {
+      "name": "Azure Data Factory",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a80": {
+      "name": "Fabric Data Factory",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a81": {
+      "name": "Azure Event Hubs",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a82": {
+      "name": "Azure IoT Hub",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a83": {
+      "name": "Managed ELT",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a84": {
+      "name": "Custom ETL Tool",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a85": {
+      "name": "Streaming Brokers",
+      "band": null,
+      "region": "external_ingestion",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a86": {
+      "name": "Executives",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a87": {
+      "name": "Business Teams",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a88": {
+      "name": "Risk & Compliance",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a89": {
+      "name": "Data Engineers",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a90": {
+      "name": "Data Scientists",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a91": {
+      "name": "Data Analysts",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a92": {
+      "name": "Analytics Engineers",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a93": {
+      "name": "App Developers",
+      "band": null,
+      "region": "teams",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a94": {
+      "name": "Tableau / Qlik / ThoughtSpot",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a95": {
+      "name": "Excel Add-in",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a96": {
+      "name": "Teams & M365 Copilot",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a97": {
+      "name": "Notebooks & IDEs",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a98": {
+      "name": "Power BI + Copilot",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a99": {
+      "name": "Power Platform",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a100": {
+      "name": "External Agents (MCP)",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a101": {
+      "name": "Operational APIs",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a102": {
+      "name": "Reverse ETL",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a103": {
+      "name": "Data Products",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a104": {
+      "name": "Marketplace Listings",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a105": {
+      "name": "Sharing Recipients",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a106": {
+      "name": "Other Sinks",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a107": {
+      "name": "ERP & Core Systems",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a108": {
+      "name": "Activation Channels",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a109": {
+      "name": "Business Apps",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a110": {
+      "name": "Embedded Analytics",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a111": {
+      "name": "Operations Consoles",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a112": {
+      "name": "Internal Copilots",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a113": {
+      "name": "Revenue & Growth",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a114": {
+      "name": "Operations & Service",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a115": {
+      "name": "Risk & Controls",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a116": {
+      "name": "Finance & Cost",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a117": {
+      "name": "Omnigent OSS",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a118": {
+      "name": "Claude Code",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a119": {
+      "name": "OpenAI Codex",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a120": {
+      "name": "Any MCP Harness",
+      "band": null,
+      "region": "consumers",
+      "stage": null,
+      "kind": "rtile"
+    },
+    "a121": {
+      "name": "ADLS Gen2",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a122": {
+      "name": "Classic & Serverless Compute",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a123": {
+      "name": "Azure Key Vault",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a124": {
+      "name": "Azure Monitor",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a125": {
+      "name": "SQL DB / Cosmos DB",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a126": {
+      "name": "Microsoft Entra ID",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a127": {
+      "name": "Microsoft Purview",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a128": {
+      "name": "Microsoft Foundry",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a129": {
+      "name": "Azure DevOps",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a130": {
+      "name": "Anthropic/OpenAI",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a131": {
+      "name": "External Orchestrator",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    },
+    "a132": {
+      "name": "dbt & External Engines",
+      "band": null,
+      "region": "cloud",
+      "stage": null,
+      "kind": "ctile"
+    }
+  }
+}

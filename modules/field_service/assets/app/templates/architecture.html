@@ -1,0 +1,1694 @@
+{% extends "base.html" %}
+{% block title %}Architecture{% endblock %}
+{% block page_title %}Architecture{% endblock %}
+
+{% block content %}
+<div class="arch-page">
+    <!-- Powered by badge -->
+    <div style="position:absolute;top:10px;right:16px;z-index:10;">
+        <div class="powered-by">
+            <img src="/static/lakehouse-icon-full-color.webp" class="powered-by-icon" alt="Lakehouse">
+            <span>Powered by <strong>Databricks Lakehouse</strong></span>
+        </div>
+    </div>
+    <!-- Zoom controls -->
+    <div class="arch-zoom-controls">
+        <button class="arch-zoom-btn" onclick="archZoom(0.1)" title="Zoom in">+</button>
+        <button class="arch-zoom-btn arch-zoom-level" id="archZoomLevel" onclick="archZoomReset()" title="Reset zoom">100%</button>
+        <button class="arch-zoom-btn" onclick="archZoom(-0.1)" title="Zoom out">&minus;</button>
+        <button class="arch-zoom-btn" onclick="archZoomFit()" title="Fit to screen" style="font-size:14px;">&#x2922;</button>
+    </div>
+
+    <div class="arch-scroll" id="archScroll" style="position:relative;">
+        <div class="arch-zoom-container" id="archZoomContainer">
+        <!-- SVG overlay for static connector lines (always visible) -->
+        <svg id="connSvg" class="arch-flow-svg arch-conn-svg" aria-hidden="true"></svg>
+        <!-- SVG overlay for animated flow lines (visible during simulator) -->
+        <svg id="flowSvg" class="arch-flow-svg" aria-hidden="true"></svg>
+
+        <!-- Databricks header -->
+        <div class="arch-brand">
+            <div class="arch-db-logo">
+                <img src="/static/databricks-symbol.svg" class="arch-db-mark" alt="">
+                <span class="arch-db-wordmark">databricks</span>
+            </div>
+        </div>
+
+        <!-- Platform anchor (for absolute-positioned side panels) -->
+        <div class="arch-platform-wrapper">
+
+            <!-- LEFT: Data Sources -->
+            <div class="arch-side-panel arch-side-left" id="archSources">
+                <div class="arch-ext-label">DATA SOURCES</div>
+
+                <div class="arch-conn-group">
+                    <div class="arch-ext-items-vertical">
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="8" r="3" fill="#60A5FA"/><rect x="9" y="12" width="6" height="8" rx="1" fill="#60A5FA" opacity="0.6"/></svg><span>IoT Devices</span></div>
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2L8 8h8L12 2z" fill="#60A5FA"/><rect x="11" y="8" width="2" height="14" fill="#60A5FA" opacity="0.7"/><line x1="6" y1="12" x2="18" y2="12" stroke="#60A5FA" stroke-width="1.5"/></svg><span>Cell Towers</span></div>
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><rect x="4" y="6" width="16" height="12" rx="2" fill="#34D399" opacity="0.7"/><circle cx="8" cy="12" r="1.5" fill="#fff"/><circle cx="12" cy="12" r="1.5" fill="#fff"/><circle cx="16" cy="12" r="1.5" fill="#fff"/></svg><span>Network Devices</span></div>
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#F59E0B" opacity="0.3"/><path d="M12 6v6l4 2" stroke="#F59E0B" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span>Field Sensors</span></div>
+                    </div>
+                    <div class="arch-conn-meta">
+                        <img src="/static/security-lock-icon.webp" class="arch-conn-lock" alt="">
+                        <span class="arch-conn-arrow-icon">→</span>
+                        <span class="arch-conn-target">Unity Catalog</span>
+                        <span class="arch-conn-auth">OAuth · SP Token · UC Volumes</span>
+                    </div>
+                </div>
+
+                <div class="arch-conn-sep"></div>
+
+                <div class="arch-conn-group">
+                    <div class="arch-ext-items-vertical">
+                        <div class="arch-ext-item"><img src="/static/iceberg-logo-icon.png" width="16" height="16" style="border-radius:3px;"><span>Iceberg Writers</span></div>
+                    </div>
+                    <div class="arch-conn-meta">
+                        <img src="/static/security-lock-icon.webp" class="arch-conn-lock" alt="">
+                        <span class="arch-conn-arrow-icon">→</span>
+                        <span class="arch-conn-target">Unity Catalog</span>
+                        <span class="arch-conn-auth">OAuth · M2M · Iceberg REST</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Consumers -->
+            <div class="arch-side-panel arch-side-right" id="archDests">
+                <div class="arch-ext-label">CONSUMERS</div>
+
+                <div class="arch-conn-section-label">Interactive (UI)</div>
+
+                <div class="arch-conn-group">
+                    <div class="arch-ext-items-vertical">
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="7" r="4" fill="#E879F9" opacity="0.7"/><path d="M4 21v-2a4 4 0 014-4h8a4 4 0 014 4v2" fill="#E879F9" opacity="0.5"/></svg><span>Field Engineers</span></div>
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><rect x="3" y="4" width="18" height="14" rx="2" fill="#FF6F42" opacity="0.5"/><rect x="5" y="6" width="14" height="10" rx="1" fill="#FF6F42" opacity="0.3"/><rect x="8" y="20" width="8" height="2" rx="1" fill="#FF6F42" opacity="0.5"/></svg><span>Operations Center</span></div>
+                    </div>
+                    <div class="arch-conn-meta">
+                        <img src="/static/security-lock-icon.webp" class="arch-conn-lock" alt="">
+                        <span class="arch-conn-arrow-icon">←</span>
+                        <span class="arch-conn-target">Apps · Dashboards</span>
+                        <span class="arch-conn-auth">OAuth SSO · Browser</span>
+                    </div>
+                </div>
+
+                <div class="arch-conn-sep"></div>
+
+                <div class="arch-conn-section-label">Programmatic (API)</div>
+
+                <div class="arch-conn-group">
+                    <div class="arch-ext-items-vertical">
+                        <div class="arch-ext-item"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="7" cy="7" r="2" fill="#A78BFA"/><circle cx="17" cy="7" r="2" fill="#A78BFA"/><circle cx="12" cy="16" r="2" fill="#A78BFA"/><line x1="7" y1="7" x2="17" y2="7" stroke="#A78BFA" stroke-width="1" opacity="0.4"/><line x1="7" y1="7" x2="12" y2="16" stroke="#A78BFA" stroke-width="1" opacity="0.4"/><line x1="17" y1="7" x2="12" y2="16" stroke="#A78BFA" stroke-width="1" opacity="0.4"/></svg><span>AI Agents</span></div>
+                    </div>
+                    <div class="arch-conn-meta">
+                        <img src="/static/security-lock-icon.webp" class="arch-conn-lock" alt="">
+                        <span class="arch-conn-arrow-icon">←</span>
+                        <span class="arch-conn-target">Model Serving</span>
+                        <span class="arch-conn-auth">OAuth · SP Token · REST API</span>
+                    </div>
+                </div>
+
+                <div class="arch-conn-sep"></div>
+
+                <div class="arch-conn-group">
+                    <div class="arch-ext-items-vertical">
+                        <div class="arch-ext-item"><img src="/static/iceberg-logo-icon.png" width="16" height="16" style="border-radius:3px;"><span>Iceberg Readers</span></div>
+                    </div>
+                    <div class="arch-conn-meta">
+                        <img src="/static/security-lock-icon.webp" class="arch-conn-lock" alt="">
+                        <span class="arch-conn-arrow-icon">←</span>
+                        <span class="arch-conn-target">Unity Catalog</span>
+                        <span class="arch-conn-auth">OAuth · M2M</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER: Platform Services box -->
+            <div class="arch-platform-box">
+            <div class="arch-platform-badge">
+                <svg viewBox="0 0 40 40" class="arch-badge-icon"><path d="M20 4L6 12v16l14 8 14-8V12L20 4z" fill="#FF3621" opacity="0.15" stroke="#FF3621" stroke-width="1.5"/><path d="M20 10l-8 4.5v9L20 28l8-4.5v-9L20 10z" fill="#FF3621" opacity="0.5"/></svg>
+            </div>
+
+            <!-- Row 1: Data & Application — Apps, Lakebase, Spark Streaming -->
+            <div class="arch-services-grid">
+                <div class="arch-service-card" data-node="apps" onclick="openArchDetail('apps')" role="button" tabindex="0" aria-label="Apps - Secure data and AI apps">
+                    <div class="arch-service-icon">
+                        <img src="/static/apps-icon-full-color.webp" alt="Apps">
+                    </div>
+                    <div class="arch-service-text">
+                        <div class="arch-service-name">Apps</div>
+                        <div class="arch-service-sub">Secure data & AI apps</div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+
+                <div class="arch-service-card" data-node="lakebase" onclick="openArchDetail('lakebase')" role="button" tabindex="0" aria-label="Lakebase - PostgreSQL OLTP">
+                    <div class="arch-service-icon">
+                        <img src="/static/lakebase-icon-full-color.webp" alt="Lakebase">
+                    </div>
+                    <div class="arch-service-text">
+                        <div class="arch-service-name">Lakebase</div>
+                        <div class="arch-service-sub">PostgreSQL OLTP</div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+
+                <div class="arch-service-card" data-node="lakeflow" onclick="openArchDetail('lakeflow')" role="button" tabindex="0" aria-label="Spark Streaming - Structured Streaming ETL">
+                    <div class="arch-service-icon">
+                        <img src="/static/apache-spark-icon.svg" alt="Spark">
+                    </div>
+                    <div class="arch-service-text">
+                        <div class="arch-service-name">Spark Streaming</div>
+                        <div class="arch-service-sub">Structured Streaming ETL</div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+            </div>
+
+            <!-- Spacer between service rows -->
+            <div style="height:44px;"></div>
+
+            <!-- Row 2: Analytics & Intelligence — DB SQL, Mosaic AI, AI/BI -->
+            <div class="arch-services-grid">
+                <div class="arch-service-card" data-node="dbsql" onclick="openArchDetail('dbsql')" role="button" tabindex="0" aria-label="DB SQL - Data warehousing">
+                    <div class="arch-service-icon">
+                        <img src="/static/databricks-sql-icon-full-color.webp" alt="DB SQL">
+                    </div>
+                    <div class="arch-service-text">
+                        <div class="arch-service-name">DB SQL</div>
+                        <div class="arch-service-sub">Data warehousing</div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+
+                <div class="arch-service-card" data-node="mosaic_ai" onclick="openArchDetail('mosaic_ai')" role="button" tabindex="0" aria-label="Mosaic AI - Foundation Models and Agents">
+                    <div class="arch-service-icon">
+                        <img src="/static/mosaic-ai-icon-full-color.webp" alt="Mosaic AI">
+                    </div>
+                    <div class="arch-service-text">
+                        <div class="arch-service-name">Mosaic AI</div>
+                        <div class="arch-service-sub">Foundation Models & Agents</div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+
+                <div class="arch-service-card arch-service-card--dual" data-node="aibi" onclick="openArchDetail('aibi')" role="button" tabindex="0" aria-label="AI/BI Dashboards and Genie Spaces">
+                    <div class="arch-dual-row">
+                        <div class="arch-service-icon">
+                            <img src="/static/ai-bi-dashboards-icon-full-color.webp" alt="AI/BI">
+                        </div>
+                        <div class="arch-service-text">
+                            <div class="arch-service-name">AI/BI Dashboards</div>
+                            <div class="arch-service-sub">Lakeview analytics</div>
+                        </div>
+                    </div>
+                    <div class="arch-dual-divider"></div>
+                    <div class="arch-dual-row" onclick="event.stopPropagation(); openArchDetail('genie')">
+                        <div class="arch-service-icon">
+                            <img src="/static/ai-bi-genie-icon-full-color.webp" alt="Genie">
+                        </div>
+                        <div class="arch-service-text">
+                            <div class="arch-service-name">Genie Spaces</div>
+                            <div class="arch-service-sub">Natural language queries</div>
+                        </div>
+                    </div>
+                    <div class="arch-active-dot" title="Used in this app"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wavy separator + Lakehouse -->
+        <div class="arch-lakehouse-section">
+            <svg class="arch-wave" viewBox="0 0 1200 50" preserveAspectRatio="none">
+                <path d="M0,25 C150,0 300,50 450,25 C600,0 750,50 900,25 C1050,0 1200,50 1200,25 V50 H0 Z" fill="var(--arch-lake-bg, #172030)"/>
+            </svg>
+
+            <div class="arch-lakehouse-box">
+                <div class="arch-lakehouse-header" onclick="openArchDetail('lakehouse')" role="button" tabindex="0" aria-label="Lakehouse - Unified data architecture">
+                    <img src="/static/lakehouse-icon-full-color.webp" class="arch-lakehouse-icon" alt="Lakehouse">
+                    <span class="arch-lakehouse-title">Lakehouse</span>
+                </div>
+
+                <!-- Unity Catalog governance bar -->
+                <div class="arch-uc-bar" onclick="openArchDetail('unity_catalog')" role="button" tabindex="0" aria-label="Unity Catalog - Unified governance">
+                    <div class="arch-uc-lock">
+                        <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="#FF3621"/><path d="M8 11V7a4 4 0 018 0v4" stroke="#FF3621" stroke-width="2" fill="none"/></svg>
+                    </div>
+                    <div class="arch-uc-center">
+                        <img src="/static/unity-catalog-icon-full-color.webp" alt="Unity Catalog" class="arch-uc-logo">
+                        <span>Unity Catalog</span>
+                    </div>
+                    <div class="arch-uc-lock">
+                        <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="#FF3621"/><path d="M8 11V7a4 4 0 018 0v4" stroke="#FF3621" stroke-width="2" fill="none"/></svg>
+                    </div>
+                </div>
+
+                <!-- Managed Iceberg storage bar -->
+                <div class="arch-storage-bar" onclick="openArchDetail('delta_lake')" role="button" tabindex="0" aria-label="Managed Iceberg - Open table format">
+                    <div class="arch-storage-badge">
+                        <img src="/static/iceberg-logo-icon.png" alt="Iceberg" style="width:28px;height:28px;object-fit:contain;">
+                    </div>
+                    <div class="arch-storage-logos">
+                        <span class="arch-iceberg-logo">MANAGED ICEBERG</span>
+                    </div>
+                    <div class="arch-storage-badge">
+                        <img src="/static/iceberg-logo-icon.png" alt="Iceberg" style="width:28px;height:28px;object-fit:contain;">
+                    </div>
+                </div>
+            </div>
+        </div><!-- /arch-platform-wrapper -->
+
+        <!-- Simulator data flow banner -->
+        <div id="flowBanner" class="arch-flow-banner" style="display:none;">
+            <div class="arch-flow-pulse"></div>
+            <span class="arch-flow-label">Data Flowing</span>
+            <div class="arch-flow-stats">
+                <span id="flowStatWo">-- WOs</span>
+                <span class="arch-flow-sep">|</span>
+                <span id="flowStatDone">-- completed</span>
+                <span class="arch-flow-sep">|</span>
+                <span id="flowStatAppts">-- appts</span>
+                <span class="arch-flow-sep">|</span>
+                <span id="flowStatIot">-- IoT files</span>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="arch-legend">
+            <span class="arch-legend-dot"></span> Component is actively used in this demo
+            <span style="margin-left:16px;color:var(--text-muted, #6B6B78);">Click any component for details, live status, and source code</span>
+        </div>
+        </div><!-- /arch-zoom-container -->
+    </div>
+
+    <!-- Detail panel -->
+    <div id="archDetailPanel" class="arch-detail-panel" role="complementary" aria-label="Component details">
+        <button class="arch-detail-close" onclick="closeArchDetail()" aria-label="Close detail panel">&times;</button>
+        <div id="archDetailContent"></div>
+    </div>
+</div>
+
+<style>
+    .arch-page {
+        position: relative;
+        width: 100%;
+        height: calc(100vh - 52px);
+        overflow: hidden;
+    }
+    .arch-scroll {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        cursor: grab;
+    }
+    .arch-scroll.arch-grabbing { cursor: grabbing; }
+
+    /* Brand header */
+    .arch-brand { margin-bottom: 28px; text-align: center; }
+    .arch-db-logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .arch-db-mark { height: 44px; width: auto; }
+    .arch-db-wordmark {
+        font-family: 'DM Sans', 'Inter', sans-serif;
+        font-size: 36px;
+        font-weight: 700;
+        color: var(--text-primary, #E8E8ED);
+        letter-spacing: -0.5px;
+    }
+
+    /* Platform services box */
+    .arch-platform-box {
+        width: 100%;
+        max-width: 960px;
+        background: var(--arch-plat-bg, rgba(20, 30, 45, 0.6));
+        border: 1px solid var(--arch-plat-border, rgba(255,255,255,0.08));
+        border-radius: 16px;
+        padding: 48px 32px 32px;
+        position: relative;
+    }
+    .arch-platform-badge {
+        position: absolute;
+        top: -24px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 48px;
+        height: 48px;
+    }
+    .arch-badge-icon { width: 48px; height: 48px; }
+
+    /* Tier labels */
+    .arch-tier-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-muted, #6B6B78);
+        margin-bottom: 10px;
+        padding-left: 4px;
+    }
+
+    /* Tier gap with arrow indicators */
+    .arch-tier-gap {
+        display: flex;
+        justify-content: space-around;
+        padding: 12px 40px;
+    }
+    .arch-tier-arrow {
+        width: 2px;
+        height: 20px;
+        background: linear-gradient(to bottom, rgba(255,54,33,0.4), rgba(255,54,33,0.1));
+        position: relative;
+    }
+    .arch-tier-arrow::after {
+        content: '';
+        position: absolute;
+        bottom: -4px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0; height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 5px solid rgba(255,54,33,0.4);
+    }
+
+    /* Unity Catalog bar (inside Lakehouse section) */
+    .arch-uc-bar {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(255,54,33,0.06);
+        border: 1px solid rgba(255,54,33,0.2);
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin: 0;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .arch-uc-bar:hover { border-color: rgba(255,54,33,0.4); }
+    .arch-uc-bar.selected { border-color: #FF3621; }
+    .arch-uc-lock svg { width: 28px; height: 28px; }
+    .arch-uc-center {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text-primary, #E8E8ED);
+    }
+    .arch-uc-icon { width: 24px; height: 24px; color: var(--text-primary, #E8E8ED); }
+    .arch-uc-logo { width: 24px; height: 24px; object-fit: contain; border-radius: 4px; }
+
+    /* Services grid */
+    .arch-services-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+    }
+    .arch-service-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        background: var(--arch-card-bg, rgba(255,255,255,0.04));
+        border: 1px solid var(--arch-card-border, rgba(255,255,255,0.08));
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+        position: relative;
+    }
+    .arch-service-card:hover {
+        background: var(--arch-card-hover, rgba(255,255,255,0.08));
+        border-color: rgba(255, 54, 33, 0.3);
+        box-shadow: 0 0 20px rgba(255, 54, 33, 0.08);
+    }
+    .arch-service-card.selected {
+        border-color: #FF3621;
+        box-shadow: 0 0 24px rgba(255, 54, 33, 0.15);
+    }
+    .arch-service-icon {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+    }
+    .arch-service-icon svg { width: 32px; height: 32px; }
+    .arch-service-icon img { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; }
+    .arch-service-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text-primary, #E8E8ED);
+    }
+    .arch-service-sub {
+        font-size: 11px;
+        color: var(--text-muted, #6B6B78);
+        margin-top: 1px;
+    }
+    .arch-active-dot {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00A972;
+        box-shadow: 0 0 6px #00A972;
+    }
+
+    /* Dual card (AI/BI + Genie) */
+    .arch-service-card--dual {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 10px 16px;
+    }
+    .arch-dual-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 0;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .arch-dual-row:hover { background: rgba(255,255,255,0.04); }
+    .arch-dual-divider {
+        height: 1px;
+        background: var(--arch-card-border, rgba(255,255,255,0.08));
+        margin: 4px 0;
+    }
+
+    /* Lakehouse section */
+    .arch-lakehouse-section {
+        width: 100%;
+        max-width: 960px;
+        position: relative;
+        margin-top: 28px;
+    }
+    .arch-wave {
+        width: 100%;
+        height: 40px;
+        display: block;
+    }
+    :root { --arch-lake-bg: #172030; }
+    [data-theme="dbx-light"] { --arch-lake-bg: #e8edf3; --arch-plat-bg: rgba(0,0,0,0.03); --arch-plat-border: rgba(0,0,0,0.1); --arch-card-bg: rgba(0,0,0,0.03); --arch-card-border: rgba(0,0,0,0.1); --arch-card-hover: rgba(0,0,0,0.06); }
+
+    .arch-lakehouse-box {
+        background: var(--arch-lake-bg, #172030);
+        border: 1px solid var(--arch-plat-border, rgba(255,255,255,0.08));
+        border-top: none;
+        border-radius: 0 0 16px 16px;
+        padding: 8px 24px 24px;
+    }
+    .arch-lakehouse-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 16px 0;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .arch-lakehouse-header:hover { opacity: 0.8; }
+    .arch-lakehouse-icon { width: 48px; height: 48px; }
+    .arch-lakehouse-title {
+        font-size: 32px;
+        font-weight: 800;
+        color: var(--text-primary, #E8E8ED);
+        letter-spacing: -0.5px;
+    }
+
+    /* Delta Lake + Iceberg bar */
+    .arch-storage-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .arch-storage-bar:hover { border-color: rgba(96,165,250,0.3); }
+    .arch-storage-bar.selected { border-color: #60A5FA; }
+    .arch-storage-badge svg { width: 32px; height: 32px; }
+    .arch-storage-logos {
+        display: flex;
+        align-items: center;
+        gap: 32px;
+    }
+    .arch-iceberg-logo {
+        font-size: 16px;
+        font-weight: 800;
+        color: var(--text-primary, #E8E8ED);
+        letter-spacing: 1px;
+    }
+
+    /* Legend */
+    .arch-legend {
+        margin-top: 20px;
+        font-size: 12px;
+        color: var(--text-secondary, #B4B4BD);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .arch-legend-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #00A972; box-shadow: 0 0 6px #00A972;
+    }
+
+    /* Detail panel */
+    .arch-detail-panel {
+        position: absolute;
+        top: 0; right: -440px;
+        width: 420px;
+        height: 100%;
+        background: var(--bg-card, #1E1E24);
+        border-left: 1px solid var(--border-primary, #3A3A42);
+        transition: right 0.3s ease;
+        overflow-y: auto;
+        z-index: 200;
+        padding: 20px;
+        box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+        will-change: transform, right;
+    }
+    .arch-detail-panel.open { right: 0; }
+    .arch-detail-close {
+        position: absolute;
+        top: 12px; right: 12px;
+        background: none; border: none;
+        color: var(--text-muted, #6B6B78);
+        font-size: 24px; cursor: pointer;
+        width: 32px; height: 32px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 6px;
+        transition: background 0.2s;
+    }
+    .arch-detail-close:hover { background: rgba(255,255,255,0.1); }
+
+    /* Detail content styles */
+    .ad-header { margin-bottom: 16px; }
+    .ad-name { font-size: 18px; font-weight: 700; color: var(--text-primary, #E8E8ED); margin: 0; }
+    .ad-subtitle { font-size: 12px; color: var(--text-muted, #6B6B78); margin: 4px 0 8px; }
+    .ad-badge {
+        display: inline-block; padding: 2px 10px; border-radius: 12px;
+        font-size: 11px; font-weight: 600;
+    }
+    .ad-status {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px; border-radius: 8px; margin: 12px 0;
+        font-size: 13px; font-weight: 600;
+    }
+    .ad-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ad-section { margin-top: 16px; }
+    .ad-section-title {
+        font-size: 11px; font-weight: 700; color: var(--text-muted, #6B6B78);
+        text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+    }
+    .ad-desc { font-size: 13px; color: var(--text-secondary, #B4B4BD); line-height: 1.5; }
+    .ad-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .ad-metric {
+        padding: 10px; border-radius: 6px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--border-primary, #3A3A42);
+    }
+    .ad-metric-label { font-size: 10px; color: var(--text-muted, #6B6B78); text-transform: uppercase; letter-spacing: 0.3px; }
+    .ad-metric-value { font-size: 16px; font-weight: 700; color: var(--text-primary, #E8E8ED); margin-top: 2px; }
+    .ad-file-list { list-style: none; padding: 0; margin: 0; }
+    .ad-file-item {
+        padding: 8px 10px; border-radius: 6px; cursor: pointer;
+        font-size: 12px; color: var(--accent-primary, #60A5FA);
+        transition: background 0.2s;
+    }
+    .ad-file-item:hover { background: rgba(96,165,250,0.1); }
+
+    /* Catalog tree styles */
+    .ad-catalog { margin-bottom: 12px; border: 1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius: 8px; overflow: hidden; }
+    .ad-catalog-header {
+        display: flex; align-items: center; gap: 6px; padding: 10px 12px;
+        background: rgba(255,255,255,0.03); cursor: pointer; font-size: 13px;
+        color: var(--text-primary, #E8E8ED); user-select: none;
+    }
+    .ad-catalog-header:hover { background: rgba(255,255,255,0.06); }
+    .ad-cat-icon { font-size: 14px; }
+    .ad-cat-type {
+        margin-left: auto; font-size: 10px; padding: 2px 8px; border-radius: 10px;
+        background: rgba(96,165,250,0.15); color: #60A5FA; font-weight: 500;
+    }
+    .ad-cat-desc { padding: 0 12px 6px; font-size: 11px; color: var(--text-secondary, #B4B4BD); }
+    .ad-catalog-body { padding: 0 8px 8px; }
+    .ad-catalog.collapsed .ad-catalog-body,
+    .ad-catalog.collapsed .ad-cat-desc { display: none; }
+    .ad-catalog.collapsed .ad-tree-arrow { transform: rotate(-90deg); }
+    .ad-tree-arrow {
+        display: inline-block; font-size: 8px; width: 12px; text-align: center;
+        transition: transform 0.2s; color: var(--text-secondary, #B4B4BD);
+    }
+    .ad-schema { margin-left: 8px; margin-bottom: 6px; }
+    .ad-schema-header {
+        display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+        font-size: 12px; color: var(--text-primary, #E8E8ED); cursor: pointer;
+        border-radius: 4px; user-select: none;
+    }
+    .ad-schema-header:hover { background: rgba(255,255,255,0.04); }
+    .ad-schema-icon { font-size: 13px; }
+    .ad-schema-desc { padding: 0 8px 4px 26px; font-size: 11px; color: var(--text-secondary, #B4B4BD); }
+    .ad-schema-body { margin-left: 16px; }
+    .ad-schema.collapsed .ad-schema-body,
+    .ad-schema.collapsed .ad-schema-desc { display: none; }
+    .ad-schema.collapsed .ad-tree-arrow { transform: rotate(-90deg); }
+    .ad-table-item {
+        display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+        font-size: 11px; border-radius: 4px;
+    }
+    .ad-table-item:hover { background: rgba(255,255,255,0.03); }
+    .ad-table-tier {
+        flex-shrink: 0; font-size: 9px; font-weight: 600; padding: 1px 6px;
+        border-radius: 3px; color: #1B1B22; min-width: 38px; text-align: center;
+    }
+    .ad-table-name { color: var(--text-primary, #E8E8ED); font-family: monospace; font-size: 11px; white-space: nowrap; }
+    .ad-table-desc { color: var(--text-secondary, #B4B4BD); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ad-volume-item { border-left: 2px solid #60A5FA; margin-bottom: 4px; }
+
+    .ad-page-list { list-style: none; padding: 0; margin: 0; }
+    .ad-page-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 10px; border-radius: 6px; cursor: pointer;
+        font-size: 13px; color: var(--text-primary, #E8E8ED);
+        text-decoration: none; transition: background 0.2s;
+    }
+    .ad-page-item:hover { background: rgba(255,255,255,0.05); }
+    .ad-page-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Data flow banner */
+    .arch-flow-banner {
+        width: 100%;
+        max-width: 960px;
+        margin-top: 16px;
+        padding: 10px 20px;
+        border-radius: 10px;
+        background: rgba(0, 169, 114, 0.08);
+        border: 1px solid rgba(0, 169, 114, 0.25);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        color: #00A972;
+        animation: flowBannerIn 0.4s ease;
+    }
+    @keyframes flowBannerIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    .arch-flow-pulse {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #00A972;
+        box-shadow: 0 0 8px #00A972;
+        animation: flowPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes flowPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.7); } }
+    .arch-flow-label { font-weight: 700; }
+    .arch-flow-stats { margin-left: auto; display: flex; gap: 8px; font-size: 12px; color: var(--text-secondary, #B4B4BD); }
+    .arch-flow-sep { color: var(--text-muted, #6B6B78); }
+
+    /* SVG flow overlay */
+    .arch-flow-svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+        overflow: visible;
+    }
+    .arch-flow-svg * { pointer-events: none; }
+    .arch-flow-path {
+        fill: none;
+        stroke-width: 2;
+        stroke-dasharray: 8 6;
+        stroke-linecap: round;
+        opacity: 0;
+        transition: opacity 0.6s;
+    }
+    .arch-flowing .arch-flow-path {
+        opacity: 0.8;
+        animation: flowDash 1.2s linear infinite;
+    }
+    @keyframes flowDash { to { stroke-dashoffset: -28; } }
+
+    .arch-flow-path-label {
+        font-family: var(--font-body, 'Inter', sans-serif);
+        font-size: 10px;
+        font-weight: 600;
+        fill: var(--text-muted, #6B6B78);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.6s;
+    }
+    .arch-flowing .arch-flow-path-label { opacity: 1; }
+
+    .arch-flow-dot {
+        opacity: 0;
+        transition: opacity 0.6s;
+    }
+    .arch-flowing .arch-flow-dot { opacity: 1; }
+
+    /* Platform wrapper — position context for side panels */
+    .arch-platform-wrapper {
+        position: relative;
+        width: 100%;
+        max-width: 960px;
+    }
+
+    /* Side panels — absolute positioned to left/right of platform */
+    .arch-side-panel {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        background: var(--arch-plat-bg, rgba(20, 30, 45, 0.7));
+        border: 1px solid var(--arch-plat-border, rgba(255,255,255,0.08));
+        border-radius: 10px;
+        padding: 12px 14px;
+        z-index: 5;
+    }
+    .arch-side-left {
+        right: calc(100% + 100px);
+        align-items: flex-end;
+    }
+    .arch-side-right {
+        left: calc(100% + 100px);
+        align-items: flex-start;
+    }
+    .arch-ext-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: var(--text-muted, #6B6B78);
+        margin-bottom: 2px;
+    }
+    .arch-ext-items-vertical {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .arch-ext-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        color: var(--text-secondary, #A0A0B0);
+        white-space: nowrap;
+    }
+    .arch-side-arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 4px 0;
+    }
+
+    /* Connection group styles (source/consumer panels) */
+    .arch-conn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .arch-conn-meta {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 9px;
+        padding-left: 21px;
+        margin-top: 2px;
+    }
+    .arch-conn-arrow-icon {
+        color: var(--text-muted, #6B6B78);
+        font-weight: 700;
+        font-size: 11px;
+    }
+    .arch-conn-target {
+        color: var(--text-secondary, #A0A0B0);
+        font-weight: 600;
+    }
+    .arch-conn-auth {
+        color: var(--text-muted, #6B6B78);
+        font-style: italic;
+    }
+    .arch-conn-sep {
+        height: 1px;
+        background: rgba(255,255,255,0.06);
+        margin: 8px 0;
+    }
+    .arch-conn-section-label {
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: var(--text-muted, #6B6B78);
+        opacity: 0.7;
+        margin-bottom: 4px;
+    }
+    .arch-conn-lock {
+        width: 11px;
+        height: 11px;
+        opacity: 0.65;
+        flex-shrink: 0;
+    }
+
+    /* Static connector SVG (always visible) */
+    .arch-conn-svg { z-index: 2; }
+    .arch-conn-line {
+        fill: none;
+        stroke-width: 2.5;
+        stroke-dasharray: 8 5;
+        stroke-linecap: round;
+        opacity: 0.6;
+    }
+    .arch-conn-label {
+        font-family: var(--font-body, 'Inter', sans-serif);
+        font-size: 10px;
+        font-weight: 700;
+        pointer-events: none;
+        opacity: 0.85;
+    }
+
+    /* No responsive reflow — diagram is fixed layout, scroll/zoom on small screens */
+
+    /* Zoom container */
+    .arch-zoom-container {
+        transform-origin: top center;
+        transition: transform 0.15s ease-out;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 1500px;
+        padding: 32px 40px 60px;
+    }
+
+    /* Zoom controls */
+    .arch-zoom-controls {
+        position: absolute;
+        top: 12px;
+        right: 16px;
+        z-index: 20;
+        display: flex;
+        gap: 2px;
+        background: var(--arch-plat-bg, rgba(20, 30, 45, 0.85));
+        border: 1px solid var(--arch-plat-border, rgba(255,255,255,0.12));
+        border-radius: 8px;
+        padding: 3px;
+    }
+    .arch-zoom-btn {
+        width: 32px;
+        height: 28px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary, #A0A0B0);
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.15s, color 0.15s;
+    }
+    .arch-zoom-btn:hover {
+        background: rgba(255,255,255,0.08);
+        color: var(--text-primary, #E8E8ED);
+    }
+    .arch-zoom-level {
+        width: auto;
+        padding: 0 6px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+    }
+</style>
+
+<script>
+    var GITHUB_BASE = 'https://github.com/sqlchaser/lakebase_fsm/blob/main/';
+
+    var ARCH_NODES = {
+        mosaic_ai: {
+            name: 'Mosaic AI',
+            subtitle: 'Foundation Models & Agents',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Databricks Mosaic AI provides access to foundation models (Claude Sonnet 4.5) and agent frameworks (LangGraph). In this app, it powers the multi-agent AI Supervisor that routes natural language questions to the right Genie Space.',
+            role: 'Claude Sonnet 4.5 acts as the routing brain for the AI Supervisor. A LangGraph agent coordinates two GenieAgent nodes (Field Ops + PostgreSQL Admin), deployed to Model Serving as an HTTP endpoint.',
+            healthKey: 'genie_spaces',
+            sourceFiles: [
+                { name: 'app.py -- Agent API endpoint', path: 'app/app.py', line: 1800 },
+                { name: '08_create_agent.py -- LangGraph setup', path: 'data/08_create_agent.py' }
+            ],
+            pages: [
+                { name: 'AI Supervisor', href: '/supervisor', color: '#F472B6' },
+                { name: 'Genie AI', href: '/genie', color: '#E879F9' }
+            ]
+        },
+        dbsql: {
+            name: 'DB SQL',
+            subtitle: 'Serverless SQL Warehouse',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'A serverless SQL Warehouse provides on-demand compute for analytical queries. Genie Spaces execute their generated SQL here, and AI/BI Dashboards use it for visualization queries against Unity Catalog tables.',
+            role: 'Analytics compute engine. When a user asks Genie "What is our SLA compliance this week?", Genie translates to SQL and the warehouse executes it against UC foreign tables (mirroring Lakebase) in seconds.',
+            sourceFiles: [
+                { name: 'config.yaml -- warehouse_id', path: 'data/config.yaml' }
+            ],
+            pages: [
+                { name: 'Genie AI', href: '/genie', color: '#E879F9' },
+                { name: 'Operations (Dashboards)', href: '/operations', color: '#60A5FA' }
+            ]
+        },
+        lakebase: {
+            name: 'Lakebase',
+            subtitle: 'PostgreSQL OLTP Database',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Databricks Lakebase is a fully-managed PostgreSQL database built for OLTP workloads. It stores 1M+ rows of field service data with sub-millisecond latency -- work orders, technicians, customers, equipment, appointments, and activity logs.',
+            role: 'The transactional backbone. Every page reads from Lakebase -- the map polls GPS positions, the dispatch board queries work orders, the simulator writes new events. Connection pooling (psycopg3, min=2, max=10) handles concurrent load.',
+            healthKey: 'database',
+            sourceFiles: [
+                { name: 'app.py -- Connection pool', path: 'app/app.py', line: 80 },
+                { name: 'field_service_schema.sql -- 14 tables', path: 'data/field_service_schema.sql' },
+                { name: 'app.py -- Map data API', path: 'app/app.py', line: 2066 }
+            ],
+            pages: [
+                { name: 'Field Map', href: '/map', color: '#60A5FA' },
+                { name: 'Dispatch Board', href: '/dispatch', color: '#FFAB2E' },
+                { name: 'View Data', href: '/view-data', color: '#00A972' },
+                { name: 'Insert Data', href: '/insert-data', color: '#00A972' },
+                { name: 'Simulator', href: '/simulator', color: '#F59E0B' }
+            ]
+        },
+        aibi: {
+            name: 'AI/BI Dashboards',
+            subtitle: 'Lakeview Analytics',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Databricks AI/BI (Lakeview) provides auto-generated dashboards from Unity Catalog tables. In this app, an embedded dashboard shows SLA compliance trends, technician performance, and regional analytics.',
+            role: 'The Operations page embeds a Lakeview dashboard that queries the same UC tables Genie uses. No separate BI tool needed -- the dashboard is part of the platform.',
+            sourceFiles: [
+                { name: '06_create_dashboard.py', path: 'data/06_create_dashboard.py' }
+            ],
+            pages: [
+                { name: 'Operations', href: '/operations', color: '#60A5FA' },
+                { name: 'SLA Analytics', href: '/analytics', color: '#00A972' }
+            ]
+        },
+        genie: {
+            name: 'Genie Spaces',
+            subtitle: 'Natural Language SQL',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Genie AI Spaces let anyone ask questions in plain English and get instant SQL-backed answers. Two spaces power this app: a Field Operations space for work order and SLA queries, and a PostgreSQL Admin space for database health monitoring.',
+            role: 'Connected to Unity Catalog foreign tables (mirroring Lakebase OLTP data), each Genie Space generates SQL, executes it on the serverless SQL Warehouse, and returns results. The multi-agent AI Supervisor routes questions to the right space automatically.',
+            healthKey: 'genie_spaces',
+            sourceFiles: [
+                { name: '05_create_genie_spaces.py', path: 'data/05_create_genie_spaces.py' },
+                { name: 'app.py -- Genie API', path: 'app/app.py', line: 1600 }
+            ],
+            pages: [
+                { name: 'Genie AI', href: '/genie', color: '#E879F9' },
+                { name: 'AI Supervisor', href: '/supervisor', color: '#F472B6' }
+            ]
+        },
+        lakeflow: {
+            name: 'Spark Streaming',
+            subtitle: 'Structured Streaming ETL (Bronze/Silver/Gold)',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Spark Structured Streaming on Databricks serverless compute implements the medallion architecture for network monitoring data and real-time IoT telemetry. All tables are stored as Managed Iceberg for open interoperability. Bronze ingests raw CSV/JSON from UC Volumes (including streaming IoT sensor data), Silver cleans and validates, Gold aggregates for analytics.',
+            role: 'Transforms raw network telemetry (node status, performance metrics, outage reports) and IoT device readings (signal strength, throughput, latency, temperature) into analytics-ready Managed Iceberg tables. Runs as a serverless Spark job — no DLT/Lakeflow dependency. The IoT streaming pipeline feeds gold_iot_device_health which powers the Field Map diagnostics panel.',
+            sourceFiles: [
+                { name: 'iceberg_streaming_pipeline.py -- Spark pipeline', path: 'pipelines/iceberg_streaming_pipeline.py' }
+            ],
+            pages: []
+        },
+        apps: {
+            name: 'Databricks Apps',
+            subtitle: 'Flask Microapp Hosting',
+            layer: 'Platform Service',
+            layerColor: '#FF3621',
+            description: 'Databricks Apps hosts this Flask web application with automatic service principal authentication. No manual credential management -- the platform injects DATABRICKS_HOST and DATABRICKS_TOKEN at runtime.',
+            role: 'Runs the entire FieldOps UI -- 13 pages, 30+ API endpoints. Auto-authenticated WorkspaceClient() makes SDK calls to Genie and Model Serving. Environment variables in app.yaml configure Lakebase connection.',
+            healthKey: 'env_config',
+            sourceFiles: [
+                { name: 'app.yaml -- App config', path: 'app/app.yaml' },
+                { name: 'app.py -- Flask routes', path: 'app/app.py' },
+                { name: 'requirements.txt', path: 'app/requirements.txt' }
+            ],
+            pages: [
+                { name: 'All 13 app pages', href: '/', color: '#FF6F42' }
+            ]
+        },
+        lakehouse: {
+            name: 'Lakehouse',
+            subtitle: 'Unified Data Architecture',
+            layer: 'Foundation',
+            layerColor: '#FF3621',
+            description: 'The Databricks Lakehouse unifies data warehousing and data lakes into one platform. In this app, operational data (Lakebase OLTP) and analytical data (Managed Iceberg tables from Spark Structured Streaming) coexist under Unity Catalog governance.',
+            role: 'The foundation that makes everything work together. Lakebase handles writes, Unity Catalog governs access, SQL Warehouse powers analytics, and Genie provides natural language -- all on the same platform.',
+            sourceFiles: [],
+            pages: []
+        },
+        unity_catalog: {
+            name: 'Unity Catalog',
+            subtitle: 'Unified Governance',
+            layer: 'Governance',
+            layerColor: '#FF3621',
+            description: 'Unity Catalog provides unified governance across all data assets. Lakehouse Federation mirrors Lakebase PostgreSQL tables as UC foreign tables, making them queryable by SQL Warehouses, Genie, and dashboards -- all with fine-grained access control and no data movement.',
+            role: 'The governance bridge. Genie Spaces query UC tables (not PostgreSQL directly), so all access is governed by UC permissions with full audit logging. Lakehouse Federation enables query federation without ETL.',
+            sourceFiles: [
+                { name: '02c_sync_catalog.py -- Lakehouse Federation', path: 'data/02c_sync_catalog.py' },
+                { name: '03_setup_permissions.py -- UC grants', path: 'data/03_setup_permissions.py' }
+            ],
+            pages: [],
+            catalogs: [
+                {
+                    name: 'dba-lakebase-network',
+                    type: 'Managed',
+                    description: 'Streaming pipeline output — network analytics & IoT telemetry',
+                    schemas: [
+                        {
+                            name: 'network_data',
+                            description: 'Bronze/Silver/Gold medallion tables from Spark Streaming',
+                            tables: [
+                                { name: 'bronze_network_nodes', tier: 'Bronze', desc: 'Raw network node inventory from CSV' },
+                                { name: 'bronze_network_performance', tier: 'Bronze', desc: 'Raw hourly performance metrics' },
+                                { name: 'bronze_network_outages', tier: 'Bronze', desc: 'Raw outage events from JSON' },
+                                { name: 'bronze_iot_telemetry', tier: 'Bronze', desc: 'Streaming IoT sensor readings from simulator' },
+                                { name: 'silver_network_nodes', tier: 'Silver', desc: 'Validated nodes with parsed coordinates' },
+                                { name: 'silver_network_performance', tier: 'Silver', desc: 'Cleaned metrics with quality checks' },
+                                { name: 'silver_network_outages', tier: 'Silver', desc: 'Enriched outages with duration calc' },
+                                { name: 'silver_iot_telemetry', tier: 'Silver', desc: 'Validated IoT readings with type casting' },
+                                { name: 'gold_daily_node_health', tier: 'Gold', desc: 'Daily health scores per node' },
+                                { name: 'gold_daily_outage_summary', tier: 'Gold', desc: 'Daily outage aggregates by region' },
+                                { name: 'gold_iot_device_health', tier: 'Gold', desc: 'IoT health scores per infrastructure asset' },
+                                { name: 'gold_node_maintenance_risk', tier: 'Gold', desc: 'Maintenance risk scoring' },
+                                { name: 'gold_outage_root_cause_analysis', tier: 'Gold', desc: 'Root cause pattern analysis' },
+                                { name: 'gold_regional_network_summary', tier: 'Gold', desc: 'Regional network KPIs' }
+                            ],
+                            volumes: [
+                                { name: 'raw_files', desc: 'UC Volume — CSVs, JSON, and streaming IoT telemetry files' }
+                            ]
+                        },
+                        {
+                            name: 'governance',
+                            description: 'Row-filtered views for role-based access control',
+                            tables: []
+                        }
+                    ]
+                },
+                {
+                    name: 'dba-fsm-network',
+                    type: 'Lakehouse Federation',
+                    description: 'Lakehouse Federation catalog — federated queries to Lakebase PostgreSQL',
+                    schemas: [
+                        {
+                            name: 'governance',
+                            description: 'Masked and filtered views for analytics consumers',
+                            tables: [
+                                { name: 'v_customers_masked', tier: 'View', desc: 'PII-masked customer records' },
+                                { name: 'v_regional_work_orders', tier: 'View', desc: 'Region-filtered work orders' },
+                                { name: 'v_sla_compliance', tier: 'View', desc: 'SLA metrics with row-level security' },
+                                { name: 'v_technician_performance', tier: 'View', desc: 'Technician KPIs for Genie queries' }
+                            ],
+                            volumes: []
+                        }
+                    ]
+                }
+            ]
+        },
+        delta_lake: {
+            name: 'Managed Iceberg',
+            subtitle: 'Open Table Format',
+            layer: 'Storage',
+            layerColor: '#60A5FA',
+            description: 'All pipeline tables use Managed Iceberg format — providing ACID transactions, schema enforcement, and time travel with full interoperability. Any Iceberg-compatible engine (Spark, Flink, Trino, Snowflake) can read these tables directly, no vendor lock-in.',
+            role: 'Spark Structured Streaming writes Bronze, Silver, and Gold tables in Managed Iceberg format. Unity Catalog manages the metadata. The SQL Warehouse reads these tables for Genie queries and dashboard visualizations. External engines can consume them via the Unity Catalog Iceberg REST endpoint.',
+            sourceFiles: [],
+            pages: []
+        }
+    };
+
+    var archPanel = document.getElementById('archDetailPanel');
+    var archContent = document.getElementById('archDetailContent');
+    var healthData = null;
+    var selectedNodeId = null;
+
+    function closeArchDetail() {
+        archPanel.classList.remove('open');
+        document.querySelectorAll('.arch-service-card.selected, .arch-uc-bar.selected, .arch-storage-bar.selected').forEach(function(el) {
+            el.classList.remove('selected');
+        });
+        selectedNodeId = null;
+    }
+
+    function openArchDetail(nodeId) {
+        var node = ARCH_NODES[nodeId];
+        if (!node) return;
+        selectedNodeId = nodeId;
+
+        // Highlight selected card
+        document.querySelectorAll('.arch-service-card.selected, .arch-uc-bar.selected, .arch-storage-bar.selected').forEach(function(el) {
+            el.classList.remove('selected');
+        });
+        var card = document.querySelector('[data-node="' + nodeId + '"]');
+        if (card) card.classList.add('selected');
+        if (nodeId === 'unity_catalog') document.querySelector('.arch-uc-bar').classList.add('selected');
+        if (nodeId === 'delta_lake') document.querySelector('.arch-storage-bar').classList.add('selected');
+
+        var html = '<div class="ad-header">' +
+            '<p class="ad-name">' + node.name + '</p>' +
+            '<p class="ad-subtitle">' + node.subtitle + '</p>' +
+            '<span class="ad-badge" style="background:' + node.layerColor + ';color:#fff;">' + node.layer + '</span>' +
+            '</div>';
+
+        // Live status
+        if (healthData && healthData.checks && node.healthKey) {
+            var check = healthData.checks[node.healthKey];
+            if (check) {
+                var st = check.status || 'unknown';
+                var stColor = st === 'healthy' ? '#00A972' : st === 'warning' ? '#FFAB2E' : st === 'unknown' ? '#6B6B78' : '#FF4444';
+                html += '<div class="ad-status" style="background:' + stColor + '18;color:' + stColor + ';">' +
+                    '<div class="ad-status-dot" style="background:' + stColor + ';"></div>' +
+                    'Status: ' + st.charAt(0).toUpperCase() + st.slice(1) + '</div>';
+
+                var metricHtml = '';
+                if (check.latency_ms !== undefined) metricHtml += '<div class="ad-metric"><div class="ad-metric-label">Latency</div><div class="ad-metric-value">' + check.latency_ms + 'ms</div></div>';
+                if (check.pool_size !== undefined) metricHtml += '<div class="ad-metric"><div class="ad-metric-label">Pool Size</div><div class="ad-metric-value">' + check.pool_size + '</div></div>';
+                if (check.pool_available !== undefined) metricHtml += '<div class="ad-metric"><div class="ad-metric-label">Available</div><div class="ad-metric-value">' + check.pool_available + '</div></div>';
+                if (check.count !== undefined) metricHtml += '<div class="ad-metric"><div class="ad-metric-label">Tables</div><div class="ad-metric-value">' + check.count + '</div></div>';
+                if (metricHtml) html += '<div class="ad-section"><div class="ad-section-title">Live Metrics</div><div class="ad-metrics">' + metricHtml + '</div></div>';
+            }
+        }
+
+        html += '<div class="ad-section"><div class="ad-section-title">What It Is</div><p class="ad-desc">' + node.description + '</p></div>';
+        html += '<div class="ad-section"><div class="ad-section-title">Role in This App</div><p class="ad-desc">' + node.role + '</p></div>';
+
+        // App pages powered by this component
+        if (node.pages && node.pages.length) {
+            html += '<div class="ad-section"><div class="ad-section-title">Powers These Pages</div><ul class="ad-page-list">';
+            node.pages.forEach(function(p) {
+                html += '<a href="' + p.href + '" class="ad-page-item"><div class="ad-page-dot" style="background:' + p.color + ';"></div>' + p.name + '</a>';
+            });
+            html += '</ul></div>';
+        }
+
+        // Source files
+        if (node.sourceFiles && node.sourceFiles.length) {
+            html += '<div class="ad-section"><div class="ad-section-title">Source Code</div><ul class="ad-file-list">';
+            node.sourceFiles.forEach(function(f) {
+                var url = GITHUB_BASE + f.path + (f.line ? '#L' + f.line : '');
+                html += '<li class="ad-file-item" onclick="window.open(\'' + url + '\', \'_blank\')">\uD83D\uDCC4 ' + f.name + '</li>';
+            });
+            html += '</ul></div>';
+        }
+
+        // Catalog tree (Unity Catalog only)
+        if (node.catalogs && node.catalogs.length) {
+            var tierColors = { Bronze: '#CD7F32', Silver: '#C0C0C0', Gold: '#FFD700', View: '#A78BFA' };
+            html += '<div class="ad-section"><div class="ad-section-title">Catalog Explorer</div>';
+            node.catalogs.forEach(function(cat) {
+                html += '<div class="ad-catalog">' +
+                    '<div class="ad-catalog-header" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+                    '<span class="ad-tree-arrow">&#9660;</span>' +
+                    '<span class="ad-cat-icon">&#128451;</span> ' +
+                    '<strong>' + cat.name + '</strong>' +
+                    '<span class="ad-cat-type">' + cat.type + '</span>' +
+                    '</div>' +
+                    '<div class="ad-cat-desc">' + cat.description + '</div>' +
+                    '<div class="ad-catalog-body">';
+                cat.schemas.forEach(function(schema) {
+                    html += '<div class="ad-schema">' +
+                        '<div class="ad-schema-header" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+                        '<span class="ad-tree-arrow">&#9660;</span>' +
+                        '<span class="ad-schema-icon">&#128194;</span> ' +
+                        schema.name +
+                        '</div>' +
+                        '<div class="ad-schema-desc">' + schema.description + '</div>' +
+                        '<div class="ad-schema-body">';
+                    if (schema.volumes && schema.volumes.length) {
+                        schema.volumes.forEach(function(v) {
+                            html += '<div class="ad-table-item ad-volume-item">' +
+                                '<span class="ad-table-tier" style="background:#60A5FA;">Vol</span>' +
+                                '<span class="ad-table-name">' + v.name + '</span>' +
+                                '<span class="ad-table-desc">' + v.desc + '</span></div>';
+                        });
+                    }
+                    if (schema.tables && schema.tables.length) {
+                        schema.tables.forEach(function(t) {
+                            var tc = tierColors[t.tier] || '#888';
+                            html += '<div class="ad-table-item">' +
+                                '<span class="ad-table-tier" style="background:' + tc + ';">' + t.tier + '</span>' +
+                                '<span class="ad-table-name">' + t.name + '</span>' +
+                                '<span class="ad-table-desc">' + t.desc + '</span></div>';
+                        });
+                    }
+                    html += '</div></div>';
+                });
+                html += '</div></div>';
+            });
+            html += '</div>';
+        }
+
+        archContent.innerHTML = html;
+        archPanel.classList.add('open');
+    }
+
+    // Health polling
+    function refreshHealth() {
+        fetch('/api/health').then(function(r) { return r.json(); }).then(function(data) {
+            healthData = data;
+            if (selectedNodeId) openArchDetail(selectedNodeId);
+        }).catch(function() {});
+    }
+    refreshHealth();
+    setInterval(refreshHealth, 30000);
+
+    // ── Keyboard navigation for interactive cards ──────────────────
+    document.querySelectorAll('[role="button"][tabindex="0"]').forEach(function(el) {
+        el.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                el.click();
+            }
+        });
+    });
+
+    // Close detail panel on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && archPanel.classList.contains('open')) {
+            closeArchDetail();
+        }
+    });
+
+    // ── Data flow animation (dotted lines) ────────────────────────
+    var simRunning = false;
+    var simStartTime = null;
+    var scrollEl = document.getElementById('archScroll');
+    var flowSvg = document.getElementById('flowSvg');
+    var flowPathsDrawn = false;
+
+    // Define the data flow paths with labels and colors
+    // Layout: Row1 [Apps | Lakebase | Spark Streaming] → UC bar → Row2 [DB SQL | Mosaic AI | AI/BI]
+    // Routes: 'above' = arc over cards, 'below' = arc under cards, 'vAlign' = vertical keeping source X
+    var FLOW_PATHS = [
+        // Row 1: Apps ↔ Lakebase — writes go ABOVE, reads go BELOW
+        { from: '[data-node="apps"]',      to: '[data-node="lakebase"]',  color: '#00A972', label: 'WO & GPS writes',        fromSide: 'top',    toSide: 'top',    route: 'above', routeGap: 28 },
+        { from: '[data-node="lakebase"]',   to: '[data-node="apps"]',     color: '#60A5FA', label: 'API query reads',        fromSide: 'bottom', toSide: 'bottom', route: 'below', routeGap: 10 },
+        // Lakebase → UC: Lakehouse Federation (routes through gap between column 1 and 2)
+        { from: '[data-node="lakebase"]',   to: '.arch-uc-bar',           color: '#A78BFA', label: 'Lakehouse Federation',  fromSide: 'bottom', toSide: 'top', route: 'channelDown', gapGuide: '[data-node="apps"]' },
+        // Spark Streaming → UC: IoT pipeline writes (routes through gap between column 2 and 3)
+        { from: '[data-node="lakeflow"]',   to: '.arch-uc-bar',           color: '#E25A1C', label: 'IoT streaming writes',  fromSide: 'bottom', toSide: 'top', route: 'channelDown', gapGuide: '[data-node="mosaic_ai"]' },
+        // Row 2: DB SQL → AI/BI
+        { from: '[data-node="dbsql"]',      to: '[data-node="aibi"]',     color: '#FFAB2E', label: 'Dashboard/Genie queries', fromSide: 'bottom', toSide: 'bottom', route: 'below', routeGap: 14 },
+    ];
+
+    function getAnchorPoint(el, side, offsetY) {
+        var r = el.getBoundingClientRect();
+        var sr = scrollEl.getBoundingClientRect();
+        var ox = -sr.left + scrollEl.scrollLeft;
+        var oy = -sr.top + scrollEl.scrollTop + (offsetY || 0);
+        if (side === 'top')    return { x: r.left + r.width/2 + ox, y: r.top + oy };
+        if (side === 'bottom') return { x: r.left + r.width/2 + ox, y: r.bottom + oy };
+        if (side === 'left')   return { x: r.left + ox,             y: r.top + r.height/2 + oy };
+        if (side === 'right')  return { x: r.right + ox,            y: r.top + r.height/2 + oy };
+        return { x: r.left + r.width/2 + ox, y: r.top + r.height/2 + oy };
+    }
+
+    function svgCreate(tag, attrs) {
+        var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (var k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+    }
+
+    function drawFlowPaths() {
+        if (!simRunning) {
+            flowSvg.innerHTML = '';
+            return;
+        }
+        flowSvg.innerHTML = '';
+        flowSvg.style.width = scrollEl.scrollWidth + 'px';
+        flowSvg.style.height = scrollEl.scrollHeight + 'px';
+
+        // Per-path arrow markers (colored)
+        var defs = svgCreate('defs', {});
+        FLOW_PATHS.forEach(function(fp, i) {
+            var marker = svgCreate('marker', { id: 'arrow' + i, viewBox: '0 0 10 7', refX: '10', refY: '3.5', markerWidth: '8', markerHeight: '6', orient: 'auto' });
+            marker.appendChild(svgCreate('polygon', { points: '0 0.5, 10 3.5, 0 6.5', fill: fp.color, opacity: '0.7' }));
+            defs.appendChild(marker);
+        });
+        flowSvg.appendChild(defs);
+
+        FLOW_PATHS.forEach(function(fp, i) {
+            var fromEl = document.querySelector(fp.from);
+            var toEl = document.querySelector(fp.to);
+            if (!fromEl || !toEl) return;
+
+            var a = getAnchorPoint(fromEl, fp.fromSide);
+            var b = getAnchorPoint(toEl, fp.toSide);
+            var d, labelX, labelY, labelAnchor = 'middle', labelRotate = 0;
+
+            if (fp.route === 'above') {
+                // Arc ABOVE the cards: up from source top, across, down to target top
+                var wayY = Math.min(a.y, b.y) - (fp.routeGap || 24);
+                d = 'M' + a.x + ',' + a.y + ' C' + a.x + ',' + wayY + ' ' + b.x + ',' + wayY + ' ' + b.x + ',' + b.y;
+                labelX = (a.x + b.x) / 2;
+                labelY = wayY - 5;
+            } else if (fp.route === 'below') {
+                // Arc BELOW the cards: down from source bottom, across, up to target bottom
+                var wayY = Math.max(a.y, b.y) + (fp.routeGap || 24);
+                d = 'M' + a.x + ',' + a.y + ' C' + a.x + ',' + wayY + ' ' + b.x + ',' + wayY + ' ' + b.x + ',' + b.y;
+                labelX = (a.x + b.x) / 2;
+                labelY = wayY + 12;
+            } else if (fp.route === 'channelDown') {
+                // Route through the gap between grid columns using gapGuide card's right edge
+                var _gEl = document.querySelector(fp.gapGuide);
+                if (_gEl) {
+                    var _sr2 = scrollEl.getBoundingClientRect();
+                    var _ox2 = -_sr2.left + scrollEl.scrollLeft;
+                    var _oy2 = -_sr2.top + scrollEl.scrollTop;
+                    var _gr = _gEl.getBoundingClientRect();
+                    var _gapX = _gr.right + _ox2 + 9; // midpoint of 18px grid gap
+                    var _dropY = a.y + 32; // deep into the spacer (well below "API query reads" arc)
+                    var _r = 8;
+                    // From source bottom → down into spacer → horizontal to gap → down through gap → to target
+                    d = 'M' + a.x + ',' + a.y +
+                        ' L' + a.x + ',' + (_dropY - _r) +
+                        ' Q' + a.x + ',' + _dropY + ' ' + (a.x - _r) + ',' + _dropY +
+                        ' L' + (_gapX + _r) + ',' + _dropY +
+                        ' Q' + _gapX + ',' + _dropY + ' ' + _gapX + ',' + (_dropY + _r) +
+                        ' L' + _gapX + ',' + b.y;
+                    // Place label along the vertical segment (rotated -90), centered on gap line
+                    labelX = _gapX;
+                    labelY = (_dropY + _r + b.y) / 2;
+                    labelAnchor = 'middle';
+                    labelRotate = -90;
+                    // Override dot positions
+                    b.x = _gapX;
+                }
+            } else if (fp.route === 'vAlign') {
+                // Vertical: keep source X, target Y — straight down from card to UC bar
+                var tx = a.x;
+                d = 'M' + a.x + ',' + a.y + ' L' + tx + ',' + b.y;
+                b.x = tx; // override for dot placement
+                labelX = tx + 14;
+                labelY = (a.y + b.y) / 2;
+                labelAnchor = 'middle';
+                labelRotate = -90;
+            } else if (fp.route === 'vAlignTarget') {
+                // Vertical: keep target X, source Y — straight down from UC bar to card
+                var tx = b.x;
+                d = 'M' + tx + ',' + a.y + ' L' + tx + ',' + b.y;
+                a.x = tx; // override for dot placement
+                labelX = tx + 14;
+                labelY = (a.y + b.y) / 2;
+                labelAnchor = 'middle';
+                labelRotate = -90;
+            } else if (fp.route === 'outsideLeft') {
+                // Route along the LEFT edge of the platform box, outside all cards (direction-agnostic)
+                var platformBox = document.querySelector('.arch-platform-box');
+                var pbRect = platformBox.getBoundingClientRect();
+                var sr2 = scrollEl.getBoundingClientRect();
+                var leftX = pbRect.left - sr2.left + scrollEl.scrollLeft - (fp.outsideOffset || 14);
+                var r = 10;
+                var dir = a.y < b.y ? 1 : -1;
+                d = 'M' + a.x + ',' + a.y +
+                    ' L' + (leftX + r) + ',' + a.y +
+                    ' Q' + leftX + ',' + a.y + ' ' + leftX + ',' + (a.y + dir * r) +
+                    ' L' + leftX + ',' + (b.y - dir * r) +
+                    ' Q' + leftX + ',' + b.y + ' ' + (leftX + r) + ',' + b.y +
+                    ' L' + b.x + ',' + b.y;
+                labelX = leftX + 14;
+                labelY = (a.y + b.y) / 2;
+                labelAnchor = 'middle';
+                labelRotate = -90;
+            } else if (fp.route === 'outsideRight') {
+                // Route along the RIGHT edge of the platform box, outside all cards (direction-agnostic)
+                var platformBox2 = document.querySelector('.arch-platform-box');
+                var pbRect2 = platformBox2.getBoundingClientRect();
+                var sr3 = scrollEl.getBoundingClientRect();
+                var rightX = pbRect2.right - sr3.left + scrollEl.scrollLeft + (fp.outsideOffset || 14);
+                var r2 = 10;
+                var dir2 = a.y < b.y ? 1 : -1;
+                d = 'M' + a.x + ',' + a.y +
+                    ' L' + (rightX - r2) + ',' + a.y +
+                    ' Q' + rightX + ',' + a.y + ' ' + rightX + ',' + (a.y + dir2 * r2) +
+                    ' L' + rightX + ',' + (b.y - dir2 * r2) +
+                    ' Q' + rightX + ',' + b.y + ' ' + (rightX - r2) + ',' + b.y +
+                    ' L' + b.x + ',' + b.y;
+                labelX = rightX - 14;
+                labelY = (a.y + b.y) / 2;
+                labelAnchor = 'middle';
+                labelRotate = -90;
+            } else {
+                // Default: gentle horizontal bezier through the gap between adjacent cards
+                var dx = b.x - a.x, dy = b.y - a.y;
+                d = 'M' + a.x + ',' + a.y + ' C' + (a.x + dx * 0.4) + ',' + a.y + ' ' + (b.x - dx * 0.4) + ',' + b.y + ' ' + b.x + ',' + b.y;
+                labelX = (a.x + b.x) / 2;
+                labelY = (a.y + b.y) / 2 - 10;
+            }
+
+            // Draw path
+            flowSvg.appendChild(svgCreate('path', {
+                d: d, class: 'arch-flow-path', stroke: fp.color,
+                'marker-end': 'url(#arrow' + i + ')'
+            }));
+
+            // Endpoint dots
+            flowSvg.appendChild(svgCreate('circle', { cx: a.x, cy: a.y, r: 4, fill: fp.color, class: 'arch-flow-dot' }));
+            flowSvg.appendChild(svgCreate('circle', { cx: b.x, cy: b.y, r: 4, fill: fp.color, class: 'arch-flow-dot' }));
+
+            // Label — colored text only, no background
+            if (fp.label) {
+                var labelAttrs = {
+                    x: labelX, y: labelY,
+                    'text-anchor': labelAnchor,
+                    class: 'arch-flow-path-label',
+                    fill: fp.color
+                };
+                if (labelRotate) {
+                    labelAttrs.transform = 'rotate(' + labelRotate + ',' + labelX + ',' + labelY + ')';
+                }
+                var label = svgCreate('text', labelAttrs);
+                label.textContent = fp.label;
+                flowSvg.appendChild(label);
+            }
+            labelRotate = 0; // reset for next iteration
+        });
+        flowPathsDrawn = true;
+    }
+
+    // ── Static connector lines (always visible) ─────────────────
+    // All external access flows through Unity Catalog (governance gateway)
+    // Human/AI consumers access platform services via the Control Plane
+    var CONN_PATHS = [
+        // Left: Data Sources → Unity Catalog (ingestion via UC Volumes & Iceberg REST)
+        { fromEl: '#archSources', toEl: '.arch-uc-bar', color: '#60A5FA', label: 'SP Token · UC Volumes', side: 'left', labelOffset: 0 },
+        // Right: Interactive users ← Platform (browser-based OAuth SSO)
+        { fromEl: '.arch-platform-box', toEl: '#archDests', color: '#E879F9', label: 'OAuth SSO', side: 'right', labelOffset: -12 },
+        // Right: Programmatic access ← Unity Catalog (machine-to-machine)
+        { fromEl: '.arch-uc-bar', toEl: '#archDests', color: '#A78BFA', label: 'Token / M2M', side: 'right', labelOffset: 12 }
+    ];
+
+    function drawConnections() {
+        var connSvg = document.getElementById('connSvg');
+        if (!connSvg) return;
+        connSvg.innerHTML = '';
+        connSvg.style.width = scrollEl.scrollWidth + 'px';
+        connSvg.style.height = scrollEl.scrollHeight + 'px';
+
+        var sr = scrollEl.getBoundingClientRect();
+        var ox = -sr.left + scrollEl.scrollLeft;
+        var oy = -sr.top + scrollEl.scrollTop;
+
+        // Arrow marker defs — one per unique color
+        var defs = svgCreate('defs', {});
+        var connColors = {};
+        CONN_PATHS.forEach(function(cp, i) {
+            if (!connColors[cp.color]) {
+                connColors[cp.color] = 'conn-arrow-' + i;
+                var m = svgCreate('marker', { id: 'conn-arrow-' + i, viewBox: '0 0 8 6', refX: '8', refY: '3', markerWidth: '7', markerHeight: '5', orient: 'auto' });
+                m.appendChild(svgCreate('polygon', { points: '0 0.5, 8 3, 0 5.5', fill: cp.color, opacity: '0.5' }));
+                defs.appendChild(m);
+            }
+        });
+        connSvg.appendChild(defs);
+
+        CONN_PATHS.forEach(function(cp) {
+            var fromEl = document.querySelector(cp.fromEl);
+            var toEl = document.querySelector(cp.toEl);
+            if (!fromEl || !toEl) return;
+
+            var fromR = fromEl.getBoundingClientRect();
+            var toR = toEl.getBoundingClientRect();
+            var markerEnd = 'url(#' + connColors[cp.color] + ')';
+            var x1, x2, y1, y2;
+
+            if (cp.side === 'left') {
+                // Source panel (left) → target element (right edge of source, left edge of target)
+                x1 = fromR.right + ox + 8;
+                x2 = toR.left + ox - 8;
+                y1 = fromR.top + fromR.height / 2 + oy;
+                y2 = toR.top + toR.height / 2 + oy;
+            } else {
+                // Platform element → consumer panel (right edge of source, left edge of dest)
+                x1 = fromR.right + ox + 8;
+                x2 = toR.left + ox - 8;
+                y1 = fromR.top + fromR.height / 2 + oy;
+                y2 = toR.top + toR.height / 2 + oy;
+            }
+
+            // Gentle bezier curve — control points at 40%/60% for smoother S-curve
+            var cpx1 = x1 + (x2 - x1) * 0.4;
+            var cpx2 = x1 + (x2 - x1) * 0.6;
+            var d = 'M' + x1 + ',' + y1 + ' C' + cpx1 + ',' + y1 + ' ' + cpx2 + ',' + y2 + ' ' + x2 + ',' + y2;
+
+            connSvg.appendChild(svgCreate('path', {
+                d: d,
+                class: 'arch-conn-line',
+                stroke: cp.color,
+                'marker-end': markerEnd
+            }));
+
+            // Lock icon at curve midpoint
+            var midT = 0.5;
+            var lockX = (1-midT)*(1-midT)*(1-midT)*x1 + 3*(1-midT)*(1-midT)*midT*cpx1 + 3*(1-midT)*midT*midT*cpx2 + midT*midT*midT*x2;
+            var lockY = (1-midT)*(1-midT)*(1-midT)*y1 + 3*(1-midT)*(1-midT)*midT*y1 + 3*(1-midT)*midT*midT*y2 + midT*midT*midT*y2;
+            var lockSize = 16;
+            connSvg.appendChild(svgCreate('image', {
+                href: '/static/security-lock-icon.webp',
+                x: lockX - lockSize/2, y: lockY - lockSize/2 - 2,
+                width: lockSize, height: lockSize,
+                opacity: '0.7'
+            }));
+
+            // Label — positioned at 35% from source (closer to platform box) to avoid panel overlap
+            var labelT = cp.side === 'left' ? 0.65 : 0.35;
+            var labelX = (1-labelT)*(1-labelT)*(1-labelT)*x1 + 3*(1-labelT)*(1-labelT)*labelT*cpx1 + 3*(1-labelT)*labelT*labelT*cpx2 + labelT*labelT*labelT*x2;
+            var labelYcurve = (1-labelT)*(1-labelT)*(1-labelT)*y1 + 3*(1-labelT)*(1-labelT)*labelT*y1 + 3*(1-labelT)*labelT*labelT*y2 + labelT*labelT*labelT*y2;
+            var labelY = labelYcurve - 10 + (cp.labelOffset || 0);
+            var text = svgCreate('text', {
+                x: labelX, y: labelY,
+                'text-anchor': 'middle',
+                class: 'arch-conn-label',
+                fill: cp.color
+            });
+            text.textContent = cp.label;
+            connSvg.appendChild(text);
+        });
+    }
+
+    // Draw static connections on load and resize
+    setTimeout(drawConnections, 100);
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function() {
+            drawConnections();
+            if (simRunning) try { drawFlowPaths(); } catch(e) {}
+        }, 200);
+    });
+
+    function checkSimulatorStatus() {
+        fetch('/api/simulator/status').then(function(r) { return r.json(); }).then(function(data) {
+            var wasRunning = simRunning;
+            simRunning = data.state === 'RUNNING';
+            if (simRunning && !wasRunning) startFlowAnimation();
+            else if (!simRunning && wasRunning) stopFlowAnimation();
+            if (simRunning) updateFlowStats();
+        }).catch(function() {});
+    }
+
+    function updateFlowStats() {
+        var since = simStartTime || new Date(Date.now() - 3600000).toISOString();
+        fetch('/api/simulator/live-stats?since=' + encodeURIComponent(since)).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.stats) {
+                document.getElementById('flowStatWo').textContent = (data.stats.new_work_orders || 0) + ' WOs';
+                document.getElementById('flowStatDone').textContent = (data.stats.completed_orders || 0) + ' completed';
+                document.getElementById('flowStatAppts').textContent = (data.stats.new_appointments || 0) + ' appts';
+                document.getElementById('flowStatIot').textContent = (data.stats.iot_files_generated || 0) + ' IoT files';
+            }
+        }).catch(function() {});
+    }
+
+    function startFlowAnimation() {
+        simStartTime = new Date().toISOString();
+        document.getElementById('flowBanner').style.display = 'flex';
+        scrollEl.classList.add('arch-flowing');
+        try { drawFlowPaths(); } catch(e) { console.error('drawFlowPaths error:', e); }
+    }
+
+    function stopFlowAnimation() {
+        document.getElementById('flowBanner').style.display = 'none';
+        scrollEl.classList.remove('arch-flowing');
+    }
+
+    // Redraw paths on resize/scroll
+    var resizeTimer;
+
+    // Poll simulator status every 3 seconds
+    checkSimulatorStatus();
+    setInterval(checkSimulatorStatus, 3000);
+
+    // ── Zoom & Pan ──
+    var archScale = 1;
+    var archContainer = document.getElementById('archZoomContainer');
+    var archScrollEl = document.getElementById('archScroll');
+    var archZoomLabel = document.getElementById('archZoomLevel');
+
+    function archSetScale(s) {
+        archScale = Math.max(0.3, Math.min(2.5, s));
+        archContainer.style.transform = 'scale(' + archScale + ')';
+        archZoomLabel.textContent = Math.round(archScale * 100) + '%';
+    }
+    function archZoom(delta) { archSetScale(archScale + delta); }
+    function archZoomReset() { archSetScale(1); }
+    function archZoomFit() {
+        var cw = archContainer.scrollWidth;
+        var vw = archScrollEl.clientWidth;
+        archSetScale(Math.min(1, vw / cw));
+    }
+
+    // Mouse-wheel zoom
+    archScrollEl.addEventListener('wheel', function(e) {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            var d = e.deltaY > 0 ? -0.05 : 0.05;
+            archSetScale(archScale + d);
+        }
+    }, { passive: false });
+
+    // Drag to pan
+    var archDrag = false, archDragX = 0, archDragY = 0;
+    archScrollEl.addEventListener('mousedown', function(e) {
+        if (e.button !== 0 || e.target.closest('button, .arch-service-card, a, [role="button"], .arch-detail-panel')) return;
+        archDrag = true; archDragX = e.clientX; archDragY = e.clientY;
+        archScrollEl.classList.add('arch-grabbing');
+    });
+    window.addEventListener('mousemove', function(e) {
+        if (!archDrag) return;
+        if (e.target.closest('.arch-detail-panel')) {
+            archDrag = false;
+            archScrollEl.classList.remove('arch-grabbing');
+            return;
+        }
+        archScrollEl.scrollLeft -= (e.clientX - archDragX);
+        archScrollEl.scrollTop -= (e.clientY - archDragY);
+        archDragX = e.clientX; archDragY = e.clientY;
+    });
+    window.addEventListener('mouseup', function() {
+        archDrag = false;
+        archScrollEl.classList.remove('arch-grabbing');
+    });
+    // Prevent drag-to-pan from bleeding into the detail panel
+    archPanel.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+</script>
+{% endblock %}

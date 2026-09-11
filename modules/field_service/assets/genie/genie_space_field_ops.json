@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "b53aa45ddc0c4276a118e2385a2106bf",
+        "question": [
+          "How many open work orders do we have right now?"
+        ]
+      },
+      {
+        "id": "a8ca68c57a9a4373bc3e1da1f6635419",
+        "question": [
+          "Show me all emergency priority work orders that are not yet assigned"
+        ]
+      },
+      {
+        "id": "bea67e79f9094db5b863b523a65b33df",
+        "question": [
+          "Which technicians have the most completed work orders this month?"
+        ]
+      },
+      {
+        "id": "657500f868814f8d8276fea28c07258c",
+        "question": [
+          "What is the average time to complete a repair work order by region?"
+        ]
+      },
+      {
+        "id": "7f3d81d4e05e4994b4d0570554ea4dd7",
+        "question": [
+          "How many work orders are at risk of breaching their SLA deadline?"
+        ]
+      },
+      {
+        "id": "979702f6b8b9480a91433dcfc6d08f4e",
+        "question": [
+          "Show me the breakdown of work orders by category and priority"
+        ]
+      },
+      {
+        "id": "d70339fbb0b34f71bd34d96a63c048b3",
+        "question": [
+          "Which region has the highest number of fiber repair work orders?"
+        ]
+      },
+      {
+        "id": "a3caca7224b140149fd3616e1f8fd60a",
+        "question": [
+          "List enterprise customers with open work orders sorted by SLA deadline"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "dba-lakebase-data.field_service.appointments"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.customers"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.equipment_catalog"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.equipment_inventory"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.service_regions"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.skill_types"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.sla_policies"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.technician_skills"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.technicians"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.work_order_notes"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.work_order_parts"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.work_orders"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.fleet_vehicles"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.vehicle_telemetry"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.vehicle_dtc_codes"
+      },
+      {
+        "identifier": "dba-lakebase-data.field_service.vehicle_maintenance_history"
+      }
+    ]
+  }
+}

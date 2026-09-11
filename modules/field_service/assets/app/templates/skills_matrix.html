@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% block title %}Skills Matrix{% endblock %}
+{% block page_title %}Skills & Certifications{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+                <h1>Skills & Certifications Matrix</h1>
+                <p class="subtitle page-description dbx-only">Technician skill coverage, certification gaps, and expiration tracking.</p>
+            </div>
+            <div class="powered-by" style="margin-top:8px;">
+                <img src="/static/lakebase-icon-full-color.webp" class="powered-by-icon" alt="Lakebase">
+                <span>Powered by <strong>Databricks Lakebase</strong></span>
+            </div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="analytics-kpis" id="skillKpis">
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Total Skills</div>
+                <div class="analytics-kpi-value" id="skTotal">--</div>
+                <div class="analytics-kpi-sub">In catalog</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Certifications</div>
+                <div class="analytics-kpi-value" id="skCerts">--</div>
+                <div class="analytics-kpi-sub">Active assignments</div>
+            </div>
+            <div class="analytics-kpi analytics-kpi-danger">
+                <div class="analytics-kpi-label">Expiring Soon</div>
+                <div class="analytics-kpi-value" id="skExpiring">--</div>
+                <div class="analytics-kpi-sub">Within 90 days</div>
+            </div>
+            <div class="analytics-kpi">
+                <div class="analytics-kpi-label">Experts</div>
+                <div class="analytics-kpi-value" id="skExperts">--</div>
+                <div class="analytics-kpi-sub">Expert-level techs</div>
+            </div>
+        </div>
+
+        <!-- Skill Gap Analysis -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span>Skill Coverage & Gaps</span>
+                <select id="gapCategoryFilter" class="sk-filter-select" onchange="renderGapTable()">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="gapTable">
+                    <thead>
+                        <tr>
+                            <th class="sk-sortable" onclick="sortGapTable('skill')">Skill <span class="sk-sort-arrow" id="gap-sort-skill"></span></th>
+                            <th class="sk-sortable" onclick="sortGapTable('category')">Category <span class="sk-sort-arrow" id="gap-sort-category"></span></th>
+                            <th class="sk-sortable" onclick="sortGapTable('qualified')">Qualified Techs <span class="sk-sort-arrow" id="gap-sort-qualified"></span></th>
+                            <th class="sk-sortable" onclick="sortGapTable('experts')">Experts <span class="sk-sort-arrow" id="gap-sort-experts"></span></th>
+                            <th class="sk-sortable" onclick="sortGapTable('expiring')">Expiring Soon <span class="sk-sort-arrow" id="gap-sort-expiring"></span></th>
+                            <th>Coverage</th>
+                        </tr>
+                    </thead>
+                    <tbody id="gapBody">
+                        <tr><td colspan="6" style="text-align:center;color:var(--text-muted);"><span class="loading-spinner sm" style="margin-right:8px;"></span>Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Technician Skills Detail -->
+        <div class="dash-section" style="margin-top:20px;">
+            <div class="dash-section-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span>Technician Certifications</span>
+                <select id="regionFilter" class="sk-filter-select" onchange="filterSkills()">
+                    <option value="">All Regions</option>
+                </select>
+                <input type="text" id="skillSearch" placeholder="Search by name or skill..." class="sk-search-input" oninput="filterSkills()">
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="dispatch-table" id="skillTable">
+                    <thead>
+                        <tr>
+                            <th class="sk-sortable" onclick="sortSkillTable('name')">Technician <span class="sk-sort-arrow" id="skill-sort-name"></span></th>
+                            <th class="sk-sortable" onclick="sortSkillTable('cert_level')">Level <span class="sk-sort-arrow" id="skill-sort-cert_level"></span></th>
+                            <th class="sk-sortable" onclick="sortSkillTable('region')">Region <span class="sk-sort-arrow" id="skill-sort-region"></span></th>
+                            <th class="sk-sortable" onclick="sortSkillTable('count')">Skills <span class="sk-sort-arrow" id="skill-sort-count"></span></th>
+                            <th>Skill Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="skillBody">
+                        <tr><td colspan="5" style="text-align:center;color:var(--text-muted);"><span class="loading-spinner sm" style="margin-right:8px;"></span>Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var allAssignments = [];
+        var allGaps = [];
+        var gapSort = { key: 'qualified', dir: 'asc' };
+        var skillSort = { key: 'name', dir: 'asc' };
+
+        function profBadge(level) {
+            var colors = {
+                expert: 'var(--accent-success, #00875A)',
+                intermediate: 'var(--lcars-sky, #2563EB)',
+                basic: 'var(--text-muted)'
+            };
+            var c = colors[level] || 'var(--text-muted)';
+            return '<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;border:1px solid ' + c + ';color:' + c + ';">' + (level || 'basic') + '</span>';
+        }
+
+        function coverageBar(qualified, maxQualified) {
+            var pct = maxQualified > 0 ? Math.round((qualified / maxQualified) * 100) : 0;
+            var color = pct >= 60 ? 'var(--accent-success, #00875A)' : pct >= 30 ? 'var(--lcars-sunflower)' : 'var(--error, #CC2211)';
+            return '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<div style="flex:1;height:6px;background:var(--bg-secondary);border-radius:3px;min-width:60px;">' +
+                '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;"></div></div>' +
+                '<span style="font-size:11px;color:' + color + ';">' + pct + '%</span></div>';
+        }
+
+        function loadSkills() {
+            fetch('/api/skills/matrix')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+
+                    var skills = data.skills || [];
+                    allAssignments = data.assignments || [];
+                    allGaps = data.gaps || [];
+
+                    // KPIs
+                    document.getElementById('skTotal').textContent = skills.length;
+                    document.getElementById('skCerts').textContent = allAssignments.length;
+                    var totalExpiring = allGaps.reduce(function(s, g) { return s + (g.expiring || 0); }, 0);
+                    document.getElementById('skExpiring').textContent = totalExpiring;
+                    var totalExperts = allGaps.reduce(function(s, g) { return s + (g.experts || 0); }, 0);
+                    document.getElementById('skExperts').textContent = totalExperts;
+
+                    // Populate category filter
+                    var cats = {};
+                    allGaps.forEach(function(g) { if (g.category) cats[g.category] = true; });
+                    var catSel = document.getElementById('gapCategoryFilter');
+                    var curCat = catSel.value;
+                    catSel.innerHTML = '<option value="">All Categories</option>' +
+                        Object.keys(cats).sort().map(function(c) {
+                            return '<option value="' + c + '"' + (c === curCat ? ' selected' : '') + '>' + c + '</option>';
+                        }).join('');
+
+                    // Populate region filter
+                    var regions = {};
+                    allAssignments.forEach(function(a) { if (a.region) regions[a.region] = true; });
+                    var regSel = document.getElementById('regionFilter');
+                    var curReg = regSel.value;
+                    regSel.innerHTML = '<option value="">All Regions</option>' +
+                        Object.keys(regions).sort().map(function(r) {
+                            return '<option value="' + r + '"' + (r === curReg ? ' selected' : '') + '>' + r + '</option>';
+                        }).join('');
+
+                    renderGapTable();
+                    filterSkills();
+                });
+        }
+
+        /* -- Gap Table Sort + Filter -- */
+        function sortGapTable(key) {
+            if (gapSort.key === key) {
+                gapSort.dir = gapSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                gapSort.key = key;
+                gapSort.dir = key === 'skill' || key === 'category' ? 'asc' : 'desc';
+            }
+            renderGapTable();
+        }
+
+        function renderGapTable() {
+            var catFilter = document.getElementById('gapCategoryFilter').value;
+            var filtered = allGaps;
+            if (catFilter) {
+                filtered = filtered.filter(function(g) { return g.category === catFilter; });
+            }
+
+            // Sort
+            var key = gapSort.key;
+            var dir = gapSort.dir === 'asc' ? 1 : -1;
+            filtered.sort(function(a, b) {
+                var va = a[key], vb = b[key];
+                if (typeof va === 'string') return dir * va.localeCompare(vb);
+                return dir * ((va || 0) - (vb || 0));
+            });
+
+            // Update sort arrows
+            document.querySelectorAll('#gapTable .sk-sort-arrow').forEach(function(el) { el.textContent = ''; });
+            var arrowEl = document.getElementById('gap-sort-' + key);
+            if (arrowEl) arrowEl.textContent = gapSort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
+
+            var maxQ = Math.max.apply(null, allGaps.map(function(g) { return g.qualified; }).concat([1]));
+            var gapBody = document.getElementById('gapBody');
+            if (filtered.length === 0) {
+                gapBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No skill data available.</td></tr>';
+            } else {
+                gapBody.innerHTML = filtered.map(function(g) {
+                    return '<tr>' +
+                        '<td><strong>' + g.skill + '</strong></td>' +
+                        '<td><span class="sk-category-badge sk-cat-' + (g.category || 'other') + '">' + (g.category || '') + '</span></td>' +
+                        '<td>' + g.qualified + '</td>' +
+                        '<td style="color:var(--accent-success, #00875A);font-weight:600;">' + (g.experts || 0) + '</td>' +
+                        '<td style="color:' + (g.expiring > 0 ? 'var(--error, #CC2211)' : 'var(--text-muted)') + ';font-weight:' + (g.expiring > 0 ? '600' : '400') + ';">' + (g.expiring || 0) + '</td>' +
+                        '<td>' + coverageBar(g.qualified, maxQ) + '</td>' +
+                    '</tr>';
+                }).join('');
+            }
+        }
+
+        /* -- Technician Skills Sort + Filter -- */
+        function sortSkillTable(key) {
+            if (skillSort.key === key) {
+                skillSort.dir = skillSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                skillSort.key = key;
+                skillSort.dir = key === 'count' ? 'desc' : 'asc';
+            }
+            filterSkills();
+        }
+
+        function filterSkills() {
+            var search = (document.getElementById('skillSearch').value || '').toLowerCase();
+            var regionFilter = document.getElementById('regionFilter').value;
+
+            // Build skill name lookup
+            var skillNames = {};
+            allAssignments.forEach(function(a) {
+                if (a.skill_name) skillNames[a.skill_id] = a.skill_name;
+            });
+
+            // Group by technician
+            var techMap = {};
+            allAssignments.forEach(function(a) {
+                // Region filter
+                if (regionFilter && a.region !== regionFilter) return;
+
+                // Search filter
+                if (search) {
+                    var nameMatch = (a.name || '').toLowerCase().indexOf(search) !== -1;
+                    var skillMatch = (a.skill_name || '').toLowerCase().indexOf(search) !== -1;
+                    var regionMatch = (a.region || '').toLowerCase().indexOf(search) !== -1;
+                    if (!nameMatch && !skillMatch && !regionMatch) return;
+                }
+
+                if (!techMap[a.tech_id]) {
+                    techMap[a.tech_id] = { name: a.name, cert_level: a.cert_level, region: a.region, skills: [] };
+                }
+                techMap[a.tech_id].skills.push({
+                    skill_id: a.skill_id, skill_name: a.skill_name || ('Skill #' + a.skill_id),
+                    proficiency: a.proficiency, expires: a.expires_at
+                });
+            });
+
+            // Sort
+            var techs = Object.keys(techMap).map(function(id) {
+                var t = techMap[id];
+                t.id = id;
+                return t;
+            });
+
+            var key = skillSort.key;
+            var dir = skillSort.dir === 'asc' ? 1 : -1;
+            techs.sort(function(a, b) {
+                if (key === 'count') return dir * (a.skills.length - b.skills.length);
+                var va = a[key] || '', vb = b[key] || '';
+                return dir * va.localeCompare(vb);
+            });
+
+            // Update sort arrows
+            document.querySelectorAll('#skillTable .sk-sort-arrow').forEach(function(el) { el.textContent = ''; });
+            var arrowEl = document.getElementById('skill-sort-' + key);
+            if (arrowEl) arrowEl.textContent = skillSort.dir === 'asc' ? ' \u25B2' : ' \u25BC';
+
+            var skillBody = document.getElementById('skillBody');
+            if (techs.length === 0) {
+                skillBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No matching technicians.</td></tr>';
+                return;
+            }
+
+            skillBody.innerHTML = techs.map(function(t) {
+                var skillTags = t.skills.map(function(s) {
+                    var isExpiring = s.expires && new Date(s.expires) < new Date(Date.now() + 90 * 86400000);
+                    var expWarn = isExpiring ? '<span style="color:var(--error, #CC2211);font-size:10px;margin-left:1px;" title="Expires ' + s.expires + '">!</span>' : '';
+                    return '<span class="sk-skill-tag">' + s.skill_name + ' ' + profBadge(s.proficiency) + expWarn + '</span>';
+                }).join('');
+                return '<tr>' +
+                    '<td><strong>' + t.name + '</strong></td>' +
+                    '<td>' + profBadge(t.cert_level) + '</td>' +
+                    '<td>' + (t.region || '') + '</td>' +
+                    '<td>' + t.skills.length + '</td>' +
+                    '<td style="line-height:1.8;">' + skillTags + '</td>' +
+                '</tr>';
+            }).join('');
+        }
+
+        loadSkills();
+        setInterval(loadSkills, 30000);
+    </script>
+
+    <style>
+        .sk-sortable {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .sk-sortable:hover {
+            color: var(--accent-secondary);
+        }
+        .sk-sort-arrow {
+            font-size: 10px;
+            color: var(--accent-secondary);
+        }
+        .sk-filter-select {
+            padding: 4px 10px;
+            border: 1px solid var(--border-color, var(--border));
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 12px;
+            font-family: inherit;
+        }
+        .sk-search-input {
+            margin-left: auto;
+            padding: 4px 10px;
+            border: 1px solid var(--border-color, var(--border));
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 13px;
+            width: 250px;
+            font-family: inherit;
+        }
+        .sk-skill-tag {
+            display: inline-block;
+            margin: 2px 4px 2px 0;
+            padding: 2px 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .sk-category-badge {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: capitalize;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+        .sk-cat-installation { color: var(--accent-secondary); }
+        .sk-cat-repair { color: var(--error, #CC2211); }
+        .sk-cat-maintenance { color: var(--lcars-sunflower, #D97706); }
+        .sk-cat-network { color: var(--lcars-sky, #2563EB); }
+        .sk-cat-safety { color: var(--accent-success, #00875A); }
+    </style>
+{% endblock %}

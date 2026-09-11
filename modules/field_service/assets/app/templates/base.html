@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html data-theme="trekkie">
+<head>
+    <title>{% block title %}FieldOps Command{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://router.project-osrm.org">
+    <link rel="dns-prefetch" href="https://router.project-osrm.org">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/themes.css">
+    {% block head_extra %}{% endblock %}
+    <script>
+        (function() {
+            var saved = localStorage.getItem('fieldops-theme') || 'trekkie';
+            document.documentElement.setAttribute('data-theme', saved);
+        })();
+    </script>
+    <style>
+        /* All three themes use the sidebar layout. Trek-only elements (old header) hidden everywhere. */
+        html[data-theme="trekkie"] .trek-only,
+        html[data-theme="dbx-dark"] .trek-only,
+        html[data-theme="dbx-light"] .trek-only { display: none !important; }
+
+        /* Show dbx-only content in ALL themes (Trek now uses the modern layout) */
+        html[data-theme="trekkie"] .dbx-only,
+        html[data-theme="dbx-dark"] .dbx-only,
+        html[data-theme="dbx-light"] .dbx-only { display: unset !important; }
+
+        /* Sidebar must be flex in all themes */
+        html[data-theme="trekkie"] aside.dbx-only,
+        html[data-theme="dbx-dark"] aside.dbx-only,
+        html[data-theme="dbx-light"] aside.dbx-only { display: flex !important; }
+
+        /* Grid layout for all themes */
+        html[data-theme="trekkie"] body,
+        html[data-theme="dbx-dark"] body,
+        html[data-theme="dbx-light"] body {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            grid-template-rows: 48px 1fr;
+            grid-template-areas: "sidebar topbar" "sidebar content";
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Code-Behind Architecture Panel ── */
+        .arch-panel {
+            position: fixed; top: 0; right: -420px; width: 400px; height: 100vh;
+            background: var(--bg-secondary); border-left: 1px solid var(--border-primary);
+            z-index: 2000; transition: right 0.3s ease; overflow-y: auto;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.3);
+        }
+        .arch-panel.open { right: 0; }
+        .arch-panel-header { padding: 16px 20px; border-bottom: 1px solid var(--border-primary); display: flex; align-items: center; justify-content: space-between; }
+        .arch-panel-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 20px; }
+        .arch-panel-body { padding: 16px 20px; }
+        .arch-section { margin-bottom: 20px; }
+        .arch-section-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px; }
+        .arch-service { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.8rem; }
+        .arch-service-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .arch-service-name { font-weight: 600; color: var(--text-primary); }
+        .arch-service-detail { font-size: 0.7rem; color: var(--text-secondary); margin-top: 2px; }
+        .arch-table { font-family: var(--font-mono, monospace); font-size: 0.75rem; padding: 3px 0; color: var(--text-primary); }
+        .arch-api { font-family: var(--font-mono, monospace); font-size: 0.72rem; padding: 2px 0; }
+        .arch-api-method { color: #00A972; font-weight: 700; margin-right: 4px; }
+        .arch-source-link { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 0.78rem; color: var(--accent-primary, #1B7FE3); text-decoration: none; }
+        .arch-source-link:hover { text-decoration: underline; }
+        .arch-flow { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 12px; }
+        .arch-flow-step { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; }
+        .arch-flow-arrow { color: var(--text-secondary); font-size: 0.7rem; }
+        .arch-flow-node { padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+
+        /* ── Trek sidebar icons: show only in trekkie theme ── */
+        .trek-icon { display: none; }
+        html[data-theme="trekkie"] .sidebar-icon:not(.trek-icon) { display: none; }
+        html[data-theme="trekkie"] .trek-icon { display: inline-block; }
+    </style>
+</head>
+<body data-page="{{ page_id }}">
+
+    <!-- ═══ TREK THEME: Original header ═══ -->
+    <div class="header trek-only">
+        <a href="/" class="logo">
+            <img src="/static/logo.svg" class="logo-img" alt="FieldOps Command">
+            Field<span class="star-orbit">Ops</span>
+        </a>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button onclick="toggleArchPanel()"
+               title="Code Behind" style="background:none;border:none;color:var(--text-secondary,#888);font-size:14px;opacity:0.7;font-family:monospace;font-weight:700;cursor:pointer;padding:0;">&lt;/&gt;</button>
+            <div class="theme-switcher">
+                <button class="theme-btn" data-theme-value="trekkie" title="Trekkie">&#x1F596;</button>
+                <button class="theme-btn" data-theme-value="dbx-dark" title="Databricks Dark">&#x1F319;</button>
+                <button class="theme-btn" data-theme-value="dbx-light" title="Databricks Light">&#x2600;</button>
+            </div>
+        </div>
+        <button class="nav-toggle" onclick="this.classList.toggle('open');document.getElementById('navMenu').classList.toggle('open')">
+            <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        </button>
+        <div class="nav" id="navMenu">
+            <a href="/"{% if page_id == 'index' %} class="active"{% endif %}>Home</a>
+            <a href="/view-data"{% if page_id == 'view' %} class="active"{% endif %}>Data Explorer</a>
+            <a href="/genie"{% if page_id == 'genie' %} class="active"{% endif %}>Genie AI</a>
+            <a href="/supervisor"{% if page_id == 'supervisor' %} class="active"{% endif %}>Supervisor</a>
+            <a href="/dispatch"{% if page_id == 'dispatch' %} class="active"{% endif %}>Dispatch</a>
+            <a href="/map"{% if page_id == 'map' %} class="active"{% endif %}>Map</a>
+            <a href="/analytics"{% if page_id == 'analytics' %} class="active"{% endif %}>Analytics</a>
+            <a href="/technicians"{% if page_id == 'technicians' %} class="active"{% endif %}>Technicians</a>
+            <a href="/assets"{% if page_id == 'assets' %} class="active"{% endif %}>Assets</a>
+            <a href="/fleet"{% if page_id == 'fleet' %} class="active"{% endif %}>Fleet Health</a>
+            <a href="/operations"{% if page_id == 'operations' %} class="active"{% endif %}>Operations</a>
+            <a href="/simulator"{% if page_id == 'simulator' %} class="active"{% endif %}>Simulator</a>
+            <a href="/health"{% if page_id == 'health' %} class="active"{% endif %}>Health</a>
+            <a href="/lakebase"{% if page_id == 'lakebase' %} class="active"{% endif %}>Control Tower</a>
+            <a href="/admin"{% if page_id == 'admin' %} class="active"{% endif %}>Lakebase Admin</a>
+        </div>
+    </div>
+
+    <!-- ═══ DBX THEMES: Enterprise sidebar ═══ -->
+    <aside class="sidebar dbx-only">
+        <div class="sidebar-logo">
+            <img src="/static/logo-modern.svg" class="sidebar-logo-img" alt="FieldOps">
+            <div class="sidebar-logo-titles">
+                <span class="sidebar-logo-text">FieldOps</span>
+                <span class="sidebar-logo-subtitle">Lakebase FSM</span>
+            </div>
+        </div>
+        <!-- LCARS decorative bars (Trek only) -->
+        <div class="lcars-deco-bars">
+            <div style="background:#C9C;height:6px;margin:3px 16px 3px 0;border-radius:0 3px 3px 0;"></div>
+            <div style="background:#99F;height:4px;margin:2px 16px 2px 0;border-radius:0 3px 3px 0;"></div>
+            <div style="background:#FC6;height:8px;margin:3px 16px 3px 0;border-radius:0 4px 4px 0;"></div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="sidebar-link{% if page_id == 'index' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M12 2L3 20h18L12 2z"/><path d="M12 8l-4 9h8l-4-9z" fill="currentColor" opacity="0.2"/></svg>
+                <span>Dashboard</span>
+            </a>
+            <a href="/dispatch" class="sidebar-link{% if page_id == 'dispatch' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M12 14a2 2 0 100-4 2 2 0 000 4z"/><path d="M8.5 7.5a5 5 0 017 0"/><path d="M6 5a8 8 0 0112 0"/><path d="M8.5 16.5a5 5 0 007 0"/><path d="M6 19a8 8 0 0012 0"/></svg>
+                <span>Dispatch Board</span>
+            </a>
+            <a href="/view-data" class="sidebar-link{% if page_id == 'view' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v4c0 1.66 3.13 3 7 3s7-1.34 7-3V6"/><path d="M5 10v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4"/><path d="M5 14v4c0 1.66 3.13 3 7 3s7-1.34 7-3v-4"/></svg>
+                <span>Data Explorer</span>
+            </a>
+            <a href="/genie" class="sidebar-link{% if page_id == 'genie' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><line x1="12" y1="22" x2="12" y2="10"/><circle cx="12" cy="8" r="2"/><path d="M8 5a5.5 5.5 0 018 0"/><path d="M5 2.5a9.5 9.5 0 0114 0"/></svg>
+                <span>Genie AI</span>
+            </a>
+            <a href="/supervisor" class="sidebar-link{% if page_id == 'supervisor' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M7 17h10"/><path d="M9 17V9a3 3 0 016 0v8"/><path d="M5 13h3"/><path d="M16 13h3"/><circle cx="12" cy="6" r="1.5"/></svg>
+                <span>AI Supervisor</span>
+            </a>
+            <a href="/map" class="sidebar-link{% if page_id == 'map' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M4.5 7.5h15"/><path d="M4.5 16.5h15"/></svg>
+                <span>Field Map</span>
+            </a>
+            <a href="/analytics" class="sidebar-link{% if page_id == 'analytics' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M2 12h4l2-6 3 12 2-8 2 4h4l3-2"/><line x1="22" y1="12" x2="22" y2="12" stroke-linecap="round" stroke-width="3"/></svg>
+                <span>SLA Analytics</span>
+            </a>
+            <a href="/technicians" class="sidebar-link{% if page_id == 'technicians' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l2.8-2.8a5 5 0 01-6.7 6.7L7.7 19.3a2 2 0 01-2.8 0l-.2-.2a2 2 0 010-2.8l6.1-6.1a5 5 0 016.7-6.7L14.7 6.3z"/></svg>
+                <span>Technicians</span>
+            </a>
+            <a href="/assets" class="sidebar-link{% if page_id == 'assets' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><rect x="3" y="8" width="18" height="12" rx="1"/><line x1="12" y1="8" x2="12" y2="20"/><line x1="3" y1="14" x2="21" y2="14"/></svg>
+                <span>Assets</span>
+            </a>
+            <a href="/fleet" class="sidebar-link{% if page_id == 'fleet' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                <span>Fleet Health</span>
+            </a>
+            <a href="/network-health" class="sidebar-link{% if page_id == 'network_health' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M12 2l8 4v6c0 5-3.5 9.7-8 11-4.5-1.3-8-6-8-11V6l8-4z"/><path d="M12 2v21" opacity="0.3"/><path d="M4 8h16" opacity="0.3"/><path d="M5 14h14" opacity="0.3"/></svg>
+                <span>Network Health</span>
+            </a>
+            <a href="/skills" class="sidebar-link{% if page_id == 'skills' %} active{% endif %}">
+                <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="9" x2="14" y2="9"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15" x2="12" y2="15"/><circle cx="12" cy="19" r="1"/></svg>
+                <span>Skills Matrix</span>
+            </a>
+            <!-- LCARS mid-section bars (Trek only) -->
+            <div class="lcars-deco-bars">
+                <div style="background:#97A;height:4px;margin:6px 16px 2px 0;border-radius:0 3px 3px 0;"></div>
+                <div style="background:#C69;height:3px;margin:2px 16px 6px 0;border-radius:0 3px 3px 0;"></div>
+            </div>
+
+            {# ═══ LAKEBASE wing — differentiator pages grouped for demo focus ═══ #}
+            {% set lakebase_active = page_id in ['lakebase', 'data_api', 'whatif', 'admin'] %}
+            <button type="button" class="sidebar-group-header{% if lakebase_active %} in-group-active{% endif %}" data-group="lakebase" aria-expanded="true">
+                <svg class="sidebar-icon sidebar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+                <span>Lakebase</span>
+            </button>
+            <div class="sidebar-group" data-group-body="lakebase">
+                <a href="/lakebase" class="sidebar-link{% if page_id == 'lakebase' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2.5"/><path d="M8.5 13a3.5 3.5 0 017 0"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2.5"/><path d="M8.5 13a3.5 3.5 0 017 0"/></svg>
+                    <span>Control Tower</span>
+                </a>
+                <a href="/data-api" class="sidebar-link{% if page_id == 'data_api' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 4s-4 2-4 8 4 8 4 8"/><path d="M16 4s4 2 4 8-4 8-4 8"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M8 4s-4 2-4 8 4 8 4 8"/><path d="M16 4s4 2 4 8-4 8-4 8"/></svg>
+                    <span>Data API</span>
+                </a>
+                <a href="/what-if" class="sidebar-link{% if page_id == 'whatif' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><line x1="4" y1="12" x2="10" y2="12"/><line x1="10" y1="12" x2="16" y2="6"/><line x1="10" y1="12" x2="16" y2="18"/><circle cx="16" cy="6" r="2"/><circle cx="16" cy="18" r="2"/><circle cx="10" cy="12" r="1.5" fill="currentColor"/></svg>
+                    <span>What-If</span>
+                </a>
+                <a href="/admin" class="sidebar-link{% if page_id == 'admin' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="6" opacity="0.5"/><circle cx="12" cy="12" r="9" opacity="0.25"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                    <span>Lakebase Admin</span>
+                </a>
+            </div>
+
+            {# ═══ OPERATIONS — utility / behind-the-scenes pages ═══ #}
+            {% set ops_active = page_id in ['operations', 'simulator', 'asbuilt', 'health'] %}
+            <button type="button" class="sidebar-group-header{% if ops_active %} in-group-active{% endif %}" data-group="operations" aria-expanded="false">
+                <svg class="sidebar-icon sidebar-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+                <span>Operations</span>
+            </button>
+            <div class="sidebar-group" data-group-body="operations">
+                <a href="/operations" class="sidebar-link{% if page_id == 'operations' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M4 18h16"/><path d="M6 18v-4h12v4"/><rect x="7" y="4" width="10" height="8" rx="1"/><line x1="10" y1="7" x2="14" y2="7" opacity="0.5"/><line x1="10" y1="9" x2="13" y2="9" opacity="0.5"/></svg>
+                    <span>Operations</span>
+                </a>
+                <a href="/simulator" class="sidebar-link{% if page_id == 'simulator' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+                    <span>Simulator</span>
+                </a>
+                <!-- Architecture page archived — AsBuilt covers this now -->
+                <a href="/asbuilt" class="sidebar-link{% if page_id == 'asbuilt' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="6.5" y1="10" x2="6.5" y2="14"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M4 12h4l2-4h4l2 4h4"/><path d="M6 12v4h12v-4"/><circle cx="12" cy="14" r="1.5"/><line x1="8" y1="8" x2="8" y2="12" opacity="0.4"/><line x1="16" y1="8" x2="16" y2="12" opacity="0.4"/></svg>
+                    <span>AsBuilt</span>
+                </a>
+                <a href="/health" class="sidebar-link{% if page_id == 'health' %} active{% endif %}">
+                    <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    <svg class="sidebar-icon trek-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M12 2l7 3.5v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10v-5L12 2z"/><path d="M8 12h2l1-3 2 6 1-3h2" stroke-width="1.5"/></svg>
+                    <span>System Health</span>
+                </a>
+            </div>
+        </nav>
+        <!-- LCARS bottom decorative bars (Trek only) -->
+        <div class="lcars-deco-bars">
+            <div style="background:#99F;height:6px;margin:3px 16px 2px 0;border-radius:0 6px 6px 0;"></div>
+            <div style="background:#C9C;height:10px;margin:2px 16px 3px 0;border-radius:0 4px 4px 0;"></div>
+        </div>
+        <div class="sidebar-footer">
+            <div class="theme-switcher sidebar-theme-switcher">
+                <button class="theme-btn" data-theme-value="trekkie" title="Trekkie">&#x1F596;</button>
+                <button class="theme-btn" data-theme-value="dbx-dark" title="Dark">&#x1F319;</button>
+                <button class="theme-btn" data-theme-value="dbx-light" title="Light">&#x2600;</button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Collapsible sidebar group toggle (LAKEBASE / OPERATIONS) -->
+    <script>
+        (function () {
+            function apply(header, body, expanded) {
+                header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                body.classList.toggle('collapsed', !expanded);
+            }
+            var headers = document.querySelectorAll('.sidebar-group-header');
+            for (var i = 0; i < headers.length; i++) {
+                (function (header) {
+                    var group = header.getAttribute('data-group');
+                    var body = document.querySelector('.sidebar-group[data-group-body="' + group + '"]');
+                    if (!body) return;
+                    var key = 'fieldops-nav-group-' + group;
+                    var saved = localStorage.getItem(key);
+                    var expanded = saved ? (saved === 'open') : (header.getAttribute('aria-expanded') === 'true');
+                    // Always expand the group that contains the current page.
+                    if (body.querySelector('.sidebar-link.active')) expanded = true;
+                    apply(header, body, expanded);
+                    header.addEventListener('click', function () {
+                        var next = header.getAttribute('aria-expanded') !== 'true';
+                        apply(header, body, next);
+                        localStorage.setItem(key, next ? 'open' : 'closed');
+                    });
+                })(headers[i]);
+            }
+        })();
+    </script>
+
+    <!-- ═══ DBX THEMES: Top bar ═══ -->
+    <div class="top-bar dbx-only">
+        <div class="top-bar-title">{% block page_title %}Dashboard{% endblock %}</div>
+        <div class="top-bar-right">
+            {% if page_id in lakebase_pages %}
+            <span class="lakebase-chip" title="The data on this page is served by Lakebase (PostgreSQL OLTP).">
+                <img src="/static/lakebase-icon-full-color.webp" class="lakebase-chip-icon" alt="">
+                Served by Lakebase
+            </span>
+            {% endif %}
+            <button onclick="toggleArchPanel()"
+               title="Code Behind"
+               style="background:none;color:var(--text-secondary);font-size:13px;opacity:0.6;font-family:var(--font-mono,monospace);font-weight:700;margin-right:8px;padding:4px 8px;border:1px solid var(--border-primary);border-radius:6px;transition:opacity 0.2s;cursor:pointer;"
+               onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">&lt;/&gt;</button>
+            <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+                <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+            </button>
+            <div class="notif-panel" id="notifPanel">
+                <div class="notif-panel-header">
+                    <span>Notifications</span>
+                    <button class="notif-clear-btn" id="notifClearBtn" onclick="clearAllNotifications()" style="display:none;">Clear All</button>
+                </div>
+                <div class="notif-panel-body" id="notifList">
+                    <div class="notif-empty">No notifications</div>
+                </div>
+            </div>
+            <span class="top-bar-status" id="topBarStatus"></span>
+            <!-- spacer pushes user + AI to far right -->
+            <div style="flex:1;"></div>
+            <div class="user-badge" id="userBadge" style="display:none;cursor:pointer;" onclick="window.location='/admin'">
+                <div class="user-badge-avatar" id="userBadgeAvatar">?</div>
+                <div class="user-badge-info">
+                    <span class="user-badge-name" id="userBadgeName"></span>
+                    <span class="user-badge-role" id="userBadgeRole"></span>
+                </div>
+            </div>
+            <button onclick="openCommandBar()" class="ai-assistant-btn" title="AI Assistant (Cmd+K)">
+                <span class="ai-icon">&#10024;</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══ Page content (always rendered) ═══ -->
+    <div class="page-content">
+        {% block content %}{% endblock %}
+
+        <!-- ═══ Global Simulator Control (floating, all pages) ═══ -->
+        <div class="sim-fab" id="simFab" onclick="toggleSimPanel()" title="Data Simulator">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <span class="sim-fab-badge" id="simFabBadge" style="display:none;"></span>
+        </div>
+        <div class="sim-panel" id="simPanel">
+            <div class="sim-panel-header">
+                <span class="sim-panel-title">Data Simulator</span>
+                <button class="sim-panel-close" onclick="toggleSimPanel()">&times;</button>
+            </div>
+            <div class="sim-panel-body">
+                <div class="sim-panel-status" id="simPanelStatus">
+                    <span class="sim-panel-dot" id="simPanelDot"></span>
+                    <span id="simPanelStateText">Checking...</span>
+                </div>
+                <div class="sim-panel-controls" id="simPanelControls">
+                    <div class="sim-panel-field">
+                        <label>Duration</label>
+                        <select id="simDuration" aria-label="Simulation duration">
+                            <option value="2">2 minutes</option>
+                            <option value="5" selected>5 minutes</option>
+                            <option value="10">10 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+                    <div class="sim-panel-field">
+                        <label>Speed</label>
+                        <select id="simSpeed" aria-label="Simulation speed">
+                            <option value="1">1x (realistic)</option>
+                            <option value="2" selected>2x</option>
+                            <option value="5">5x (fast)</option>
+                            <option value="10">10x (turbo)</option>
+                        </select>
+                    </div>
+                    <button class="sim-panel-start-btn" id="simStartBtn" onclick="simStart()">Start Simulator</button>
+                </div>
+                <div class="sim-panel-running" id="simPanelRunning" style="display:none;">
+                    <!-- Lakebase Processes -->
+                    <div style="margin-bottom:10px;">
+                        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px;">Lakebase (PostgreSQL)</div>
+                        <div class="sim-panel-stats" id="simPanelStats"></div>
+                        <div id="simLakebaseProcesses" style="margin-top:6px;font-size:11px;color:var(--text-secondary);">
+                            <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
+                                <span style="width:6px;height:6px;border-radius:50%;background:#00A972;display:inline-block;" id="simProcWO"></span>
+                                <span>Work Order Generator</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">
+                                <span style="width:6px;height:6px;border-radius:50%;background:#00A972;display:inline-block;" id="simProcIncident"></span>
+                                <span>Incident Generator</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spark Processes -->
+                    <div style="margin-bottom:10px;">
+                        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px;">Spark (Iceberg Pipeline)</div>
+                        <div id="simPipelineStatus" style="padding:6px 8px;background:var(--bg-tertiary,#2A2A32);border-radius:6px;font-size:11px;">
+                            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                                <span id="simPipeIcon">⏳</span>
+                                <span id="simPipeText" style="color:var(--text-secondary);flex:1;">Starting...</span>
+                            </div>
+                            <div style="height:4px;background:var(--bg-secondary);border-radius:2px;overflow:hidden;">
+                                <div id="simPipeBar" style="height:100%;width:0%;background:#FF6A00;border-radius:2px;transition:width 0.5s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="sim-panel-stop-btn" id="simStopBtn" onclick="simStop()">Stop</button>
+                </div>
+                <!-- Data refresh section (shown when stale) -->
+                <div class="sim-panel-refresh" id="simPanelRefresh" style="display:none;">
+                    <div class="sim-panel-refresh-msg" id="simRefreshMsg"></div>
+                    <button class="sim-panel-refresh-btn" id="simRefreshBtn" onclick="simRefreshData()">Refresh Data</button>
+                </div>
+                <div class="sim-panel-hint">
+                    <a href="/simulator">Open full simulator page</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var current = localStorage.getItem('fieldops-theme') || 'trekkie';
+            var buttons = document.querySelectorAll('.theme-btn');
+
+            function setTheme(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('fieldops-theme', theme);
+                buttons.forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-theme-value') === theme);
+                });
+            }
+
+            buttons.forEach(function(btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-theme-value') === current);
+                btn.addEventListener('click', function() {
+                    setTheme(this.getAttribute('data-theme-value'));
+                });
+            });
+        })();
+
+        /* ── Notification bell ── */
+        var _dismissedNotifs = JSON.parse(localStorage.getItem('fieldops-dismissed-notifs') || '[]');
+
+        function toggleNotifPanel() {
+            var panel = document.getElementById('notifPanel');
+            panel.classList.toggle('open');
+        }
+        document.addEventListener('click', function(e) {
+            var bell = document.getElementById('notifBell');
+            var panel = document.getElementById('notifPanel');
+            if (bell && panel && !bell.contains(e.target) && !panel.contains(e.target)) {
+                panel.classList.remove('open');
+            }
+        });
+
+        function notifKey(n) {
+            return (n.type || '') + '_' + (n.wo_number || n.wo_id || n.message || '').substring(0, 40);
+        }
+
+        function dismissNotification(key, el) {
+            _dismissedNotifs.push(key);
+            // Keep only last 200 dismissed IDs
+            if (_dismissedNotifs.length > 200) _dismissedNotifs = _dismissedNotifs.slice(-200);
+            localStorage.setItem('fieldops-dismissed-notifs', JSON.stringify(_dismissedNotifs));
+            if (el) el.style.display = 'none';
+            // Recount badge
+            updateNotifBadge();
+        }
+
+        function clearAllNotifications() {
+            var items = document.querySelectorAll('#notifList .notif-item');
+            items.forEach(function(el) {
+                var key = el.getAttribute('data-notif-key');
+                if (key) _dismissedNotifs.push(key);
+                el.style.display = 'none';
+            });
+            if (_dismissedNotifs.length > 200) _dismissedNotifs = _dismissedNotifs.slice(-200);
+            localStorage.setItem('fieldops-dismissed-notifs', JSON.stringify(_dismissedNotifs));
+            document.getElementById('notifList').innerHTML = '<div class="notif-empty">No notifications</div>';
+            document.getElementById('notifClearBtn').style.display = 'none';
+            updateNotifBadge();
+        }
+
+        function updateNotifBadge() {
+            var badge = document.getElementById('notifBadge');
+            var visible = document.querySelectorAll('#notifList .notif-item[style*="display: none"]');
+            var all = document.querySelectorAll('#notifList .notif-item');
+            var count = all.length - (visible ? visible.length : 0);
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        function loadNotifications() {
+            fetch('/api/notifications')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) return;
+                    var badge = document.getElementById('notifBadge');
+                    var list = document.getElementById('notifList');
+                    var clearBtn = document.getElementById('notifClearBtn');
+                    var items = data.notifications || [];
+
+                    // Filter out dismissed
+                    var visible = items.filter(function(n) {
+                        return _dismissedNotifs.indexOf(notifKey(n)) === -1;
+                    });
+
+                    var urgent = visible.filter(function(n) { return n.severity === 'critical' || n.severity === 'warning'; });
+                    if (urgent.length > 0) {
+                        badge.textContent = urgent.length;
+                        badge.style.display = '';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+
+                    if (clearBtn) clearBtn.style.display = visible.length > 0 ? '' : 'none';
+
+                    if (visible.length === 0) {
+                        list.innerHTML = '<div class="notif-empty">No notifications</div>';
+                        return;
+                    }
+                    list.innerHTML = visible.slice(0, 20).map(function(n) {
+                        var cls = 'notif-item notif-' + (n.severity || 'info');
+                        var key = notifKey(n);
+                        return '<div class="' + cls + '" data-notif-key="' + key + '">' +
+                            '<div class="notif-item-msg">' + n.message + '</div>' +
+                            '<div class="notif-item-bottom">' +
+                                '<span class="notif-item-time">' + (n.time ? new Date(n.time).toLocaleString() : '') + '</span>' +
+                                '<button class="notif-dismiss-btn" onclick="dismissNotification(\'' + key.replace(/'/g, "\\'") + '\', this.closest(\'.notif-item\'))" title="Dismiss">&times;</button>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                })
+                .catch(function() {});
+        }
+        if (document.getElementById('notifBell')) {
+            loadNotifications();
+            setInterval(loadNotifications, 30000);
+        }
+
+        /* ── User Identity Badge ── */
+        (function() {
+            var ctrl = new AbortController();
+            setTimeout(function() { ctrl.abort(); }, 5000); // 5s timeout
+            fetch('/api/agent/user', { signal: ctrl.signal })
+                .then(function(r) { return r.json(); })
+                .then(function(u) {
+                    var badge = document.getElementById('userBadge');
+                    var nameEl = document.getElementById('userBadgeName');
+                    var roleEl = document.getElementById('userBadgeRole');
+                    var avatarEl = document.getElementById('userBadgeAvatar');
+                    if (!badge || !u.email || u.email === 'anonymous') return;
+                    var displayName = u.name || u.email.split('@')[0];
+                    nameEl.textContent = displayName;
+                    roleEl.textContent = u.role || 'user';
+                    // Avatar initials (first letter of first + last name, or first 2 chars)
+                    var parts = displayName.split(/[\s._-]/);
+                    var initials = parts.length > 1
+                        ? (parts[0][0] + parts[parts.length-1][0]).toUpperCase()
+                        : displayName.substring(0,2).toUpperCase();
+                    avatarEl.textContent = initials;
+                    badge.style.display = '';
+                })
+                .catch(function() {});
+        })();
+
+        /* ── Global Simulator Controls (stateful across pages via sessionStorage) ── */
+        var _simPanelOpen = false;
+        var _simPollInterval = null;
+
+        function toggleSimPanel() {
+            _simPanelOpen = !_simPanelOpen;
+            document.getElementById('simPanel').classList.toggle('open', _simPanelOpen);
+            document.getElementById('simFab').classList.toggle('active', _simPanelOpen);
+            // Persist open/closed state across page navigation
+            try { sessionStorage.setItem('sim-panel-open', _simPanelOpen ? '1' : ''); } catch(e) {}
+            if (_simPanelOpen) refreshSimStatus();
+        }
+
+        function openSimPanel() {
+            if (!_simPanelOpen) toggleSimPanel();
+        }
+
+        // Restore panel state from previous page
+        (function restoreSimState() {
+            try {
+                if (sessionStorage.getItem('sim-panel-open') === '1') {
+                    _simPanelOpen = true;
+                    document.getElementById('simPanel').classList.add('open');
+                    document.getElementById('simFab').classList.add('active');
+                }
+            } catch(e) {}
+        })();
+
+        function refreshSimStatus() {
+            fetch('/api/simulator/status').then(function(r) { return r.json(); }).then(function(d) {
+                var dot = document.getElementById('simPanelDot');
+                var text = document.getElementById('simPanelStateText');
+                var controls = document.getElementById('simPanelControls');
+                var running = document.getElementById('simPanelRunning');
+                var fab = document.getElementById('simFab');
+                var badge = document.getElementById('simFabBadge');
+
+                if (d.state === 'RUNNING') {
+                    dot.className = 'sim-panel-dot sim-dot-running';
+                    text.textContent = 'Running';
+                    controls.style.display = 'none';
+                    running.style.display = '';
+                    fab.classList.add('sim-fab-running');
+                    fab.classList.remove('sim-fab-idle');
+                    badge.style.display = '';
+                    badge.textContent = '';
+                    fetchSimLiveStats();
+                } else {
+                    dot.className = 'sim-panel-dot sim-dot-idle';
+                    text.textContent = d.state === 'COMPLETED' ? 'Completed' : d.state === 'FAILED' ? 'Failed: ' + (d.result || '') : 'Idle';
+                    controls.style.display = '';
+                    running.style.display = 'none';
+                    fab.classList.remove('sim-fab-running');
+                    fab.classList.add('sim-fab-idle');
+                    badge.style.display = 'none';
+                    document.getElementById('simStartBtn').disabled = false;
+                    document.getElementById('simStartBtn').textContent = 'Start Simulator';
+                }
+            }).catch(function() {});
+        }
+
+        function fetchSimLiveStats() {
+            fetch('/api/simulator/live-stats?since=' + encodeURIComponent(new Date(Date.now() - 3600000).toISOString()))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.error) return;
+                    var s = d.stats || {};
+                    document.getElementById('simPanelStats').innerHTML =
+                        '<div class="sim-stat"><span class="sim-stat-val">' + (s.new_work_orders || 0) + '</span><span class="sim-stat-label">New WOs</span></div>' +
+                        '<div class="sim-stat"><span class="sim-stat-val">' + (s.completed_orders || 0) + '</span><span class="sim-stat-label">Completed</span></div>' +
+                        '<div class="sim-stat"><span class="sim-stat-val">' + (s.appointments || 0) + '</span><span class="sim-stat-label">Appts</span></div>';
+                }).catch(function() {});
+
+            // Pipeline status in widget
+            fetch('/api/simulator/pipeline-status')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var el = document.getElementById('simPipelineStatus');
+                    if (!el) return;
+                    var icon = document.getElementById('simPipeIcon');
+                    var text = document.getElementById('simPipeText');
+                    var bar = document.getElementById('simPipeBar');
+                    var pct = Math.min(95, Math.round((d.elapsed_seconds / d.estimated_total_seconds) * 100));
+                    if (d.phase === 'pipeline_complete') { pct = 100; icon.textContent = '✅'; bar.style.background = '#00A972'; }
+                    else if (d.phase === 'pipeline_failed') { pct = 100; icon.textContent = '❌'; bar.style.background = '#FF4444'; }
+                    else { icon.textContent = '⏳'; bar.style.background = '#FF6A00'; }
+                    text.textContent = d.detail || d.phase;
+                    bar.style.width = pct + '%';
+                }).catch(function() {});
+        }
+
+        function simStart() {
+            var btn = document.getElementById('simStartBtn');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            var dur = parseInt(document.getElementById('simDuration').value);
+            var spd = parseInt(document.getElementById('simSpeed').value);
+            fetch('/api/simulator/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({duration_minutes: dur, speed_factor: spd})
+            }).then(function(r) { return r.json(); }).then(function(d) {
+                if (d.error) {
+                    btn.disabled = false;
+                    btn.textContent = 'Start Simulator';
+                    alert(d.error);
+                } else {
+                    refreshSimStatus();
+                }
+            }).catch(function(e) {
+                btn.disabled = false;
+                btn.textContent = 'Start Simulator';
+            });
+        }
+
+        function simStop() {
+            document.getElementById('simStopBtn').disabled = true;
+            document.getElementById('simStopBtn').textContent = 'Stopping...';
+            fetch('/api/simulator/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}}).then(function() {
+                setTimeout(function() {
+                    refreshSimStatus();
+                    document.getElementById('simStopBtn').disabled = false;
+                    document.getElementById('simStopBtn').textContent = 'Stop';
+                }, 1500);
+            });
+        }
+
+        // Poll simulator status globally every 5 seconds
+        refreshSimStatus();
+
+        // Resume refresh polling if a date refresh was in progress when we navigated away
+        (function resumeRefreshPoll() {
+            fetch('/api/refresh-dates/status').then(function(r) { return r.json(); }).then(function(s) {
+                if (s.running && !s.done) {
+                    // Refresh is still running — show the panel and poll
+                    var refreshSection = document.getElementById('simPanelRefresh');
+                    if (refreshSection) refreshSection.style.display = '';
+                    var btn = document.getElementById('simRefreshBtn');
+                    if (btn) { btn.disabled = true; btn.textContent = s.progress || 'Refreshing...'; }
+                    pollRefreshStatus();
+                }
+            }).catch(function() {});
+        })();
+        _simPollInterval = setInterval(refreshSimStatus, 5000);
+
+        // Simulator not running → FAB glow serves as the hint (no banner needed)
+
+        // ── Data freshness check → FAB glow + sim panel refresh section ──
+        function checkDataFreshness() {
+            fetch('/api/data-freshness').then(function(r) { return r.json(); }).then(function(d) {
+                var fab = document.getElementById('simFab');
+                var refreshSection = document.getElementById('simPanelRefresh');
+                var refreshMsg = document.getElementById('simRefreshMsg');
+                if (d.stale) {
+                    // Glow the FAB amber to draw attention
+                    fab.classList.add('sim-fab-stale');
+                    // Show refresh section in sim panel
+                    if (refreshSection) {
+                        refreshSection.style.display = '';
+                        var hours = d.hours_old;
+                        var msg = hours > 48
+                            ? 'Data is ' + Math.round(hours / 24) + ' days old'
+                            : 'Data is ' + Math.round(hours) + ' hours old';
+                        refreshMsg.textContent = msg + ' — timestamps and SLA dates need updating.';
+                    }
+                } else {
+                    fab.classList.remove('sim-fab-stale');
+                    if (refreshSection) refreshSection.style.display = 'none';
+                }
+            }).catch(function() {});
+        }
+        checkDataFreshness();
+
+        function simRefreshData() {
+            var btn = document.getElementById('simRefreshBtn');
+            var msg = document.getElementById('simRefreshMsg');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            fetch('/api/refresh-dates', { method: 'POST', headers: {'Content-Type': 'application/json'} })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) { pollRefreshStatus(); }
+                    else { btn.textContent = 'Failed: ' + (d.error || 'unknown'); btn.style.background = '#FF4444'; btn.disabled = false; }
+                })
+                .catch(function(e) { btn.textContent = 'Error: ' + e.message; btn.disabled = false; });
+        }
+        function pollRefreshStatus() {
+            var btn = document.getElementById('simRefreshBtn');
+            var msg = document.getElementById('simRefreshMsg');
+            var iv = setInterval(function() {
+                fetch('/api/refresh-dates/status').then(function(r) { return r.json(); }).then(function(s) {
+                    btn.textContent = s.phase ? ('Updating ' + s.phase + '...') : 'Refreshing...';
+                    if (msg && s.progress) msg.textContent = s.progress;
+                    if (s.done) {
+                        clearInterval(iv);
+                        if (s.error) {
+                            btn.textContent = 'Failed'; btn.style.background = '#FF4444'; btn.disabled = false;
+                        } else if (s.phase === 'fresh' || s.phase === 'skipped') {
+                            btn.textContent = 'Already Fresh'; btn.style.background = '#00A972';
+                            document.getElementById('simFab').classList.remove('sim-fab-stale');
+                            setTimeout(function() { btn.textContent = 'Refresh Data'; btn.style.background = ''; btn.disabled = false; }, 3000);
+                        } else {
+                            btn.textContent = 'Done!'; btn.style.background = '#00A972';
+                            if (msg) msg.textContent = 'Data refreshed! Reloading...';
+                            document.getElementById('simFab').classList.remove('sim-fab-stale');
+                            setTimeout(function() { window.location.reload(); }, 1500);
+                        }
+                    }
+                }).catch(function() {});
+            }, 2000);
+        }
+    </script>
+
+    <!-- ═══ Code-Behind Architecture Panel ═══ -->
+    <div id="archPanel" class="arch-panel">
+        <div class="arch-panel-header">
+            <span style="font-weight:700;font-size:0.85rem;">Code Behind</span>
+            <button class="arch-panel-close" onclick="closeArchPanel()">&times;</button>
+        </div>
+        <div class="arch-panel-body" id="archPanelContent">
+            <div style="padding:20px;text-align:center;color:var(--text-secondary);">Click &lt;/&gt; to explore</div>
+        </div>
+    </div>
+
+    <script>
+        var _archPanelOpen = false;
+
+        function toggleArchPanel() {
+            var panel = document.getElementById('archPanel');
+            if (_archPanelOpen) {
+                panel.classList.remove('open');
+                _archPanelOpen = false;
+            } else {
+                panel.classList.add('open');
+                _archPanelOpen = true;
+                loadArchPanel();
+            }
+        }
+
+        function closeArchPanel() {
+            document.getElementById('archPanel').classList.remove('open');
+            _archPanelOpen = false;
+        }
+
+        // Toggle: dim non-Lakebase services so the audience sees exactly what Lakebase powers.
+        function toggleLakebaseHighlight(btn) {
+            var content = document.getElementById('archPanelContent');
+            if (!content) return;
+            var on = content.classList.toggle('arch-lb-on');
+            if (btn) {
+                btn.classList.toggle('active', on);
+                btn.textContent = on ? 'Show all' : 'Highlight Lakebase';
+            }
+        }
+
+        function loadArchPanel() {
+            var pageId = document.body.getAttribute('data-page');
+            var content = document.getElementById('archPanelContent');
+            content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary);">Loading...</div>';
+
+            fetch('/api/page-architecture/' + pageId).then(function(r) { return r.json(); }).then(function(arch) {
+                if (arch.error) { content.innerHTML = '<div style="padding:20px;color:#FF4444;">' + arch.error + '</div>'; return; }
+
+                var html = '';
+                var sourceBase = arch.source_base_url || '';
+
+                // Header
+                html += '<div style="margin-bottom:16px;">';
+                html += '<div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);">' + arch.title + '</div>';
+                html += '<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px;line-height:1.4;">' + arch.description + '</div>';
+                html += '</div>';
+
+                // Architecture flow diagram — table-based for reliable alignment
+                if (arch.services && arch.services.length > 0) {
+                    html += '<div class="arch-section">';
+                    html += '<div class="arch-section-title">Architecture</div>';
+                    var svcCount = arch.services.length;
+                    html += '<table style="border-collapse:collapse;width:100%;background:var(--bg-tertiary);border-radius:8px;overflow:hidden;" cellpadding="0" cellspacing="0">';
+                    arch.services.forEach(function(svc, i) {
+                        html += '<tr>';
+                        // Left column: Browser → Flask (only on first row, spans all service rows)
+                        if (i === 0) {
+                            html += '<td rowspan="' + svcCount + '" style="vertical-align:middle;text-align:center;padding:12px 8px;width:90px;">';
+                            html += '<div style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;">';
+                            html += '<span class="arch-flow-node" style="background:rgba(27,127,227,0.15);color:#1B7FE3;">Browser</span>';
+                            html += '<span style="color:var(--text-secondary);font-size:10px;">&#x2193;</span>';
+                            html += '<span class="arch-flow-node" style="background:rgba(0,169,114,0.15);color:#00A972;">Flask App</span>';
+                            html += '</div></td>';
+                        }
+                        // Middle column: arrow
+                        html += '<td style="vertical-align:middle;text-align:center;padding:4px 2px;width:30px;color:var(--text-secondary);font-size:12px;">&#x2500;&#x25B8;</td>';
+                        // Right column: service node
+                        html += '<td style="vertical-align:middle;padding:5px 10px;">';
+                        html += '<span class="arch-flow-node" data-lakebase="' + (svc.name.indexOf('Lakebase') >= 0) + '" style="background:' + svc.color + '18;color:' + svc.color + ';border:1px solid ' + svc.color + '44;display:inline-block;">' + svc.name + '</span>';
+                        html += '</td>';
+                        html += '</tr>';
+                    });
+                    html += '</table>';
+                    html += '</div>';
+                }
+
+                // Databricks Services
+                if (arch.services && arch.services.length > 0) {
+                    html += '<div class="arch-section">';
+                    var lbCount = arch.services.filter(function(s){ return (s.name || '').indexOf('Lakebase') >= 0; }).length;
+                    html += '<div class="arch-section-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">Databricks Services';
+                    if (lbCount > 0) html += '<button type="button" class="arch-lb-toggle" onclick="toggleLakebaseHighlight(this)">Highlight Lakebase</button>';
+                    html += '</div>';
+                    arch.services.forEach(function(svc) {
+                        var lb = (svc.name || '').indexOf('Lakebase') >= 0;
+                        html += '<div class="arch-service" data-lakebase="' + lb + '">';
+                        html += '<div class="arch-service-dot" style="background:' + svc.color + ';box-shadow:0 0 6px ' + svc.color + ';"></div>';
+                        html += '<div><div class="arch-service-name">' + svc.name + '</div>';
+                        if (svc.detail) html += '<div class="arch-service-detail">' + svc.detail + '</div>';
+                        html += '</div></div>';
+                    });
+                    html += '</div>';
+                }
+
+                // API Endpoints (with line numbers from enriched_apis)
+                var apis = arch.enriched_apis || (arch.apis || []).map(function(a) { return {path: a}; });
+                if (apis.length > 0) {
+                    html += '<div class="arch-section">';
+                    html += '<div class="arch-section-title">API Endpoints (' + apis.length + ')</div>';
+                    apis.forEach(function(api) {
+                        var method = api.method || 'GET';
+                        var lineTag = api.line ? ' <span style="color:var(--text-secondary);font-size:0.65rem;">app.py:' + api.line + '</span>' : '';
+                        var path = api.path || api;
+                        html += '<div class="arch-api"><span class="arch-api-method">' + method + '</span>' + path + lineTag + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                // Tables Queried
+                if (arch.tables && arch.tables.length > 0) {
+                    html += '<div class="arch-section">';
+                    html += '<div class="arch-section-title">Tables & Views</div>';
+                    arch.tables.forEach(function(t) {
+                        html += '<div class="arch-table">field_service.' + t + '</div>';
+                    });
+                    html += '</div>';
+                }
+
+                // Config Context (live values from config.yaml)
+                var cfgVals = arch.config_values || {};
+                var cfgKeys = Object.keys(cfgVals);
+                if (cfgKeys.length > 0) {
+                    html += '<div class="arch-section">';
+                    html += '<div class="arch-section-title">Config (config.yaml)</div>';
+                    html += '<div style="background:var(--bg-tertiary);border-radius:6px;padding:8px 12px;font-family:var(--font-mono,monospace);font-size:0.72rem;line-height:1.6;">';
+                    cfgKeys.forEach(function(k) {
+                        var val = cfgVals[k];
+                        // Truncate long values
+                        if (val && val.length > 50) val = val.substring(0, 47) + '...';
+                        html += '<div><span style="color:var(--text-secondary);">' + k + ':</span> <span style="color:#00A972;">' + val + '</span></div>';
+                    });
+                    html += '</div>';
+                    html += '</div>';
+                }
+
+                // Source Files (with line numbers from enriched_files)
+                var files = arch.enriched_files || (arch.source_files || []).map(function(f) { return {path: f, name: f.split('/').pop()}; });
+                if (files.length > 0 && sourceBase) {
+                    html += '<div class="arch-section">';
+                    html += '<div class="arch-section-title">Source Files</div>';
+                    files.forEach(function(f) {
+                        var url = sourceBase + '/' + f.path;
+                        var icon = f.path.endsWith('.html') ? '&#128196;' : f.path.endsWith('.py') ? '&#128013;' : '&#128462;';
+                        html += '<a href="' + url + '" target="_blank" rel="noopener" class="arch-source-link">' + icon + ' ' + f.name + '</a>';
+                    });
+                    html += '</div>';
+                }
+
+                content.innerHTML = html;
+            }).catch(function(err) {
+                content.innerHTML = '<div style="padding:20px;color:#FF4444;">Failed to load: ' + err.message + '</div>';
+            });
+        }
+
+        // Close on Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && _archPanelOpen) closeArchPanel();
+        });
+    </script>
+
+    <!-- ═══ AI Command Bar (Cmd+K / Ctrl+K) ═══ -->
+    <div id="commandBar" class="cmd-bar" style="display:none;">
+        <div class="cmd-bar-backdrop" onclick="closeCommandBar()"></div>
+        <div class="cmd-bar-dialog">
+            <div class="cmd-bar-input-row">
+                <svg class="cmd-bar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" id="cmdInput" class="cmd-bar-input" placeholder="Ask AI, search, or type a command..." autocomplete="off" spellcheck="false" aria-label="Command bar search">
+                <kbd class="cmd-bar-kbd">esc</kbd>
+            </div>
+            <div id="cmdSuggestions" class="cmd-suggestions"></div>
+            <div id="cmdResult" class="cmd-result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <style>
+        .cmd-bar { position:fixed; inset:0; z-index:10000; display:flex; align-items:flex-start; justify-content:center; padding-top:15vh; }
+        .cmd-bar-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.5); backdrop-filter:blur(4px); }
+        .cmd-bar-dialog { position:relative; width:600px; max-width:90vw; background:var(--bg-primary,#1B1B1F); border:1px solid var(--border-primary,#3A3A42); border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.5); overflow:hidden; }
+        .cmd-bar-input-row { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--border-primary,#3A3A42); }
+        .cmd-bar-icon { color:var(--text-muted,#6B6B78); flex-shrink:0; }
+        .cmd-bar-input { flex:1; background:transparent; border:none; outline:none; color:var(--text-primary,#E8E8ED); font-size:16px; font-family:var(--font-body); }
+        .cmd-bar-input::placeholder { color:var(--text-muted,#6B6B78); }
+        .cmd-bar-kbd { background:var(--bg-secondary,#2C2C33); color:var(--text-muted,#6B6B78); padding:2px 6px; border-radius:4px; font-size:11px; font-family:var(--font-mono); border:1px solid var(--border-primary,#3A3A42); }
+        .cmd-suggestions { max-height:300px; overflow-y:auto; }
+        .cmd-suggestion { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; color:var(--text-primary,#E8E8ED); font-size:14px; }
+        .cmd-suggestion:hover, .cmd-suggestion.active { background:var(--bg-secondary,#2C2C33); }
+        .cmd-suggestion-icon { width:16px; height:16px; color:var(--text-muted,#6B6B78); flex-shrink:0; }
+        .cmd-suggestion-label { flex:1; }
+        .cmd-suggestion-hint { font-size:11px; color:var(--text-muted,#6B6B78); }
+        .cmd-result { padding:16px; border-top:1px solid var(--border-primary,#3A3A42); color:var(--text-primary,#E8E8ED); font-size:14px; max-height:200px; overflow-y:auto; }
+        .cmd-result-loading { display:flex; align-items:center; gap:8px; color:var(--text-muted,#6B6B78); }
+        /* Trek theme overrides */
+        [data-theme="trekkie"] .cmd-bar-dialog { background:#0A0A14; border-color:#333344; }
+        [data-theme="trekkie"] .cmd-bar-input { color:#FC6; }
+        [data-theme="trekkie"] .cmd-suggestion:hover { background:#141422; }
+        /* Light theme */
+        [data-theme="dbx-light"] .cmd-bar-dialog { background:#FFFFFF; border-color:#E0E0E0; }
+        [data-theme="dbx-light"] .cmd-bar-input { color:#1B1B1F; }
+        [data-theme="dbx-light"] .cmd-bar-backdrop { background:rgba(0,0,0,0.3); }
+    </style>
+
+    <script>
+    (function() {
+        var cmdBar = document.getElementById('commandBar');
+        var cmdInput = document.getElementById('cmdInput');
+        var cmdSugg = document.getElementById('cmdSuggestions');
+        var cmdResult = document.getElementById('cmdResult');
+        var cmdOpen = false;
+        var activeIdx = -1;
+
+        // Page context for suggestions
+        var pageId = document.body.getAttribute('data-page') || 'index';
+        var pageSuggestions = {
+            'index': [
+                {icon: '&#x1F4CA;', label: 'Go to Dispatch Board', action: function() { window.location='/dispatch'; }},
+                {icon: '&#x1F5FA;', label: 'Go to Field Map', action: function() { window.location='/map'; }},
+                {icon: '&#x2728;', label: 'Ask AI Supervisor', action: 'ai'},
+                {icon: '&#x26A1;', label: 'Start Simulator', action: function() { window.location='/simulator'; }},
+            ],
+            'dispatch': [
+                {icon: '&#x1F9E0;', label: 'Run Smart Assign', action: function() { if(window.smartAssign) smartAssign(); closeCommandBar(); }},
+                {icon: '&#x26A0;', label: 'Show SLA Breaches', hint: 'Filter urgent queue', action: function() { window.location='/dispatch#urgent'; }},
+                {icon: '&#x1F4CB;', label: 'Create Work Order', action: function() { if(window.openCreateWO) openCreateWO(); closeCommandBar(); }},
+                {icon: '&#x2728;', label: 'Ask AI about dispatch', action: 'ai'},
+            ],
+            'map': [
+                {icon: '&#x1F50D;', label: 'Find Technician', action: 'ai', hint: 'Search by name or ID'},
+                {icon: '&#x26A0;', label: 'Show Critical WOs Only', action: function() { closeCommandBar(); }},
+                {icon: '&#x2728;', label: 'Ask AI about field ops', action: 'ai'},
+            ],
+            'analytics': [
+                {icon: '&#x1F4C8;', label: 'SLA Compliance by Region', action: 'ai'},
+                {icon: '&#x2728;', label: 'Ask AI about SLA trends', action: 'ai'},
+            ],
+        };
+
+        // Global suggestions available on every page
+        var globalSuggestions = [
+            {icon: '&#x1F3E0;', label: 'Go to Dashboard', action: function() { window.location='/'; }},
+            {icon: '&#x1F4CB;', label: 'Go to Dispatch', action: function() { window.location='/dispatch'; }},
+            {icon: '&#x1F5FA;', label: 'Go to Field Map', action: function() { window.location='/map'; }},
+            {icon: '&#x1F4CA;', label: 'Go to Analytics', action: function() { window.location='/analytics'; }},
+            {icon: '&#x2728;', label: 'Go to AI Supervisor', action: function() { window.location='/agent'; }},
+            {icon: '&#x1F50D;', label: 'Go to Data Explorer', action: function() { window.location='/view-data'; }},
+            {icon: '&#x2699;', label: 'Go to Lakebase Admin', action: function() { window.location='/admin'; }},
+        ];
+
+        window.openCommandBar = function() {
+            cmdBar.style.display = 'flex';
+            cmdOpen = true;
+            cmdInput.value = '';
+            cmdResult.style.display = 'none';
+            activeIdx = -1;
+            showSuggestions('');
+            setTimeout(function() { cmdInput.focus(); }, 50);
+        }
+
+        window.closeCommandBar = function() {
+            cmdBar.style.display = 'none';
+            cmdOpen = false;
+        };
+
+        function showSuggestions(query) {
+            var items = [];
+            var contextItems = pageSuggestions[pageId] || [];
+
+            if (!query) {
+                items = contextItems.concat(globalSuggestions);
+            } else {
+                var q = query.toLowerCase();
+                // Filter matching suggestions
+                contextItems.concat(globalSuggestions).forEach(function(s) {
+                    if (s.label.toLowerCase().indexOf(q) !== -1) items.push(s);
+                });
+                // Always add "Ask AI" option for free text
+                items.push({icon: '&#x2728;', label: 'Ask AI: "' + query + '"', action: 'ai', query: query});
+            }
+
+            var html = '';
+            items.slice(0, 8).forEach(function(s, i) {
+                html += '<div class="cmd-suggestion' + (i === activeIdx ? ' active' : '') + '" data-idx="' + i + '">' +
+                    '<span class="cmd-suggestion-icon">' + s.icon + '</span>' +
+                    '<span class="cmd-suggestion-label">' + s.label + '</span>' +
+                    (s.hint ? '<span class="cmd-suggestion-hint">' + s.hint + '</span>' : '') +
+                '</div>';
+            });
+            cmdSugg.innerHTML = html;
+            cmdSugg._items = items.slice(0, 8);
+
+            // Click handlers
+            cmdSugg.querySelectorAll('.cmd-suggestion').forEach(function(el) {
+                el.addEventListener('click', function() {
+                    var idx = parseInt(this.getAttribute('data-idx'));
+                    executeSuggestion(cmdSugg._items[idx]);
+                });
+            });
+        }
+
+        function executeSuggestion(item) {
+            if (!item) return;
+            if (item.action === 'ai') {
+                var q = item.query || cmdInput.value.trim();
+                if (q) askAI(q);
+            } else if (typeof item.action === 'function') {
+                item.action();
+                closeCommandBar();
+            }
+        }
+
+        // ── Local knowledge base — instant answers for architecture/navigation ──
+        var appKnowledge = [
+            { keywords: ['lakebase', 'postgres', 'database', 'instance', 'work order', '5 million', '5m'],
+              answer: '<strong>Lakebase (PostgreSQL OLTP)</strong><p>Our Lakebase instance runs <strong>5M+ work orders</strong> on autoscaling PostgreSQL (2-8 CU). Key features:</p>' +
+                '<ul style="margin:4px 0;padding-left:20px;font-size:13px;">' +
+                '<li><strong>Connection pooling</strong>: 40 main + 8 analytics connections</li>' +
+                '<li><strong>Partial indexes</strong>: active-only scans (idx_wo_active) skip 4.8M completed rows</li>' +
+                '<li><strong>PG scoring function</strong>: compute_dispatch_scores() runs at the database layer</li>' +
+                '<li><strong>SLA trigger</strong>: trg_sla_risk computes risk scores on every INSERT/UPDATE</li>' +
+                '<li><strong>Dual rotation roles</strong>: lakebase_app_a/b for zero-downtime credential rotation</li>' +
+                '</ul>',
+              navigate: '/admin', navLabel: 'View live metrics on Lakebase Admin' },
+            { keywords: ['dispatch', 'smart assign', 'scoring', 'technician assign', 'routing'],
+              answer: '<strong>Intelligent Dispatch Optimization</strong><p>ML-scored dispatch using 5 factors: skill (30pts), haversine distance (25pts), capacity (20pts), SLA urgency (15pts), tech rating (10pts). LightGBM model (RMSE=0.016) trained on 200K outcomes. Max 8 active WOs per tech.</p>' +
+                '<p>Average travel distance dropped from 260km to <strong>6km</strong>. Appointment windows enforced.</p>',
+              navigate: '/dispatch', navLabel: 'Open Dispatch Board' },
+            { keywords: ['network', 'topology', 'outage', 'alarm', 'incident', 'node', 'infrastructure'],
+              answer: '<strong>Network Health & Topology</strong><p>D3.js force-directed topology graph showing infrastructure nodes grouped by region. Alarm correlation reduces 1000s of raw alerts to root-cause incidents (fiber cut, power outage, equipment failure). Customer impact analysis shows affected customers per region.</p>' +
+                '<p>Data flows through a DLT Spark Streaming pipeline (Bronze → Silver → Gold Managed Iceberg).</p>',
+              navigate: '/network-health', navLabel: 'View Network Health' },
+            { keywords: ['sla', 'compliance', 'breach', 'service level'],
+              answer: '<strong>SLA Engine</strong><p>16 SLA policies (4 priorities × 4 customer tiers). Real-time trigger computes risk scores on every work order change. Materialized views for technician leaderboard and regional compliance trending. 7-day sparkline on dashboard.</p>',
+              navigate: '/analytics', navLabel: 'View SLA Analytics' },
+            { keywords: ['genie', 'natural language', 'ask question', 'ai space'],
+              answer: '<strong>Genie AI Spaces (x4)</strong><p>Natural language SQL queries: Field Operations, Postgres Admin, Network Health, SLA & Workforce. Connected to Unity Catalog foreign tables + Managed Iceberg gold tables. Powered by SQL Warehouse (serverless).</p>',
+              navigate: '/genie', navLabel: 'Open Genie AI' },
+            { keywords: ['agent', 'supervisor', 'langgraph', 'multi-agent', 'memory', 'conversation'],
+              answer: '<strong>Multi-Agent AI Supervisor</strong><p>LangGraph supervisor routes questions to 4 specialized Genie agents. Deployed to Model Serving. Long-term memory persisted in Lakebase (ai_memory schema). Conversation history with full-text search. User identity via OAuth JWT.</p>',
+              navigate: '/agent', navLabel: 'Open AI Supervisor' },
+            { keywords: ['unity catalog', 'governance', 'lineage', 'catalog', 'iceberg'],
+              answer: '<strong>Unity Catalog Governance</strong><p>Foreign catalog mirrors Lakebase tables to analytics. Managed catalog for Iceberg gold tables. Model registry with @production alias. Column-level PII tags on customer data. Row-level security views by region.</p>',
+              navigate: '/view-data', navLabel: 'Browse Data Explorer' },
+            { keywords: ['map', 'gps', 'route', 'osrm', 'road', 'field map', 'technician location'],
+              answer: '<strong>Field Map + OSRM Routing</strong><p>Leaflet.js map with 2500 GPS-tracked technicians and 500 active work orders. OSRM road routing (actual road distances, not straight lines). Route distance/duration tooltips. 200km radius filter. Capacity badges on tech markers.</p>',
+              navigate: '/map', navLabel: 'Open Field Map' },
+            { keywords: ['mobile', 'field tech', 'technician app'],
+              answer: '<strong>Technician Mobile View</strong><p>Lean responsive page for field technicians. Shows active WOs, next stop with navigate button (opens Google Maps), full day route with total distance/duration. Refreshes every 60s.</p>',
+              navigate: '/mobile?tech=100', navLabel: 'Open Mobile View' },
+            { keywords: ['tmf', 'api', 'trouble ticket', 'rest api', 'standard', '621'],
+              answer: '<strong>TMF 621 Trouble Ticket API</strong><p>Industry-standard REST API at /api/tmf/troubleTickets. Supports GET (list/search), POST (create), GET/:id (detail), PATCH/:id (update). Maps internal work_orders to TMF 621 schema.</p>',
+              navigate: null, navLabel: null },
+            { keywords: ['databricks', 'platform', 'what is', 'feature'],
+              answer: '<strong>Databricks Data Intelligence Platform</strong><p>This app uses 14+ Databricks services: Lakebase, Unity Catalog, MLflow, Model Serving, Genie AI, DLT Pipelines, Managed Iceberg, Databricks Apps, SQL Warehouse, Foundation Model APIs, Databricks Secrets, Jobs, and more.</p>' +
+                '<p>Every feature is implemented authentically — the way a real telco would build it.</p>',
+              navigate: '/asbuilt', navLabel: 'View Architecture Diagram' },
+        ];
+
+        function tryLocalAnswer(question) {
+            var q = question.toLowerCase();
+            for (var i = 0; i < appKnowledge.length; i++) {
+                var k = appKnowledge[i];
+                var matches = k.keywords.filter(function(kw) { return q.indexOf(kw) !== -1; });
+                if (matches.length >= 1) {
+                    return k;
+                }
+            }
+            return null;
+        }
+
+        // Simple markdown → HTML (tables, bold, code, lists)
+        function mdToHtml(md) {
+            if (!md) return '';
+            // Tables: detect lines with |
+            var lines = md.split('\n');
+            var html = [];
+            var inTable = false;
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line.match(/^\|.*\|$/)) {
+                    if (line.match(/^\|[\s\-:|]+\|$/)) continue; // separator row
+                    var cells = line.split('|').filter(function(c) { return c.trim(); });
+                    if (!inTable) { html.push('<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0;">'); inTable = true; }
+                    html.push('<tr>' + cells.map(function(c) {
+                        return '<td style="padding:4px 8px;border:1px solid var(--border-primary,#3A3A42);">' + c.trim() + '</td>';
+                    }).join('') + '</tr>');
+                } else {
+                    if (inTable) { html.push('</table>'); inTable = false; }
+                    // Bold
+                    line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    // Code
+                    line = line.replace(/`(.*?)`/g, '<code style="background:var(--bg-secondary);padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>');
+                    if (line) html.push('<p style="margin:4px 0;font-size:13px;line-height:1.5;">' + line + '</p>');
+                }
+            }
+            if (inTable) html.push('</table>');
+            return html.join('');
+        }
+
+        function askAI(question) {
+            cmdResult.style.display = 'block';
+            cmdSugg.innerHTML = '';
+
+            // Try instant local answer first
+            var local = tryLocalAnswer(question);
+            if (local) {
+                var navBtn = local.navigate
+                    ? '<a href="' + local.navigate + '" style="display:inline-block;margin-top:8px;padding:6px 14px;background:#2563EB;color:#fff;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;">' + local.navLabel + ' &rarr;</a>'
+                    : '';
+                cmdResult.innerHTML = '<div style="font-size:13px;line-height:1.6;">' + local.answer + '</div>' + navBtn +
+                    '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border-primary,#3A3A42);display:flex;justify-content:space-between;align-items:center;">' +
+                    '<a href="/agent" style="color:#60A5FA;font-size:11px;text-decoration:none;">Ask a deeper question in AI Supervisor &rarr;</a>' +
+                    '<span style="font-size:10px;color:var(--text-muted);">&#9889; Instant (local knowledge)</span></div>';
+                return;
+            }
+
+            // Fall back to agent for data questions — use streaming with live trace
+            var traceSteps = [];
+            var startTime = Date.now();
+
+            function addTrace(icon, label, detail, status) {
+                var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                traceSteps.push({icon: icon, label: label, detail: detail, status: status, time: elapsed});
+                renderTrace();
+            }
+
+            function renderTrace() {
+                var traceHtml = '<div style="border-top:1px solid var(--border-primary,#3A3A42);margin-top:8px;padding-top:6px;">' +
+                    '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'" ' +
+                    'style="cursor:pointer;font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">' +
+                    '<span>&#9881;</span> Under the Hood <span style="font-size:9px;">(' + traceSteps.length + ' steps)</span></div>' +
+                    '<div style="display:block;margin-top:4px;">';
+                traceSteps.forEach(function(s) {
+                    var statusColor = s.status === 'done' ? '#00A972' : s.status === 'active' ? '#60A5FA' : '#6B6B78';
+                    traceHtml += '<div style="display:flex;align-items:flex-start;gap:6px;padding:3px 0;font-size:11px;">' +
+                        '<span style="flex-shrink:0;">' + s.icon + '</span>' +
+                        '<span style="color:var(--text-primary);flex:1;">' + s.label + (s.detail ? ' <span style="color:var(--text-muted);">' + s.detail + '</span>' : '') + '</span>' +
+                        '<span style="color:' + statusColor + ';flex-shrink:0;font-family:var(--font-mono);font-size:10px;">' + s.time + 's</span>' +
+                    '</div>';
+                });
+                traceHtml += '</div></div>';
+                document.getElementById('cmdTrace').innerHTML = traceHtml;
+            }
+
+            cmdResult.innerHTML = '<div class="cmd-result-loading"><span class="loading-spinner sm"></span> Querying live data via AI agents...</div><div id="cmdTrace"></div>';
+            addTrace('&#128274;', 'Auth', 'OAuth token → Service Principal', 'done');
+            addTrace('&#129504;', 'LLM Routing', 'Claude Sonnet 4.5 via Foundation Model API', 'active');
+
+            fetch('/api/agent/ask-stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({question: question})
+            })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Stream failed');
+                addTrace('&#128640;', 'Model Serving', 'POST /serving-endpoints/.../invocations', 'done');
+
+                var reader = response.body.getReader();
+                var decoder = new TextDecoder();
+                var buffer = '';
+                var fullAnswer = '';
+                var spaces = [];
+
+                function readChunk() {
+                    return reader.read().then(function(result) {
+                        if (result.done) { finishCmd(); return; }
+                        buffer += decoder.decode(result.value, {stream: true});
+                        var lines = buffer.split('\n');
+                        buffer = lines.pop();
+                        lines.forEach(function(line) {
+                            line = line.trim();
+                            if (!line.startsWith('data:')) return;
+                            var data = line.substring(5).trim();
+                            if (data === '[DONE]') return;
+                            try {
+                                var evt = JSON.parse(data);
+                                if (evt.type === 'routing' && evt.agent) {
+                                    spaces.push(evt.agent);
+                                    addTrace('&#129302;', 'Genie Agent', evt.agent + ' → SQL Warehouse → UC Tables', 'active');
+                                } else if (evt.type === 'agent_response' && evt.text) {
+                                    fullAnswer += evt.text + '\n';
+                                    addTrace('&#128202;', 'Data Retrieved', (evt.agent || 'agent') + ' returned results', 'done');
+                                } else if (evt.type === 'synthesis') {
+                                    if (evt.text) fullAnswer = evt.text;
+                                    addTrace('&#10024;', 'Synthesis', 'LLM combining agent results', 'done');
+                                } else if (evt.type === 'done') {
+                                    finishCmd();
+                                    return;
+                                }
+                            } catch(e) {}
+                        });
+                        return readChunk();
+                    });
+                }
+
+                function finishCmd() {
+                    addTrace('&#9989;', 'Complete', spaces.length + ' agents consulted', 'done');
+                    var badges = spaces.map(function(s) {
+                        return '<span style="background:#7C3AED;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px;margin-right:4px;">' + s + '</span>';
+                    }).join('');
+                    var rendered = mdToHtml((fullAnswer || 'No answer').substring(0, 800));
+                    var traceEl = document.getElementById('cmdTrace').innerHTML;
+                    cmdResult.innerHTML = badges +
+                        '<div style="margin-top:8px;max-height:200px;overflow-y:auto;">' + rendered + '</div>' +
+                        '<div id="cmdTrace">' + traceEl + '</div>' +
+                        '<div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid var(--border-primary,#3A3A42);">' +
+                        '<a href="/agent" style="color:#60A5FA;font-size:11px;text-decoration:none;">Continue in AI Supervisor &rarr;</a>' +
+                        '<span style="font-size:10px;color:var(--text-muted);" title="Powered by Databricks Foundation Model APIs">&#10024; Foundation Model API</span></div>';
+                }
+
+                return readChunk();
+            })
+            .catch(function(e) {
+                cmdResult.innerHTML = '<div style="color:#FF4444;font-size:13px;">Failed: ' + e.message + '</div>';
+            });
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Cmd+K / Ctrl+K to toggle
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                if (cmdOpen) closeCommandBar();
+                else openCommandBar();
+                return;
+            }
+            if (!cmdOpen) return;
+
+            if (e.key === 'Escape') {
+                closeCommandBar();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var items = cmdSugg._items || [];
+                if (items.length) {
+                    activeIdx = Math.min(activeIdx + 1, items.length - 1);
+                    showSuggestions(cmdInput.value);
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIdx = Math.max(activeIdx - 1, -1);
+                showSuggestions(cmdInput.value);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                var items = cmdSugg._items || [];
+                if (activeIdx >= 0 && items[activeIdx]) {
+                    executeSuggestion(items[activeIdx]);
+                } else if (cmdInput.value.trim()) {
+                    askAI(cmdInput.value.trim());
+                }
+            }
+        });
+
+        // Input filtering (debounced 100ms)
+        var _cmdDebounce = null;
+        if (cmdInput) {
+            cmdInput.addEventListener('input', function() {
+                activeIdx = -1;
+                cmdResult.style.display = 'none';
+                clearTimeout(_cmdDebounce);
+                var val = this.value.trim();
+                _cmdDebounce = setTimeout(function() { showSuggestions(val); }, 100);
+            });
+        }
+    })();
+    </script>
+</body>
+</html>
