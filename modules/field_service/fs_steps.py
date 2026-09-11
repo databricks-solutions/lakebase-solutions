@@ -430,24 +430,302 @@ _pipeline = _mk(
     "delete the pipeline + its output tables",
     "assert the pipeline's target gold tables exist",
 )
-_genie = _mk(
-    "genie",
-    "create 4 Genie spaces from assets/genie/*.json (POST /api/2.0/genie/spaces)",
-    "trash the 4 Genie spaces",
-    "assert the 4 spaces exist and are queryable",
-)
-_dashboards = _mk(
-    "dashboards",
-    "create + publish 2 Lakeview dashboards from assets/dashboards/*.json",
-    "delete the 2 dashboards",
-    "assert the dashboards are published",
-)
-_governance = _mk(
-    "governance",
-    "apply UC tags, row-level security, masking views",
-    "remove governance tags/policies",
-    "assert masking views + RLS policies exist",
-)
+_GENIE_API = "/api/2.0/genie/spaces"
+# Each Genie space: config key, title, source JSON asset. Titles are namespaced
+# by deployment_id at runtime so multiple deployments coexist.
+_GENIE_SPACES = [
+    {"key": "postgres", "title": "PostgresAdmin", "json": "genie_space_postgres_admin.json",
+     "description": "Monitor + manage Lakebase Postgres — connections, queries, table stats"},
+    {"key": "field_ops", "title": "Field Service Operations", "json": "genie_space_field_ops.json",
+     "description": "Work orders, technicians, dispatch, and SLA data in natural language"},
+    {"key": "network_health", "title": "Network Health & Telemetry", "json": "genie_space_network_health.json",
+     "description": "Node health, outages, IoT telemetry, and maintenance risk"},
+    {"key": "sla_workforce", "title": "SLA & Workforce Analytics", "json": "genie_space_sla_workforce.json",
+     "description": "SLA compliance, technician performance, and regional workforce analytics"},
+]
+
+
+def _genie_assets_dir():
+    from pathlib import Path
+
+    return Path(__file__).resolve().parent / "assets" / "genie"
+
+
+def _genie_title(ctx: Any, title: str) -> str:
+    return f"{ctx.deployment_id} {title}"
+
+
+def _rewrite_genie_catalog(space_config: Dict[str, Any], catalog: str) -> Dict[str, Any]:
+    """Point every table identifier at ``catalog`` and sort (the API requires sorted)."""
+
+    ds = space_config.get("data_sources") or {}
+    tables = ds.get("tables") if isinstance(ds, dict) else None
+    if isinstance(tables, list):
+        for t in tables:
+            ident = t.get("identifier", "")
+            parts = ident.split(".")
+            if len(parts) == 3:
+                parts[0] = catalog
+                t["identifier"] = ".".join(parts)
+        ds["tables"] = sorted(tables, key=lambda t: t.get("identifier", ""))
+        space_config["data_sources"] = ds
+    return space_config
+
+
+def _genie_list(w: Any) -> List[Dict[str, Any]]:
+    try:
+        resp = w.api_client.do("GET", _GENIE_API)
+        return resp.get("spaces", []) if isinstance(resp, dict) else []
+    except Exception:  # pragma: no cover
+        return []
+
+
+def _genie_deploy(ctx: Any) -> Dict[str, Any]:
+    """Create the 4 Genie spaces from the JSON assets (idempotent by title)."""
+
+    import json
+
+    if not ctx.has_workspace_client():
+        return _stub("genie", "deploy", ctx, f"create {len(_GENIE_SPACES)} Genie spaces")
+    w = ctx.workspace_client()
+    warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
+    catalog = _catalog_name(ctx)
+    existing = {s.get("title"): s.get("space_id") for s in _genie_list(w)}
+    created: Dict[str, str] = {}
+    assets = _genie_assets_dir()
+    for spec in _GENIE_SPACES:
+        title = _genie_title(ctx, spec["title"])
+        if title in existing:  # idempotent reuse
+            created[spec["key"]] = existing[title]
+            continue
+        try:
+            space_config = json.loads((assets / spec["json"]).read_text(encoding="utf-8"))
+        except Exception as exc:
+            ctx.logger.info("field_service.genie: read %s failed: %s", spec["json"], exc)
+            continue
+        space_config = _rewrite_genie_catalog(space_config, catalog)
+        try:
+            resp = w.api_client.do(
+                "POST",
+                _GENIE_API,
+                body={
+                    "title": title,
+                    "description": spec["description"],
+                    "warehouse_id": warehouse_id,
+                    "serialized_space": json.dumps(space_config),
+                },
+            )
+            sid = resp.get("space_id") if isinstance(resp, dict) else None
+            if sid:
+                created[spec["key"]] = sid
+                _put_id(ctx, f"genie-space-{spec['key']}", sid)
+        except Exception as exc:
+            ctx.logger.info("field_service.genie: create %r failed: %s", title, exc)
+    ctx.resolved_names.setdefault("fs_genie_spaces", ",".join(created.values()))
+    ctx.logger.info("field_service.genie.deploy: %d/%d spaces present.", len(created), len(_GENIE_SPACES))
+    status = "deployed" if len(created) == len(_GENIE_SPACES) else "partial"
+    return {"step": "genie", "spaces": created, "status": status}
+
+
+def _genie_teardown(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("genie", "teardown", ctx, "trash the Genie spaces")
+    w = ctx.workspace_client()
+    titles = {_genie_title(ctx, s["title"]) for s in _GENIE_SPACES}
+    deleted = 0
+    for s in _genie_list(w):
+        if s.get("title") in titles and s.get("space_id"):
+            try:
+                w.api_client.do("DELETE", f"{_GENIE_API}/{s['space_id']}")
+                deleted += 1
+            except Exception as exc:  # pragma: no cover
+                ctx.logger.info("field_service.genie.teardown: %s", exc)
+    return {"step": "genie", "spaces_deleted": deleted, "status": "torn_down"}
+
+
+def _genie_health(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("genie", "health", ctx, "assert the 4 Genie spaces exist")
+    w = ctx.workspace_client()
+    titles = {_genie_title(ctx, s["title"]) for s in _GENIE_SPACES}
+    present = sum(1 for s in _genie_list(w) if s.get("title") in titles)
+    healthy = present == len(_GENIE_SPACES)
+    return {"step": "genie", "spaces_present": present, "healthy": healthy,
+            "status": "ok" if healthy else "unhealthy"}
+
+
+_genie = (_genie_deploy, _genie_teardown, _genie_health)
+_LAKEVIEW_API = "/api/2.0/lakeview/dashboards"
+_DASHBOARDS = [
+    {"key": "field_service_ops", "name": "Field Service Operations", "json": "dashboard_field_service_ops.json"},
+    {"key": "network_ops", "name": "Network Operations", "json": "dashboard_network_ops.json"},
+]
+
+
+def _dashboard_name(ctx: Any, name: str) -> str:
+    return f"{ctx.deployment_id} {name}"
+
+
+def _dashboard_parent_path(ctx: Any) -> str:
+    path = ctx.params.get("dashboard_parent_path")
+    if path:
+        return path
+    try:
+        email = ctx.workspace_client().current_user.me().user_name
+    except Exception:  # pragma: no cover
+        email = "unknown"
+    return f"/Users/{email}"
+
+
+def _lakeview_list(w: Any) -> List[Dict[str, Any]]:
+    try:
+        resp = w.api_client.do("GET", _LAKEVIEW_API)
+        return resp.get("dashboards", []) if isinstance(resp, dict) else []
+    except Exception:  # pragma: no cover
+        return []
+
+
+def _dashboards_deploy(ctx: Any) -> Dict[str, Any]:
+    """Create + publish the Lakeview dashboards (idempotent by display_name)."""
+
+    import json
+
+    if not ctx.has_workspace_client():
+        return _stub("dashboards", "deploy", ctx, f"create {len(_DASHBOARDS)} Lakeview dashboards")
+    w = ctx.workspace_client()
+    warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
+    catalog = _catalog_name(ctx)
+    parent = _dashboard_parent_path(ctx)
+    subs = {"catalog": catalog, "schema": "field_service", "pipeline_catalog": catalog}
+    from pathlib import Path
+
+    assets = Path(__file__).resolve().parent / "assets" / "dashboards"
+    existing = {d.get("display_name"): d.get("dashboard_id") for d in _lakeview_list(w)}
+    published: Dict[str, str] = {}
+    for spec in _DASHBOARDS:
+        name = _dashboard_name(ctx, spec["name"])
+        did = existing.get(name)
+        if did is None:
+            try:
+                raw = (assets / spec["json"]).read_text(encoding="utf-8")
+                for k, v in subs.items():
+                    raw = raw.replace("{" + k + "}", v)
+                resp = w.api_client.do(
+                    "POST",
+                    _LAKEVIEW_API,
+                    body={"display_name": name, "parent_path": parent,
+                          "serialized_dashboard": raw, "warehouse_id": warehouse_id},
+                )
+                did = resp.get("dashboard_id") if isinstance(resp, dict) else None
+            except Exception as exc:
+                ctx.logger.info("field_service.dashboards: create %r failed: %s", name, exc)
+                continue
+        if did:
+            try:
+                w.api_client.do("POST", f"{_LAKEVIEW_API}/{did}/published",
+                                body={"warehouse_id": warehouse_id})
+            except Exception as exc:  # pragma: no cover
+                ctx.logger.info("field_service.dashboards: publish %r failed: %s", name, exc)
+            published[spec["key"]] = did
+            _put_id(ctx, f"dashboard-{spec['key']}", did)
+    status = "deployed" if len(published) == len(_DASHBOARDS) else "partial"
+    return {"step": "dashboards", "dashboards": published, "status": status}
+
+
+def _dashboards_teardown(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("dashboards", "teardown", ctx, "delete the Lakeview dashboards")
+    w = ctx.workspace_client()
+    names = {_dashboard_name(ctx, s["name"]) for s in _DASHBOARDS}
+    deleted = 0
+    for d in _lakeview_list(w):
+        if d.get("display_name") in names and d.get("dashboard_id"):
+            try:
+                w.api_client.do("DELETE", f"{_LAKEVIEW_API}/{d['dashboard_id']}")
+                deleted += 1
+            except Exception as exc:  # pragma: no cover
+                ctx.logger.info("field_service.dashboards.teardown: %s", exc)
+    return {"step": "dashboards", "dashboards_deleted": deleted, "status": "torn_down"}
+
+
+def _dashboards_health(ctx: Any) -> Dict[str, Any]:
+    if not ctx.has_workspace_client():
+        return _stub("dashboards", "health", ctx, "assert the dashboards are published")
+    w = ctx.workspace_client()
+    names = {_dashboard_name(ctx, s["name"]) for s in _DASHBOARDS}
+    present = sum(1 for d in _lakeview_list(w) if d.get("display_name") in names)
+    healthy = present == len(_DASHBOARDS)
+    return {"step": "dashboards", "dashboards_present": present, "healthy": healthy,
+            "status": "ok" if healthy else "unhealthy"}
+
+
+_dashboards = (_dashboards_deploy, _dashboards_teardown, _dashboards_health)
+
+# Region-based row-level security + a PII-masked customer view. Self-contained
+# and idempotent; applied over the workshop Postgres. This is the module's
+# governance layer (the app's RBAC reads current_setting('app.region')).
+_GOVERNANCE_SQL = [
+    "ALTER TABLE IF EXISTS field_service.work_orders ENABLE ROW LEVEL SECURITY",
+    """DO $$ BEGIN
+         IF NOT EXISTS (SELECT 1 FROM pg_policies
+                        WHERE schemaname='field_service' AND tablename='work_orders'
+                          AND policyname='rls_region') THEN
+           CREATE POLICY rls_region ON field_service.work_orders
+             USING (current_setting('app.region', true) IS NULL
+                    OR region = current_setting('app.region', true));
+         END IF;
+       END $$;""",
+    """CREATE OR REPLACE VIEW field_service.v_customers_masked AS
+         SELECT customer_id, region,
+                regexp_replace(COALESCE(email,''), '(^.).*(@.*$)', '\\1***\\2') AS email,
+                left(COALESCE(phone,''), 3) || '-***-****' AS phone
+         FROM field_service.customers""",
+]
+
+
+def _governance_deploy(ctx: Any) -> Dict[str, Any]:
+    """Apply row-level security + a PII-masked customer view (best-effort)."""
+
+    database = ctx.params.get("database") or "databricks_postgres"
+    if not ctx.is_live():
+        return _stub("governance", "deploy", ctx, "enable RLS + masking view on field_service")
+    conn = ctx.pg_connection(role="admin", database=database)
+    try:
+        conn.autocommit = True
+    except Exception:  # pragma: no cover
+        pass
+    cur = conn.cursor()
+    applied = 0
+    for stmt in _GOVERNANCE_SQL:
+        try:
+            cur.execute(stmt)
+            applied += 1
+        except Exception as exc:
+            ctx.logger.info("field_service.governance: deferred statement: %s", str(exc)[:120])
+    return {"step": "governance", "statements_applied": applied,
+            "status": "deployed" if applied == len(_GOVERNANCE_SQL) else "partial"}
+
+
+def _governance_teardown(ctx: Any) -> Dict[str, Any]:
+    # Policies + the masked view live in the field_service schema, dropped with it.
+    return {"step": "governance", "status": "torn_down",
+            "note": "removed with the field_service schema (data step)"}
+
+
+def _governance_health(ctx: Any) -> Dict[str, Any]:
+    database = ctx.params.get("database") or "databricks_postgres"
+    if not ctx.is_live():
+        return _stub("governance", "health", ctx, "assert the masked customer view exists")
+    conn = ctx.pg_connection(role="admin", database=database)
+    cur = conn.cursor()
+    cur.execute("SELECT to_regclass('field_service.v_customers_masked')")
+    row = cur.fetchone()
+    exists = bool(row and row[0])
+    return {"step": "governance", "masking_view_present": exists, "healthy": exists,
+            "status": "ok" if exists else "unhealthy"}
+
+
+_governance = (_governance_deploy, _governance_teardown, _governance_health)
 _ml = _mk(
     "ml",
     "train + register (UC) + serve the predictive-maintenance model",

@@ -167,3 +167,41 @@ def test_synced_step_confirms_registration():
     ctx, _conn, _ws = _live_ctx_with_project()
     assert _step("synced").deploy(ctx)["status"] == "deployed"
     assert _step("synced").health(ctx)["status"] == "ok"
+
+
+# --- analytics step group (genie / dashboards / governance) ----------------- #
+def test_analytics_steps_stub_offline():
+    for name in ("genie", "dashboards", "governance"):
+        assert _step(name).deploy(_ctx())["status"] == "stub"
+
+
+def test_genie_step_creates_four_spaces():
+    ctx, _conn, ws = _live_ctx_with_project()
+    res = _step("genie").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert len(res["spaces"]) == 4
+    posts = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/genie/spaces")]
+    assert len(posts) == 4
+    body = posts[0][2]
+    assert "serialized_space" in body and body["title"].startswith("acme-ws ")
+    assert _step("genie").health(ctx)["status"] == "ok"
+
+
+def test_dashboards_step_creates_and_publishes():
+    ctx, _conn, ws = _live_ctx_with_project()
+    res = _step("dashboards").deploy(ctx)
+    assert res["status"] == "deployed"
+    assert len(res["dashboards"]) == 2
+    pubs = [c for c in ws.api_client.calls if c[0] == "POST" and c[1].endswith("/published")]
+    assert len(pubs) == 2
+    assert _step("dashboards").health(ctx)["status"] == "ok"
+
+
+def test_governance_step_applies_rls_and_masking():
+    ctx, conn, _ws = _live_ctx_with_project()
+    res = _step("governance").deploy(ctx)
+    assert res["status"] == "deployed"
+    sql = conn.executed_sql()
+    assert any("ENABLE ROW LEVEL SECURITY" in s for s in sql)
+    assert any("v_customers_masked" in s for s in sql)
+    assert _step("governance").health(ctx)["healthy"] is True

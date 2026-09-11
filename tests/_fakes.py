@@ -213,6 +213,10 @@ class FakeApiClient:
         self._cu_max: Any = None
         # Exposed schemas last set via the Data API PATCH.
         self._exposed_schemas: List[str] = []
+        # Stateful stores so create -> list/health is consistent (genie/lakeview).
+        self._genie: Dict[str, str] = {}
+        self._dash: Dict[str, str] = {}
+        self._seq = 0
         self.calls: List[Tuple[str, str, Any]] = []
 
     def do(
@@ -296,6 +300,34 @@ class FakeApiClient:
         # --- SQL statements ---
         if p.endswith("/sql/statements") and m == "POST":
             return {"status": {"state": "SUCCEEDED"}}
+
+        # --- Genie spaces (stateful) ---
+        if p.endswith("/genie/spaces") and m == "POST":
+            self._seq += 1
+            sid = f"genie-{self._seq}"
+            self._genie[(body or {}).get("title")] = sid
+            return {"space_id": sid}
+        if "/genie/spaces/" in p and m == "DELETE":
+            sid = p.rsplit("/", 1)[-1]
+            self._genie = {k: v for k, v in self._genie.items() if v != sid}
+            return {}
+        if p.endswith("/genie/spaces") and m == "GET":
+            return {"spaces": [{"title": t, "space_id": i} for t, i in self._genie.items()]}
+
+        # --- Lakeview dashboards (stateful) ---
+        if p.endswith("/published") and m == "POST":
+            return {}
+        if p.endswith("/lakeview/dashboards") and m == "POST":
+            self._seq += 1
+            did = f"dash-{self._seq}"
+            self._dash[(body or {}).get("display_name")] = did
+            return {"dashboard_id": did}
+        if "/lakeview/dashboards/" in p and m == "DELETE":
+            did = p.rsplit("/", 1)[-1]
+            self._dash = {k: v for k, v in self._dash.items() if v != did}
+            return {}
+        if p.endswith("/lakeview/dashboards") and m == "GET":
+            return {"dashboards": [{"display_name": n, "dashboard_id": i} for n, i in self._dash.items()]}
 
         # --- Autoscaling Postgres REST ---
         if m == "POST" and p.endswith("/postgres/credentials"):
