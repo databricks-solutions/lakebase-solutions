@@ -26,10 +26,12 @@ import yaml
 __all__ = [
     "ManifestError",
     "Parameter",
+    "Feature",
     "DependsOn",
     "Manifest",
     "load_manifest",
     "validate_manifest",
+    "MATURITIES",
 ]
 
 # Component/module names namespace resources, PG roles, app names, secret keys,
@@ -46,6 +48,13 @@ _PARAMETER_TYPES = ("string", "int", "float", "bool", "multiselect")
 # per-engagement workshop unit (``module``).
 ComponentKind = Literal["core", "module"]
 _COMPONENT_KINDS = ("core", "module")
+
+# Databricks feature-maturity levels a component may declare. The gate allows
+# Public-Preview-or-better; maturity is surfaced to customers via the feature
+# matrix (see bootstrap/features.py) -- so nothing is hidden, but nothing below
+# Public Preview should be relied on.
+Maturity = Literal["GA", "PUBLIC_PREVIEW", "BETA"]
+MATURITIES = ("GA", "PUBLIC_PREVIEW", "BETA")
 
 
 class ManifestError(Exception):
@@ -106,6 +115,40 @@ class Parameter:
 
 
 @dataclass
+class Feature:
+    """A Databricks feature a component provisions, with its maturity.
+
+    Aggregated across all manifests into a customer-facing feature matrix so it
+    is always clear what is GA vs. Public Preview vs. Beta. ``name`` is the
+    human-facing capability (e.g. "Lakebase autoscaling", "Genie spaces"); an
+    optional ``note`` carries a caveat or doc pointer.
+    """
+
+    name: str
+    maturity: Maturity = "GA"
+    note: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "Feature":
+        """Build a :class:`Feature` from a YAML mapping (``extra="forbid"``)."""
+
+        if not isinstance(data, dict):
+            raise ManifestError(f"feature must be a mapping, got {type(data).__name__}")
+        allowed = {f.name for f in fields(cls)}
+        _reject_unknown_keys(data, allowed, "feature")
+        try:
+            feature = cls(**data)
+        except TypeError as exc:  # missing required 'name', etc.
+            raise ManifestError(f"invalid feature {data!r}: {exc}") from exc
+        if feature.maturity not in MATURITIES:
+            raise ManifestError(
+                f"invalid feature maturity {feature.maturity!r} for {feature.name!r}: "
+                f"must be one of {list(MATURITIES)!r}"
+            )
+        return feature
+
+
+@dataclass
 class DependsOn:
     """Declared dependencies, split by the kind of thing depended upon.
 
@@ -150,6 +193,9 @@ class Manifest:
     # Free-form declaration of resources this unit provides (for teardown and
     # as-built reporting), e.g. ``{"database_instance": ["${prefix}-lakebase"]}``.
     provides: Dict[str, Any] = field(default_factory=dict)
+    # Databricks features this unit provisions, with maturity, for the
+    # customer-facing feature matrix (see bootstrap/features.py).
+    features: List[Feature] = field(default_factory=list)
     entrypoint: str = "deploy.py"
     teardown: str = "teardown.py"
     health_check: str = "health.py"
@@ -184,6 +230,7 @@ _MANIFEST_INPUT_KEYS = {
     "depends_on",
     "parameters",
     "provides",
+    "features",
     "entrypoint",
     "teardown",
     "health_check",
@@ -229,6 +276,11 @@ def load_manifest(path: str | Path) -> Manifest:
                 f"parameters must be a list, got {type(params).__name__}"
             )
         data["parameters"] = [Parameter.from_dict(p) for p in params]
+    if "features" in data:
+        feats = data["features"]
+        if not isinstance(feats, list):
+            raise ManifestError(f"features must be a list, got {type(feats).__name__}")
+        data["features"] = [Feature.from_dict(f) for f in feats]
 
     try:
         manifest = Manifest(**data)
