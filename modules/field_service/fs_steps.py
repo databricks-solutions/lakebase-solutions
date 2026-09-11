@@ -459,13 +459,18 @@ _SYNC_ROUNDS = 12
 _SYNC_DELAY = 15.0
 
 
-def _expected_field_service_tables(ctx: Any) -> List[str]:
-    """The field_service tables the Genie spaces reference (what must be registered)."""
+# Schemas the managed online catalog surfaces from Lakebase. network_data is
+# the pipeline's Iceberg output (a separate concern), so it is NOT triggered here.
+_SYNC_SKIP_SCHEMAS = {"network_data"}
+
+
+def _expected_genie_tables(ctx: Any) -> List[tuple]:
+    """(schema, table) pairs the Genie spaces reference, minus pipeline schemas."""
 
     import json
     from pathlib import Path
 
-    tables = set()
+    pairs = set()
     gdir = Path(__file__).resolve().parent / "assets" / "genie"
     for spec in _GENIE_SPACES:
         try:
@@ -474,9 +479,9 @@ def _expected_field_service_tables(ctx: Any) -> List[str]:
             continue
         for t in (cfg.get("data_sources") or {}).get("tables", []):
             parts = t.get("identifier", "").split(".")
-            if len(parts) == 3 and parts[1] == "field_service":
-                tables.add(parts[2])
-    return sorted(tables)
+            if len(parts) == 3 and parts[1] not in _SYNC_SKIP_SCHEMAS:
+                pairs.add((parts[1], parts[2]))
+    return sorted(pairs)
 
 
 def _synced_deploy(ctx: Any) -> Dict[str, Any]:
@@ -496,17 +501,17 @@ def _synced_deploy(ctx: Any) -> Dict[str, Any]:
         return _stub("synced", "deploy", ctx, f"trigger + await foreign-table registration in {catalog!r}")
     w = ctx.workspace_client()
     warehouse_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
-    expected = _expected_field_service_tables(ctx)
+    expected = _expected_genie_tables(ctx)  # (schema, table) pairs
     if not warehouse_id or not expected:
         return {"step": "synced", "catalog": catalog, "status": "partial",
                 "note": "no warehouse id or no expected tables resolved"}
 
     registered: set = set()
     for _round in range(_SYNC_ROUNDS):
-        for tbl in expected:
-            if tbl in registered:
+        for schema, tbl in expected:
+            if (schema, tbl) in registered:
                 continue
-            fqn = f"`{catalog}`.`field_service`.`{tbl}`"
+            fqn = f"`{catalog}`.`{schema}`.`{tbl}`"
             try:
                 resp = w.api_client.do(
                     "POST", "/api/2.0/sql/statements",
@@ -514,7 +519,7 @@ def _synced_deploy(ctx: Any) -> Dict[str, Any]:
                           "statement": f"SELECT 1 FROM {fqn} LIMIT 1", "wait_timeout": "30s"},
                 )
                 if (resp.get("status", {}) or {}).get("state") == "SUCCEEDED":
-                    registered.add(tbl)
+                    registered.add((schema, tbl))
             except Exception:  # not registered yet -- keep polling
                 pass
         if len(registered) == len(expected):
@@ -522,12 +527,14 @@ def _synced_deploy(ctx: Any) -> Dict[str, Any]:
         time.sleep(_SYNC_DELAY)  # pragma: no cover - live-only wait
 
     ctx.logger.info(
-        "field_service.synced.deploy: %d/%d field_service tables registered in %r.",
+        "field_service.synced.deploy: %d/%d foreign tables registered in %r (schemas: %s).",
         len(registered), len(expected), catalog,
+        sorted({s for s, _ in expected}),
     )
     status = "deployed" if len(registered) == len(expected) else "partial"
-    return {"step": "synced", "catalog": catalog, "registered": sorted(registered),
-            "expected_count": len(expected), "status": status}
+    return {"step": "synced", "catalog": catalog,
+            "registered_count": len(registered), "expected_count": len(expected),
+            "status": status}
 
 
 def _synced_teardown(ctx: Any) -> Dict[str, Any]:
