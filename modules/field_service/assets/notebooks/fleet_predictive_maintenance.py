@@ -130,6 +130,14 @@ import pandas as pd
 mlflow.set_experiment(EXPERIMENT_NAME)
 mlflow.sklearn.autolog(disable=True)
 
+# LightGBM's sklearn wrapper serializes via skops, which flags these types as
+# "untrusted" on load/register unless declared here (same as the network model).
+SKOPS_TRUSTED_TYPES = [
+    "collections.OrderedDict",
+    "lightgbm.basic.Booster",
+    "lightgbm.sklearn.LGBMClassifier",
+]
+
 training_pd = training_final.toPandas()
 X = training_pd.drop(columns=["needs_maintenance"])
 y = training_pd["needs_maintenance"]
@@ -158,7 +166,8 @@ for i, params in enumerate(lgb_configs):
         mlflow.log_metric("train_accuracy", accuracy_score(y, y_pred))
         mlflow.log_metric("train_precision", precision_score(y, y_pred, zero_division=0))
         mlflow.log_metric("train_recall", recall_score(y, y_pred, zero_division=0))
-        mlflow.sklearn.log_model(model, "model", input_example=X.head(1))
+        mlflow.sklearn.log_model(model, "model", input_example=X.head(1),
+                                 skops_trusted_types=SKOPS_TRUSTED_TYPES)
         run_id = mlflow.active_run().info.run_id
         print(f"  LightGBM-{i+1}: F1={f1:.4f} (params={params})")
         if f1 > best_f1:
@@ -180,7 +189,8 @@ for i, params in enumerate(rf_configs):
         mlflow.log_metric("cv_f1_mean", f1)
         mlflow.log_metric("cv_f1_std", np.std(scores))
         mlflow.log_metric("train_accuracy", accuracy_score(y, y_pred))
-        mlflow.sklearn.log_model(model, "model", input_example=X.head(1))
+        mlflow.sklearn.log_model(model, "model", input_example=X.head(1),
+                                 skops_trusted_types=SKOPS_TRUSTED_TYPES)
         run_id = mlflow.active_run().info.run_id
         print(f"  RandomForest-{i+1}: F1={f1:.4f}")
         if f1 > best_f1:
