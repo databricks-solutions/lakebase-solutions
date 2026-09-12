@@ -54,10 +54,12 @@ parameters:
     help: Schedule ops jobs (credential rotation, ASH sampler, Genie-conversation cleanup).
 provides:
   # Every resource is namespaced by ${prefix} (deployment_id) and removed on teardown.
-  uc_catalog: ["${prefix}_field_service"]
+  uc_catalog: ["${prefix}_field_service", "${prefix}_network"]
+  uc_schemas: ["${prefix}_network.network_data", "${prefix}_network.agents", "${prefix}_network.governance"]
   sql_warehouse: ["${prefix}-fs-warehouse"]
   pg_schemas: ["field_service", "ai_memory", "monitoring"]
   pipeline: ["${prefix}-fs-pipeline"]
+  uc_models: ["predictive_maintenance_model", "fleet_maintenance_model", "dispatch_scoring_model", "multi_genie_supervisor"]
   genie_spaces: ["${prefix}-fs-field-ops", "${prefix}-fs-network-health", "${prefix}-fs-postgres-admin", "${prefix}-fs-sla-workforce"]
   dashboards: ["${prefix}-fs-field-ops", "${prefix}-fs-network-ops"]
   serving_endpoints: ["${prefix}-fs-predictive-maintenance", "${prefix}-fs-agent"]
@@ -80,6 +82,12 @@ features:
   - name: Mosaic AI Agent Framework (multi-Genie supervisor)
     maturity: GA
   - name: Databricks Apps (field-service app)
+    maturity: GA
+  - name: AI Functions (ai_query for DTC interpretation)
+    maturity: GA
+  - name: Lakehouse Monitoring (Iceberg table quality/drift)
+    maturity: GA
+  - name: Auto Loader (fuel/external file ingest)
     maturity: GA
 entrypoint: deploy.py
 teardown: teardown.py
