@@ -1353,6 +1353,9 @@ _PG_DEPS = ["psycopg2-binary", "databricks-sdk>=0.87.0"]
 _dispatch = _make_job_step("dispatch", "assets/notebooks/train_dispatch_model", _ML_DEPS)
 _dtc = _make_job_step("dtc", "assets/notebooks/interpret_dtc_codes", _PG_DEPS, needs_catalog=False)
 _fuel = _make_job_step("fuel", "assets/notebooks/ingest_fuel_external", _PG_DEPS)
+# Lakehouse Monitoring on the pipeline's Iceberg tables (quality + drift).
+_monitoring = _make_job_step("monitoring", "assets/notebooks/setup_lakehouse_monitoring",
+                             ["databricks-sdk>=0.87.0"])
 
 
 def _agent_deploy(ctx: Any) -> Dict[str, Any]:
@@ -1677,6 +1680,7 @@ ORDERED_STEPS: List[Step] = [
     Step("dispatch", *_dispatch, gate_param="include_ml"),
     Step("dtc", *_dtc, gate_param="include_ml"),
     Step("fuel", *_fuel, gate_param="include_pipeline"),
+    Step("monitoring", *_monitoring, gate_param="include_pipeline"),
     Step("agent", *_agent, gate_param="include_agent"),
     Step("ops", *_ops, gate_param="include_ops_jobs"),
     Step("app", *_app),

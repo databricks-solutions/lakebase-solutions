@@ -44,7 +44,7 @@ def test_deploy_runs_full_pipeline_as_stubs():
     assert names == [
         "data", "uc_catalog", "warehouse", "features", "synced", "datagen", "pipeline",
         "governance", "genie", "dashboards", "ml", "ml_fleet", "dispatch", "dtc", "fuel",
-        "agent", "ops", "app",
+        "monitoring", "agent", "ops", "app",
     ]
 
 
@@ -55,7 +55,8 @@ def test_gates_skip_optional_steps():
     names = [s["step"] for s in result["steps"]]
     assert names == ["data", "uc_catalog", "warehouse", "features", "synced",
                      "governance", "genie", "dashboards", "app"]
-    for gated in ("datagen", "pipeline", "ml", "ml_fleet", "dispatch", "dtc", "fuel", "agent", "ops"):
+    for gated in ("datagen", "pipeline", "ml", "ml_fleet", "dispatch", "dtc", "fuel",
+                  "monitoring", "agent", "ops"):
         assert gated not in names
 
 
@@ -341,6 +342,13 @@ def test_datagen_generates_into_network_volume_before_pipeline():
     import fs_steps
     names = [s.name for s in fs_steps.ORDERED_STEPS]
     assert names.index("datagen") == names.index("pipeline") - 1
+
+
+def test_monitoring_step_submits_and_targets_network_catalog():
+    ctx, _c, ws = _live_ctx_with_project()
+    _step("warehouse").deploy(ctx)
+    assert _step("monitoring").deploy(ctx)["status"] == "deployed"
+    assert _submit_body(ws, "setup_lakehouse_monitoring")["catalog"] == "acme-ws_network"
 
 
 def test_dispatch_dtc_fuel_steps_submit_notebooks():
