@@ -58,7 +58,7 @@ def _spec(kind: str):
         return {"inference_log": MonitorInferenceLog(
             problem_type=_CLASSIFICATION, prediction_col="prediction",
             label_col="needs_maintenance", timestamp_col="scored_at",
-            granularities=["1 day"])}
+            granularities=["1 day"], model_id_col=None)}
     return {"snapshot": MonitorSnapshot()}
 
 
@@ -91,16 +91,16 @@ for tbl, kind in MONITORS:
         continue
     except Exception:
         pass
-    spec = _spec(kind)
-    if spec is None:
-        skipped.append(f"{tbl} (spec unavailable)")
-        continue
     try:
+        spec = _spec(kind)  # spec construction can raise on SDK version drift
+        if spec is None:
+            skipped.append(f"{tbl} (spec unavailable)")
+            continue
         w.quality_monitors.create(
             table_name=fqn, assets_dir=ASSETS_DIR, output_schema_name=OUTPUT_SCHEMA, **spec)
         created.append(tbl)
         print(f"  created monitor: {tbl}")
-    except Exception as e:  # best-effort — log + continue
+    except Exception as e:  # best-effort — log + continue, never fail the step
         failed.append(f"{tbl}: {str(e)[:120]}")
         print(f"  WARN monitor {tbl} failed: {str(e)[:160]}")
 
