@@ -452,6 +452,15 @@ print(f"Bronze network_outages: {spark.table(f'{FQN}.bronze_network_outages').co
 # pre-created table. Auto Loader (cloudFiles) uses a Delta-specific write
 # path, so we use standard file streaming with trigger(availableNow=True).
 try:
+    # IoT telemetry is produced LIVE by the app simulator; on a fresh deploy no
+    # iot_telemetry_*.csv exists yet. Skip cleanly (the except below treats a
+    # "Path does not exist" message as a graceful no-files skip) so the network +
+    # vehicle medallion still builds.
+    _iot_files = [f for f in dbutils.fs.ls(VOLUME_PATH)
+                  if f.name.startswith("iot_telemetry_") and f.name.endswith(".csv")]
+    if not _iot_files:
+        raise FileNotFoundError("Path does not exist: no iot_telemetry_*.csv in the volume yet")
+
     from pyspark.sql.types import StructType, StructField, StringType as SparkStringType
 
     iot_schema = StructType([

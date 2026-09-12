@@ -230,16 +230,13 @@ from sklearn.linear_model import Ridge
 
 # Set experiment
 experiment_path = "/Shared/dispatch_optimization/dispatch_scoring_model"
+# Ensure the experiment's parent dir exists before set_experiment (no config.py).
 try:
-    mlflow.set_experiment(experiment_path)
+    from databricks.sdk import WorkspaceClient as _WC
+    _WC().workspace.mkdirs("/Shared/dispatch_optimization")
 except Exception:
-    # Create directory if needed
-    try:
-        w = get_workspace_client(cfg)
-        w.workspace.mkdirs("/Shared/dispatch_optimization")
-    except Exception:
-        pass
-    mlflow.set_experiment(experiment_path)
+    pass
+mlflow.set_experiment(experiment_path)
 
 print(f"MLflow experiment: {experiment_path}")
 

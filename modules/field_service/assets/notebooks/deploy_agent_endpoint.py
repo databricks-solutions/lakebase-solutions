@@ -67,7 +67,8 @@ genie_ids = json.loads(dbutils.widgets.get("genie_space_ids") or "{}")
 resources = [DatabricksGenieSpace(genie_space_id=sid) for sid in genie_ids.values() if sid]
 print(f"Resources: {len(resources)} Genie spaces")
 
-input_example = {"messages": [{"role": "user", "content": "What is the SLA compliance rate?"}]}
+# ResponsesAgent schema: the request wraps turns under "input" (not "messages").
+input_example = {"input": [{"role": "user", "content": "What is the SLA compliance rate?"}]}
 
 # Set env vars for the agent script
 for env_key, cfg_key in [("FIELD_OPS_SPACE_ID", "field_ops"), ("POSTGRES_SPACE_ID", "postgres"),
