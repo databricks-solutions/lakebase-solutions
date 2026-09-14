@@ -91,9 +91,10 @@ point of this rule.
 
 ## Adding a module
 Drop a folder under `modules/` with a `module.yaml`; discovery + the dependency DAG
-pick it up — **no deploy-notebook edits**. Each module owns its app + assets. See
-[`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md) and copy `modules/_canary/`
-(the minimal reference). Large real example + its own guide:
+pick it up — **no deploy-notebook edits**. Each module owns its app + assets. Then
+**add a row to [`modules/README.md`](modules/README.md)** (the inventory the top-level
+README links to). See [`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md) and copy
+`modules/_canary/` (the minimal reference). Large real example + its own guide:
 [`modules/field_service/AGENTS.md`](modules/field_service/AGENTS.md).
 
 ## Maturity gate (transparency, not GA-only)

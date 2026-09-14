@@ -120,3 +120,12 @@ orders correctly behind its dependencies. No workspace is required.
 In `deploy.py`'s **modules** multiselect (populated from discovery), select your
 module and run. It deploys after its `depends_on` are satisfied — with **no
 notebook edits**.
+
+## 6. Add it to the module inventory
+
+Discovery finds your module automatically, but the docs don't — so add a row for
+it to [`modules/README.md`](../modules/README.md) (name, personas, one-line
+summary, maturity notes) and a short section beneath the table. The top-level
+README links to that inventory instead of listing modules, so this keeps the
+project's "what modules exist" list accurate as the repo grows. Include this in
+the same PR as the module.
