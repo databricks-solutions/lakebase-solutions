@@ -25,4 +25,6 @@ config.yaml
 .databricks/
 # Editor/local (share a curated .vscode intentionally if desired)
 .vscode/
+# Runtime-generated app state (regenerated on page load; never commit)
+**/static/asbuilt/asbuilt_state.json
 

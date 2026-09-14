@@ -337,7 +337,8 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
     # nothing. Best-effort per statement.
     app_role = ctx.resolved_names.get("pg_app_role", f"{ctx.deployment_id}_app")
     granted = 0
-    for stmt in _app_role_grant_sql(app_role, fs_sql.DATA_SCHEMAS):
+    # + public for the data_api_demo sandbox table (mirrors FSM's public grant).
+    for stmt in _app_role_grant_sql(app_role, fs_sql.DATA_SCHEMAS + ["public"]):
         try:
             cur.execute(stmt)
             granted += 1

@@ -88,7 +88,13 @@ def dba_console_grants(role: str) -> List[str]:
         "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
         "CREATE EXTENSION IF NOT EXISTS pgstattuple",
         f'GRANT SELECT ON pg_stat_statements TO "{role}"',
+        # Full pgstattuple/pgstatindex function set the admin table/index-bloat
+        # cards call (ported 1:1 from FSM 03_setup_permissions.py).
         f'GRANT EXECUTE ON FUNCTION pgstattuple(regclass) TO "{role}"',
+        f'GRANT EXECUTE ON FUNCTION pgstattuple(text) TO "{role}"',
+        f'GRANT EXECUTE ON FUNCTION pgstatindex(regclass) TO "{role}"',
+        f'GRANT EXECUTE ON FUNCTION pgstatindex(text) TO "{role}"',
+        f'GRANT EXECUTE ON FUNCTION pgstattuple_approx(regclass) TO "{role}"',
         f'GRANT pg_monitor TO "{role}"',
     ]
 
