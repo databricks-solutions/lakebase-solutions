@@ -32,16 +32,29 @@ coding agent (see [Deploy it](#deploy-it)).
 4. **Data API is two-phase:** the run prints a one-time manual "enable" step;
    re-run afterward to finish configuring it.
 
-### Option B — with a coding agent
-Point a coding agent (the Databricks Assistant / Genie, Claude Code, Cursor, …)
-at this repo and let it drive the deploy. It reads [`AGENTS.md`](AGENTS.md), which
-documents the exact workflow, then runs it for you. A prompt like:
+### Option B — with a coding agent (e.g. Genie Code)
+Point an in-workspace coding agent at the repo and let it drive the deploy. This
+repo deploys by **running `deploy.py`** (not `bundle deploy`), and that workflow is
+documented in [`AGENTS.md`](AGENTS.md) — so the agent reads it and runs the notebook
+for you. Using **Genie Code** (Databricks' in-workspace coding agent):
 
-> *"Deploy lakebase-solutions to my Databricks workspace with the `field_service`
-> module, deployment_id `acme-ws`."*
+1. Add the repo as a Git folder (Option A, step 1).
+2. Open Genie Code and give it the repo as context.
+3. Prompt it, for example:
+   > *"Read `AGENTS.md`, then deploy this repo to my workspace with the
+   > `field_service` module and `deployment_id` `acme-ws` by setting the widgets on
+   > `deploy.py` and running it. Show me the per-step results."*
+4. **Review the actions it proposes before approving** — it will set the widgets and
+   run the notebook (or submit a job).
+5. Data API is two-phase (see Option A, step 4): when it prints the manual enable
+   step, enable it, then ask the agent to re-run.
 
-is enough — the agent handles syncing the Git folder and running the deploy
-notebook / job. (It needs the same workspace access as Option A.)
+**Teardown:** *"Re-run `deploy.py` for `acme-ws` with `mode = teardown`."*
+
+The same pattern works with any agent that can act in your workspace (Claude Code,
+Cursor, …) — they all follow [`AGENTS.md`](AGENTS.md). The agent needs the same
+workspace access as Option A, and running notebooks/jobs from the agent must be
+enabled in your workspace.
 
 ## Tear it down
 Same notebook, one change: set **`mode` = `teardown`** with the **same
