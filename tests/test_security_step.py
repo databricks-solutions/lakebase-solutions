@@ -41,22 +41,31 @@ def test_deploy_creates_roles_idempotently_and_writes_secrets():
     assert any(f'GRANT CONNECT ON DATABASE "databricks_postgres" TO "{APP_ROLE}"' == s for s in sql)
     assert any(f'GRANT SELECT ON ALL TABLES IN SCHEMA "workshop" TO "{RO_ROLE}"' == s for s in sql)
     assert not any("INSERT, UPDATE, DELETE" in s and RO_ROLE in s for s in sql)
-    assert conn.committed == 1
+    assert conn.committed >= 1  # role txn + per-statement best-effort DBA grants
 
-    # Role credentials written to the standalone secret scope.
+    # Role credentials written to the standalone secret scope. pguser/pgpassword
+    # mirror the native-password app role (the durable PG credential the app +
+    # jobs use); core/lakebase deliberately does not write them.
     keys = set(ws.secrets.keys_written())
     assert keys == {
         "app-role-username",
         "app-role-password",
         "readonly-role-username",
         "readonly-role-password",
+        "pguser",
+        "pgpassword",
     }
     assert ws.secrets.value_for("app-role-username") == APP_ROLE
     assert ws.secrets.value_for("readonly-role-username") == RO_ROLE
+    # pguser/pgpassword ARE the native app-role creds (durable native PG auth).
+    assert ws.secrets.value_for("pguser") == APP_ROLE
+    assert ws.secrets.value_for("pgpassword") == ws.secrets.value_for("app-role-password")
     # Passwords are non-empty and distinct.
     app_pw = ws.secrets.value_for("app-role-password")
     ro_pw = ws.secrets.value_for("readonly-role-password")
     assert app_pw and ro_pw and app_pw != ro_pw
+    # DBA-console visibility granted to the app role (pg_monitor).
+    assert any("pg_monitor" in s for s in conn.executed_sql())
 
 
 def test_teardown_drops_roles_and_deletes_secrets():

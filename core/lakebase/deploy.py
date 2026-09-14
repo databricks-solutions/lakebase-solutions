@@ -339,16 +339,13 @@ def deploy(ctx: Any) -> Dict[str, Any]:
     provisioned["autoscaling_max_cu"] = cu_result["max_cu"]
     provisioned["autoscaling_cu_verified"] = cu_result["verified"]
 
-    # (3) Resolve an admin connection credential for the primary endpoint.
-    #     PG user is the workspace email; password is the OAuth token.
-    cred = w.api_client.do(
-        "POST",
-        f"{POSTGRES_API_BASE}/credentials",
-        body={"endpoint": endpoint_name},
-    )
-    token = cred.get("token") if isinstance(cred, dict) else getattr(cred, "token", None)
-    pg_user = w.current_user.me().user_name
-
+    # NOTE: the deploy's own PG connections use a short-lived OAuth credential
+    # minted per-connection by the adapter (role="admin"). We deliberately do
+    # NOT persist that OAuth token as pguser/pgpassword: OAuth tokens expire
+    # (~1h) and do NOT work as a durable PG password, so an app/job reading them
+    # later fails with "OAuth: User is not authorized". The durable app
+    # credential is a NATIVE-password login role written by core/security (which
+    # runs after this step). See core/security/deploy.py.
     executed: List[str] = []
 
     # (2a) Create the workshop DATABASE on the maintenance db (autocommit; no
@@ -378,13 +375,13 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         executed.append(stmt)
     conn.commit()
 
-    # (3) Persist connection info to the standalone secret scope.
+    # (3) Persist connection info to the standalone secret scope. pguser/pgpassword
+    #     are intentionally NOT written here -- core/security writes them as the
+    #     native-password app role (durable; OAuth tokens can't be a PG password).
     secrets_written: Dict[str, str] = {
         "pghost": host or "",
         "pgdatabase": database,
         "pgschema": schema,
-        "pguser": pg_user or "",
-        "pgpassword": token or "",
     }
     for key, value in secrets_written.items():
         w.secrets.put_secret(scope=scope, key=key, string_value=value)

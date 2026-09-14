@@ -72,14 +72,10 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     # maintenance connection.
     assert conn.committed == 1
 
-    # A connection credential was minted for the PRIMARY endpoint via POST /credentials.
-    assert [c for c in api.calls if c[1] == "/api/2.0/postgres/credentials"] == [
-        (
-            "POST",
-            "/api/2.0/postgres/credentials",
-            {"endpoint": "projects/acme-ws/branches/production/endpoints/primary"},
-        )
-    ]
+    # lakebase no longer mints/bakes an OAuth credential into secrets (that was the
+    # expiring-token bug); connection credentials are minted per-connection by the
+    # adapter at query time, and the durable app credential is the native-password
+    # role written by core/security.
     # The endpoint host was resolved from the production branch's endpoints (REST GET).
     assert (
         "GET",
@@ -87,17 +83,16 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
         None,
     ) in api.calls
 
-    # Connection info written to the standalone secret scope.
+    # Connection info written to the standalone secret scope. pguser/pgpassword
+    # are intentionally NOT written here -- core/security writes them as the
+    # durable native-password app role (OAuth tokens can't be a PG password).
     keys = ws.secrets.keys_written()
-    assert set(keys) == {"pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"}
+    assert set(keys) == {"pghost", "pgdatabase", "pgschema"}
+    assert "pguser" not in keys and "pgpassword" not in keys
     assert all(scope == "acme-ws-secrets" for scope, _, _ in ws.secrets.put)
-    # pguser is the workspace email (autoscaling uses the email as the PG user).
-    assert ws.secrets.value_for("pguser") == "admin@example.com"
     assert ws.secrets.value_for("pgdatabase") == "databricks_postgres"
     # host comes from the endpoint's status.hosts.host.
     assert ws.secrets.value_for("pghost") == "host.example"
-    # password is the OAuth token from generate_database_credential.
-    assert ws.secrets.value_for("pgpassword") == "oauth-token-xyz"
 
 
 def test_teardown_sdk_deletes_project_and_scope():

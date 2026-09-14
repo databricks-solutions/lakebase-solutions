@@ -270,6 +270,24 @@ def _mk(step: str, deploy_detail: str, teardown_detail: str, health_detail: str)
     return d, t, h
 
 
+def _app_role_grant_sql(role: str, schemas: List[str]) -> List[str]:
+    """Grant the app role read/write on the module schemas (ported from FSM
+    03_setup_permissions grant loop): USAGE/CREATE + DML on all tables +
+    sequences + default privileges for future tables."""
+
+    stmts: List[str] = []
+    for s in schemas:
+        stmts += [
+            f'GRANT USAGE, CREATE ON SCHEMA "{s}" TO "{role}"',
+            f'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "{s}" TO "{role}"',
+            f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "{s}" TO "{role}"',
+            f'ALTER DEFAULT PRIVILEGES IN SCHEMA "{s}" '
+            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "{role}"',
+            f'ALTER DEFAULT PRIVILEGES IN SCHEMA "{s}" GRANT ALL PRIVILEGES ON SEQUENCES TO "{role}"',
+        ]
+    return stmts
+
+
 # Performance indexes on work_orders (ported from FSM create_indexes.py).
 _WORK_ORDER_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_wo_tech_active ON field_service.work_orders(assigned_technician_id) "
@@ -312,6 +330,19 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
             idx += 1
         except Exception as exc:
             ctx.logger.info("field_service.data.deploy: index/analyze deferred: %s", str(exc)[:120])
+
+    # Grant the core app role (used by the field-service app + jobs via native PG
+    # auth) read/write on the module's schemas. The app owns none of these schemas
+    # (the admin identity created them), so without this the app connects but sees
+    # nothing. Best-effort per statement.
+    app_role = ctx.resolved_names.get("pg_app_role", f"{ctx.deployment_id}_app")
+    granted = 0
+    for stmt in _app_role_grant_sql(app_role, fs_sql.DATA_SCHEMAS):
+        try:
+            cur.execute(stmt)
+            granted += 1
+        except Exception as exc:
+            ctx.logger.info("field_service.data.deploy: app-role grant deferred: %s", str(exc)[:120])
     ctx.logger.info(
         "field_service.data.deploy: applied %d statement(s) across %d file(s) "
         "(seed_volume=%s); %d still failing; %d index/analyze stmts.",
@@ -328,6 +359,7 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
         "statements_applied": applied,
         "statements_failing": failing,
         "indexes_applied": idx,
+        "app_role_grants": granted,
         "status": "deployed" if failing == 0 else "partial",
     }
 

@@ -75,6 +75,24 @@ def grant_sql(role: str, database: str, schema: str, readonly: bool) -> List[str
     return stmts
 
 
+def dba_console_grants(role: str) -> List[str]:
+    """Extension + monitoring grants so the app's DBA/admin queries work.
+
+    Ported from FSM ``03_setup_permissions``. Best-effort at the call site
+    (each runs on its own commit; a missing privilege is logged, not fatal):
+    ``pg_monitor`` gives cross-session visibility into ``pg_stat_statements``
+    query text, and ``pgstattuple`` powers the table-bloat card.
+    """
+
+    return [
+        "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+        "CREATE EXTENSION IF NOT EXISTS pgstattuple",
+        f'GRANT SELECT ON pg_stat_statements TO "{role}"',
+        f'GRANT EXECUTE ON FUNCTION pgstattuple(regclass) TO "{role}"',
+        f'GRANT pg_monitor TO "{role}"',
+    ]
+
+
 def deploy(ctx: Any) -> Dict[str, Any]:
     app_role = ctx.resolved_names.get("pg_app_role", f"{ctx.deployment_id}_app")
     ro_role = ctx.resolved_names.get("pg_readonly_role", f"{ctx.deployment_id}_readonly")
@@ -116,12 +134,31 @@ def deploy(ctx: Any) -> Dict[str, Any]:
             executed.append(stmt)
     conn.commit()
 
+    # DBA-console visibility for the app role (best-effort; mirrors FSM
+    # 03_setup_permissions.py). Lets the field-service app's admin/DBA queries
+    # (query stats, table bloat) see across sessions. Non-fatal on failure.
+    for stmt in dba_console_grants(app_role):
+        try:
+            cur.execute(stmt)
+            conn.commit()
+            executed.append(stmt)
+        except Exception as exc:
+            conn.rollback()
+            ctx.logger.info("core/security.deploy: DBA grant deferred (%s): %s",
+                            stmt[:48], str(exc)[:100])
+
     w = ctx.workspace_client()
+    # pguser/pgpassword = the NATIVE-password app role. This is the durable
+    # credential the field-service app + scheduled jobs use for PG auth
+    # (native password via Databricks Secrets) -- NOT an OAuth token, which
+    # expires. core/lakebase deliberately does not write these.
     secret_map = {
         "app-role-username": app_role,
         "app-role-password": passwords[app_role],
         "readonly-role-username": ro_role,
         "readonly-role-password": passwords[ro_role],
+        "pguser": app_role,
+        "pgpassword": passwords[app_role],
     }
     for key, value in secret_map.items():
         w.secrets.put_secret(scope=scope, key=key, string_value=value)

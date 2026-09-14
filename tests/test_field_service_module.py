@@ -238,6 +238,18 @@ def test_data_step_creates_work_order_indexes():
     assert any(s.strip().startswith("ANALYZE field_service.work_orders") for s in sql)
 
 
+def test_data_step_grants_app_role_on_module_schemas():
+    # The field-service app connects as the core app role (native PG auth); the
+    # data step must grant it read/write on the module schemas or the app sees
+    # nothing (the "spinner" regression).
+    ctx, conn, _ws = live_context(deployment_id="acme-ws")
+    res = _data_step().deploy(ctx)
+    assert res["app_role_grants"] >= 1
+    sql = conn.executed_sql()
+    assert any('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "field_service" TO "acme-ws_app"' in s
+               for s in sql)
+
+
 def test_genie_network_spaces_use_network_catalog():
     import json
     ctx, _conn, ws = _live_ctx_with_project()
