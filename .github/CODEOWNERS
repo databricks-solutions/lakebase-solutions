@@ -1,0 +1,13 @@
+# Code owners for lakebase-solutions.
+# GitHub auto-requests a review from the owner(s) on every PR that touches a
+# matching path, and (with "Require review from Code Owners" branch protection)
+# blocks merge until they approve.
+#
+# Entries use GitHub usernames or teams (NOT emails):
+#   *                 @sqlchaser            # a user owns everything
+#   /modules/         @org/team-slug        # a team owns a path (e.g. @databricks-solutions/lakebase)
+# Later patterns win over earlier ones. To route a path to a team, add its slug
+# (Settings → Teams) and grant the team write access to the repo.
+
+# Default owner for the whole repository.
+*   @sqlchaser

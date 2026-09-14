@@ -1,66 +1,83 @@
 # lakebase-solutions
 
-A reusable, **modular foundation for Databricks Lakebase workshops** that
-Solutions Architects run with their customers. It always deploys Lakebase and
-its supporting **core** components, then layers optional **modules** chosen per
-engagement (by problem area or persona). Deployment is immutable/repeatable and
-driven by a **single parameterized notebook** — and **adding a module never
-requires editing that notebook**.
+Stand up a complete **Databricks Lakebase workshop** — Lakebase (Postgres) as the
+operational database, with the surrounding platform (Unity Catalog, Genie,
+dashboards, ML/agents, Databricks Apps) — in a **single run**, and tear it all
+back down just as fast. It always deploys Lakebase + supporting **core**
+components, then layers optional **modules** you choose. Everything is
+namespaced by a `deployment_id`, so multiple workshops coexist in one workspace.
 
-## Business case
+This repo is for **anyone with the Databricks skills to deploy it** — you don't
+need to have written it. You can run it yourself from a notebook, or hand it to a
+coding agent (see [Deploy it](#deploy-it)).
 
-Customers increasingly want their **operational (OLTP) apps, analytics, and AI on
-one governed platform**. This repo lets a Solutions Architect stand up exactly
-that story with a customer in minutes: **Lakebase** (Postgres) as the operational
-database, with Unity Catalog governance, Genie, dashboards, ML/agents, and
-Databricks Apps layered on top — reproducibly, and torn down just as easily after
-the workshop.
+## Prerequisites
+- A **serverless-enabled** Databricks workspace where you can create Lakebase
+  (autoscaling `postgres`) projects, Unity Catalog objects, SQL warehouses, Apps,
+  and jobs.
+- Permission to add a **Git folder** (Repos) and run notebooks/jobs on serverless.
 
-The flagship module, **`field_service`**, is a Telco **field-service management**
-solution (work orders, dispatch, technicians, fleet telemetry, SLA tracking). It
-shows Lakebase powering a live app while the rest of the platform delivers
-natural-language analytics, predictive maintenance, and governance over the *same*
-data — the "one platform, no data movement" pitch, made concrete.
+## Deploy it
 
-## Databricks services this covers
+### Option A — from the workspace (simplest)
+1. **Add this repo as a Git folder:** Workspace → *Git folders* → *Add* →
+   `https://github.com/databricks-solutions/lakebase-solutions`.
+2. **Open [`deploy.py`](deploy.py)** and set the widgets:
+   - `deployment_id` *(required)* — a short prefix that namespaces everything (e.g. `acme-ws`).
+   - `modules` — comma-separated module names to include (e.g. `field_service`). Leave blank for core-only.
+   - *(optional)* `mode` (`deploy`/`teardown`), `cloud`, `region`,
+     `autoscaling_min_cu`, `autoscaling_max_cu`, `admin_group`, `workshop_group`, `enable_data_api`.
+3. **Run all.** The notebook discovers core + your selected modules, orders them
+   by dependency, and provisions everything.
+4. **Data API is two-phase:** the run prints a one-time manual "enable" step;
+   re-run afterward to finish configuring it.
 
-| Service | Where it's used |
+### Option B — with a coding agent
+Point a coding agent (the Databricks Assistant / Genie, Claude Code, Cursor, …)
+at this repo and let it drive the deploy. It reads [`AGENTS.md`](AGENTS.md), which
+documents the exact workflow, then runs it for you. A prompt like:
+
+> *"Deploy lakebase-solutions to my Databricks workspace with the `field_service`
+> module, deployment_id `acme-ws`."*
+
+is enough — the agent handles syncing the Git folder and running the deploy
+notebook / job. (It needs the same workspace access as Option A.)
+
+## Tear it down
+Same notebook, one change: set **`mode` = `teardown`** with the **same
+`deployment_id` and `modules`**, and *Run all*. It removes everything it created —
+project, catalogs, warehouse, apps, jobs, endpoints, secrets — in reverse order.
+(Or tell your agent: *"tear down the `acme-ws` deployment."*)
+
+## What gets deployed
+
+**Core (always deployed):**
+
+| Component | Provisions |
 |---|---|
-| **Lakebase** (autoscaling Postgres OLTP) | Core operational DB — schema, roles, real-time app data |
-| **Databricks Apps** | Admin DBA console (core) + the field-service app (module) |
-| **Unity Catalog** | Managed online catalog over Lakebase; governance (RLS, PII masking, tags) |
-| **Lakebase Data API** (PostgREST) | Governed REST access to the OLTP data (two-phase enable) |
-| **AI/BI Genie** | 4 conversational-analytics spaces (field ops, DBA, network, SLA) |
-| **Databricks SQL** (serverless warehouse) | Powers Genie + dashboards + catalog queries |
-| **Lakeview dashboards** | Field-service + network-ops dashboards |
-| **Lakeflow Declarative Pipelines + Managed Iceberg** | Streaming network/IoT medallion pipeline |
-| **Mosaic AI Model Serving** | Predictive-maintenance model endpoint |
-| **Mosaic AI Agent Framework** (LangGraph) | Multi-Genie supervisor agent |
-| **MLflow + UC model registry** | Model tracking + registration |
-| **Databricks Jobs** | Scheduled ops (ASH sampler, cleanup, credential rotation) |
-| **Secrets + service principals** | Standalone per-deployment credentials |
+| `lakebase` | Autoscaling Postgres project + branch/endpoint, the workshop database + schema |
+| `security` | Per-deployment PG app + read-only roles, grants, and a standalone secret scope |
+| `user_management` | Workspace admin/participant groups + a participant PG role |
+| `data_api` | Governed PostgREST access to the OLTP data (two-phase enable) |
+| `admin_app` | A Lakebase DBA console (Databricks App) |
 
-Each component declares its features' **maturity** (GA / Public Preview / Beta),
-surfaced as a matrix so customers always see what isn't GA.
+**Modules (opt-in, one per `modules/<name>/`, each with its own app + resources):**
+see the **[module inventory →](modules/README.md)** for what each one deploys.
+The flagship is **`field_service`** — a full field-service solution spanning
+Lakebase, a managed online catalog, a Lakeflow/Iceberg pipeline, 4 Genie spaces,
+Lakeview dashboards, predictive-maintenance + fleet + dispatch ML, a multi-Genie
+agent, and a live app.
 
-## What it is
-
-- **Core (always deployed):** `lakebase`, `security`, `user_management`,
-  `data_api`, `admin_app` (the single always-on app — a Lakebase DBA console).
-- **Modules (optional):** each in `modules/<name>/`, with its **own** Databricks
-  App and resources. `modules/_canary/` is the reference module.
-- **Control plane:** `deploy.py` (a Databricks notebook) collects parameters and
-  calls the `bootstrap/` engine, which discovers components/modules from
-  `module.yaml` manifests, orders them by dependency, and deploys or tears down.
+Every component declares its features' **maturity** (GA / Public Preview / Beta),
+aggregated into a **feature matrix** so it's always clear what isn't GA.
 
 ## Architecture
 
-One `deploy.py` notebook hands a `DeployContext` to the `bootstrap/` engine,
-which **discovers** `core/` + the **selected** `modules/`, orders them by
+One [`deploy.py`](deploy.py) notebook hands a `DeployContext` to the `bootstrap/`
+engine, which **discovers** `core/` + the **selected** `modules/`, orders them by
 dependency (core before modules), and runs each one's
 `deploy` / `health_check` / `teardown` — provisioning **in-workspace via the
-Databricks SDK / REST + SQL**. Read the stack as bands, top to bottom; each
-band is one tier, and the boxes in it are its components.
+Databricks SDK / REST + SQL**.
 
 ```mermaid
 flowchart TB
@@ -74,7 +91,7 @@ flowchart TB
     end
     subgraph MODS["③ &nbsp;MODULES &nbsp;·&nbsp; opt-in"]
         direction LR
-        m1["field_service<br/><i>full FSM · 13 steps</i>"] ~~~ m2["_canary<br/><i>reference template</i>"]
+        m1["field_service<br/><i>full solution · 19 steps</i>"] ~~~ m2["_canary<br/><i>reference template</i>"]
     end
     subgraph PROV["④ &nbsp;PROVISIONING"]
         direction LR
@@ -108,83 +125,47 @@ flowchart TB
     class f1,f2,f3 mat;
 ```
 
-Each band is a horizontal row of short boxes, so the whole stack is six
-tiers tall instead of a long scroll — GA / Preview colors on the bottom band
-make the maturity story readable at a glance.
+## Design principles (why it deploys the way it does)
+- **Autoscaling Lakebase** — the autoscaling `postgres` projects/branches/endpoints
+  surface (min/max CU + scale-to-zero); PG roles/grants via `CREATE ROLE` SQL.
+- **In-workspace SDK/REST provisioning** — the `databricks` CLI can't run on
+  notebook/job compute, so everything is provisioned via the Python SDK / REST.
+  `databricks.yml` is kept for local/CI `bundle validate` only.
+- **Manifest-driven discovery** — adding a module never edits the deploy notebook;
+  drop a folder with a `module.yaml` and the dependency DAG picks it up.
+- **Standalone assets** — every deployment/module gets its own app, PG roles, and
+  secrets; nothing is reused across apps, and no secrets live in git.
+- **Repeatable + reversible** — the same run tears down cleanly by `deployment_id`.
 
-## Quickstart
-
-Deployment runs **inside Databricks** (commit → push → pull → run); there is no
-laptop CLI execution.
-
-1. `cp config.template.yaml config.yaml` and set advanced params (optional).
-2. Open `deploy.py` in the workspace. Set widgets:
-   - **required:** `deployment_id` (prefix that namespaces everything)
-   - **optional:** `mode` (`deploy`/`teardown`), `cloud`, `region`,
-     `autoscaling_min_cu`, `autoscaling_max_cu`, `admin_group`,
-     `workshop_group`, `enable_data_api`, `modules`
-3. Run. The notebook discovers core + selected modules, orders them, and
-   deploys. `mode: teardown` removes everything in reverse.
-4. **Data API is two-phase:** the notebook prints a manual UI-enable
-   instruction; re-run afterward to configure the SP/role/RLS.
-
-## Repository structure
-
+## Repository layout
 ```
-bootstrap/            orchestrator engine (discovery, manifest schema, DAG, context, run)
-core/                 always-on components, one dir each (module.yaml + deploy/teardown/health)
-  lakebase/  security/  user_management/  data_api/  admin_app/
-modules/              optional workshop modules
-  _canary/            reference module + authoring template (real, minimal)
-  field_service/      full field-service solution (data, Genie, dashboards, ML, agent, app)
-deploy.py             single control-plane notebook (dbutils-guarded; importable off-Databricks)
-databricks.yml        DABs bundle — local/CI `bundle validate` only (runtime provisioning is SDK/REST)
-config.template.yaml  copy to config.yaml for advanced params
-tests/                pytest suite (manifests, DAG, orchestrator, notebook import) — no workspace
-docs/                 ARCHITECTURE.md, MODULE_AUTHORING.md
-.github/workflows/    CI (gitleaks secret scan + pytest)
+bootstrap/   orchestrator engine (discovery, manifest schema, dependency DAG, context)
+core/        always-on components: lakebase, security, user_management, data_api, admin_app
+modules/     opt-in modules (see modules/README.md) — _canary (reference), field_service
+deploy.py    single control-plane notebook (deploy + teardown)
+tests/       offline pytest suite (no Databricks workspace needed)
+docs/        ARCHITECTURE.md, MODULE_AUTHORING.md
 ```
 
-## Key design decisions
+## Contributing
+`main` is protected — **branch and open a Pull Request** (direct pushes are
+maintainer-only). See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow and the
+local test gate (`make check`), and [`AGENTS.md`](AGENTS.md) for the guardrails
+your coding agent follows. To author a module, see
+[`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md) and copy `modules/_canary/`.
 
-- **Autoscaling Lakebase.** The **autoscaling `postgres` projects/branches/
-  endpoints** surface (min/max CU + scale-to-zero), NOT the provisioned
-  `database_instance` tier. PG roles/grants via `CREATE ROLE` SQL. See
-  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-- **In-workspace SDK/REST provisioning.** The `databricks` CLI (incl. `bundle
-  deploy`) cannot run in notebook/job compute, so every resource is provisioned
-  via the Databricks Python SDK / REST (`w.api_client.do` for the `postgres`,
-  `apps`, and other surfaces not typed on the runtime SDK). `databricks.yml` is
-  retained for local/CI `bundle validate` only.
-- **Manifest-driven discovery.** The notebook never changes when a module is
-  added; modules are found by scanning for `module.yaml`.
-- **Standalone assets.** Every module gets its own app, PG roles, and secret
-  keys — nothing reused across apps.
-- **Maturity transparency.** Preview-or-better features are allowed, and each
-  component declares its features' maturity (GA / Public Preview / Beta),
-  surfaced as a feature matrix so customers always see what isn't GA.
+## Roadmap
+- A public **Databricks App** front-end so end-users can launch/tear-down a
+  workshop from a UI, without cloning the repo or touching code.
 
-## Develop
-
-```bash
-pip install -r requirements-dev.txt
-make check         # pure-Python; no Databricks workspace needed
-```
-
-To author a module, see [`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md)
-and copy `modules/_canary/`.
-
-## How to get help
-
-Databricks support doesn't cover this content. For questions or bugs, please open
-a GitHub issue and the team will help on a best effort basis.
+## Help
+Databricks support doesn't cover this content. Open a **GitHub issue** and the
+team will help on a best-effort basis.
 
 ## License
-
-&copy; 2025 Databricks, Inc. All rights reserved. The source in this notebook is
-provided subject to the Databricks License [https://databricks.com/db-license-source].
-All included or referenced third party libraries are subject to the licenses set
-forth below.
+&copy; 2025 Databricks, Inc. All rights reserved. Source is provided subject to the
+Databricks License [https://databricks.com/db-license-source]. Included or
+referenced third-party libraries are subject to the licenses below.
 
 | library | description | license | source |
 |---------|-------------|---------|--------|
