@@ -3,7 +3,7 @@
 `lakebase-solutions` is a reusable, modular foundation for **Databricks Lakebase
 workshops** that Solutions Architects run with customers. It always deploys
 Lakebase plus its supporting **core** components, and layers optional **modules**
-selected per engagement. See [`../SPEC_lakebase-solutions.md`](../SPEC_lakebase-solutions.md)
+selected per engagement. See [`SPEC_lakebase-solutions.md`](SPEC_lakebase-solutions.md)
 for the authoritative spec.
 
 ## Core vs. module

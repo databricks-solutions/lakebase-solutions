@@ -7,7 +7,7 @@ contributors.** Read this first, then the linked docs. `CLAUDE.md` points here.
 A modular foundation for Databricks **Lakebase workshops**: always-on `core/`
 components + optional `modules/`, deployed by a **single parameterized notebook**
 (`deploy.py`). Provisioning is **in-workspace via the Databricks SDK / REST + SQL**
-— not DABs. Full detail in [`SPEC_lakebase-solutions.md`](SPEC_lakebase-solutions.md)
+— not DABs. Full detail in [`docs/SPEC_lakebase-solutions.md`](docs/SPEC_lakebase-solutions.md)
 and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Branching & pull requests — DO NOT COMMIT TO `main`
@@ -47,7 +47,7 @@ point of this rule.
   local/CI `bundle validate` only.
 - **No local execution against Databricks** — deploy is workspace-run:
   commit → push → `databricks repos update <ID> --branch main` → run `deploy.py`.
-  See [`DEPLOYMENT.md`](DEPLOYMENT.md).
+  See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 - **Standalone assets** — each deployment/module gets its own secret scope, PG
   roles, and credentials; never reuse across apps. **No secrets in git.**
 - **Data API is two-phase** — a manual UI enable step, then a re-runnable configure
@@ -110,4 +110,5 @@ GA|PUBLIC_PREVIEW|BETA, note}]`; `bootstrap/features.py` aggregates a customer-f
 - `modules/field_service/` — full field-service solution (see its `AGENTS.md`)
 - `deploy.py` — the single deploy/teardown notebook (widget-driven)
 - `tools/` — standalone utilities (separate from the harness core)
-- `docs/`, `SPEC_lakebase-solutions.md`, `DEPLOYMENT.md`, `CONTRIBUTING.md`
+- `docs/` — `ARCHITECTURE.md`, `MODULE_AUTHORING.md`, `DEPLOYMENT.md`, `SPEC_lakebase-solutions.md`
+- `CONTRIBUTING.md`

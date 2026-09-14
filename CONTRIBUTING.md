@@ -67,5 +67,5 @@ See [`docs/MODULE_AUTHORING.md`](docs/MODULE_AUTHORING.md). Drop a folder under
 
 ## Deployment
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) — immutable, workspace-run (commit → push →
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — immutable, workspace-run (commit → push →
 `databricks repos update` → run the deploy notebook).

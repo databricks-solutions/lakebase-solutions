@@ -24,6 +24,6 @@ the one-time setup it automates.
 
 > **API-surface note.** This tool discovers endpoints and mints credentials via the Lakebase
 > **`postgres`** API (Autoscaling *projects/branches/endpoints*). The deploy harness standardizes
-> on the GA **`database_instance`** surface (see `ARCHITECTURE.md` / `SPEC_lakebase-solutions.md`).
+> on the GA **`database_instance`** surface (see `docs/ARCHITECTURE.md` / `docs/SPEC_lakebase-solutions.md`).
 > Before relying on this in a workshop, confirm it lists instances the harness deploys — the two
 > surfaces may enumerate Lakebase differently.
