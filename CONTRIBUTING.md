@@ -1,5 +1,23 @@
 # Contributing
 
+## Branching & pull requests
+
+`main` is protected. **Work on your own branch and open a Pull Request to merge —
+do not commit directly to `main`.** Direct pushes to `main` are restricted to
+maintainers (currently: `chase.marler@databricks.com`); everyone else's changes
+land via reviewed PRs to keep `main` deployable.
+
+```
+git switch -c <your-name>/<short-topic>   # branch off main
+# ...make changes, then run the test gate below...
+git push -u origin <branch>               # push your branch (never `main`)
+# open a Pull Request into main; a maintainer reviews + merges
+```
+
+If you drive this repo with an AI coding agent, the same rule is written into
+[`AGENTS.md`](AGENTS.md) so the agent branches by default. Branch protection
+enforces it server-side as well.
+
 ## Test gate — run before every push
 
 GitHub Actions is **disabled at the org level** for this repo, so tests run
