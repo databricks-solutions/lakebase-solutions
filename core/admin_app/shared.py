@@ -164,33 +164,95 @@ _groups_cache: dict = {}  # email → (groups, timestamp)
 _GROUPS_CACHE_TTL = 300   # 5 minutes
 
 
-def get_user_databricks_groups(email: str) -> list[str]:
-    """Return the user's Databricks workspace group display names (SCIM).
+def _viewer_groups_via_obo() -> list[str]:
+    """Read the *signed-in viewer's own* group memberships via SCIM ``Me``.
 
-    Uses the app service principal's token to query SCIM. Cached for 5 minutes.
-    Returns an empty list if SCIM is unavailable (the caller decides how to
-    treat that).
+    A Databricks App runs as a service principal, and a non-admin SP's
+    ``Users.list`` returns other users with the ``groups`` attribute stripped —
+    so the app cannot discover a viewer's group membership that way, and the
+    console would lock out a legitimate admin (the observed bug). Instead, use
+    the forwarded on-behalf-of-user token (``X-Forwarded-Access-Token``, present
+    on an interactive browser session) to call the workspace SCIM ``Me``
+    endpoint, which returns the *caller's own* record — including ``groups`` —
+    with the default ``iam.current-user:read`` scope every app receives. No
+    elevated service-principal privilege is required.
+
+    Mirrors the OBO credential-mint pattern below: a direct HTTPS Bearer call,
+    NOT a second ``WorkspaceClient`` (constructing one with an explicit token
+    collides with the SP's ambient env auth and raises). Returns ``[]`` when no
+    forwarded token is present or the call fails.
+    """
+    try:
+        from flask import request as _rq
+        fwd = _rq.headers.get("X-Forwarded-Access-Token")
+    except Exception:
+        fwd = None
+    if not fwd:
+        return []
+
+    import json as _json
+    import urllib.request as _urlreq
+
+    base = get_workspace_client()
+    host = base.config.host or os.environ.get("DATABRICKS_HOST", "")
+    if host and not host.startswith("http"):
+        host = "https://" + host
+    req = _urlreq.Request(
+        f"{host.rstrip('/')}/api/2.0/preview/scim/v2/Me",
+        headers={"Authorization": f"Bearer {fwd}"},
+        method="GET",
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=10) as r:
+            me = _json.loads(r.read().decode())
+    except Exception:
+        return []
+    return [g.get("display") for g in (me.get("groups") or []) if g.get("display")]
+
+
+def _groups_via_service_principal(email: str) -> list[str]:
+    """Fallback group lookup via the app service principal's SCIM access.
+
+    Only returns memberships the SP is permitted to see; a plain (non-admin)
+    app SP typically gets an empty list here — which is exactly why
+    ``_viewer_groups_via_obo`` is preferred. Kept for non-interactive callers
+    (no forwarded token) and deployments where the SP has elevated read access.
+    """
+    try:
+        w = get_workspace_client()
+        # Escape the value before building the SCIM filter so a crafted email
+        # (e.g. one containing a double-quote) cannot alter the filter.
+        safe_email = email.replace("\\", "\\\\").replace('"', '\\"')
+        for u in w.users.list(filter=f'userName eq "{safe_email}"'):
+            if u.groups:
+                return [g.display for g in u.groups if g.display]
+            break
+    except Exception:
+        pass
+    return []
+
+
+def get_user_databricks_groups(email: str) -> list[str]:
+    """Return the signed-in user's Databricks workspace group display names.
+
+    Prefers the viewer's own SCIM ``Me`` record via the forwarded OBO token
+    (works for any authenticated viewer, no elevated SP privilege); falls back
+    to a service-principal SCIM lookup when no forwarded token is present.
+    Cached for 5 minutes. Empty results are intentionally NOT cached, so a
+    viewer is not stuck as a non-admin for the cache window if an early
+    (pre-consent) request happened to arrive without a forwarded token.
     """
     now = time.time()
     cached = _groups_cache.get(email)
     if cached and now - cached[1] < _GROUPS_CACHE_TTL:
         return cached[0]
 
-    groups: list[str] = []
-    try:
-        w = get_workspace_client()
-        # Escape the value before building the SCIM filter so a crafted email
-        # (e.g. one containing a double-quote) cannot alter the filter.
-        safe_email = email.replace("\\", "\\\\").replace('"', '\\"')
-        user_list = w.users.list(filter=f'userName eq "{safe_email}"')
-        for u in user_list:
-            if u.groups:
-                groups = [g.display for g in u.groups if g.display]
-            break
-    except Exception:
-        pass
+    groups = _viewer_groups_via_obo()
+    if not groups:
+        groups = _groups_via_service_principal(email)
 
-    _groups_cache[email] = (groups, now)
+    if groups:  # never cache an empty/negative result — allows a clean retry
+        _groups_cache[email] = (groups, now)
     return groups
 
 
