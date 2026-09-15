@@ -51,6 +51,7 @@ from shared import (
     active_instance_name,
     list_lakebase_instances,
     DEFAULT_INSTANCE,
+    effective_default_instance,
     get_workspace_client,
     log_error,
     _run_sql,
@@ -148,7 +149,7 @@ def admin_whoami():
     fwd = request.headers.get("X-Forwarded-Access-Token")
     user = get_current_user()
     active = active_instance_name()
-    is_default = (not active) or (active == DEFAULT_INSTANCE)
+    is_default = (not active) or (active == effective_default_instance())
     try:
         is_admin = get_role_from_groups(user.get("email", "")) == "admin"
     except Exception:
@@ -176,7 +177,8 @@ def admin_whoami():
         "obo_scopes": obo_scopes,
         "obo_has_postgres": bool(obo_scopes and "postgres" in obo_scopes),
         "active_instance": active,
-        "default_instance": DEFAULT_INSTANCE,
+        "default_instance": effective_default_instance(),
+        "default_instance_configured": DEFAULT_INSTANCE,
         "active_auth": (
             "native (secret creds)" if is_default
             else ("user / on-behalf-of" if fwd else "service principal (no OBO token)")

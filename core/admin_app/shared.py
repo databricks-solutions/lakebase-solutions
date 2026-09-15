@@ -61,6 +61,7 @@ __all__ = [
     "ADMIN_GROUP",
     # Multi-instance
     "DEFAULT_INSTANCE",
+    "effective_default_instance",
     "active_instance_name",
     "list_lakebase_instances",
     "get_pool_for",
@@ -582,16 +583,57 @@ def _schedule_pool_close(pool: ConnectionPool, delay: float = 45.0) -> None:
     t.start()
 
 
+_effective_default_cache: dict = {"v": None, "checked": False}
+
+
+def effective_default_instance() -> str:
+    """The instance the console's native ``PG*`` secret creds actually point at.
+
+    Returns the explicitly-configured ``DEFAULT_INSTANCE`` when set. Otherwise
+    auto-detects it by matching the native ``PGHOST`` against the discovered
+    instances' primary-endpoint hosts, so a single-deployment console uses its
+    native creds (the guaranteed-working path) WITHOUT needing ``DEFAULT_INSTANCE``
+    wired into the app env. Without this, a console whose selector lands on its
+    own instance would treat it as a *non-default* instance and try to mint an
+    on-behalf-of ``postgres`` OAuth credential — which fails 403 unless the app
+    declares the ``postgres`` user scope, even though native creds were right
+    there. Resolved once, then cached for the process (host→instance is stable).
+    """
+    if DEFAULT_INSTANCE:
+        return DEFAULT_INSTANCE
+    if _effective_default_cache["checked"]:
+        return _effective_default_cache["v"] or ""
+    pghost = os.environ.get("PGHOST", "").strip().lower()
+    result = ""
+    if pghost:
+        try:
+            for inst in list_lakebase_instances():
+                pid = inst.get("name", "")
+                try:
+                    host, _ = _resolve_host(pid)
+                except Exception:
+                    continue
+                if host and host.strip().lower() == pghost:
+                    result = pid
+                    break
+        except Exception:
+            result = ""
+    _effective_default_cache["v"] = result
+    _effective_default_cache["checked"] = True
+    return result
+
+
 def get_pool_for(instance_id: str | None, analytics: bool = False) -> ConnectionPool:
     """Return a connection pool for *instance_id* (native for the default, OAuth
     otherwise), creating or refreshing it as needed.
 
     Falls back to the native default pool when *instance_id* is empty or matches
-    ``DEFAULT_INSTANCE``. Builds are serialized per (instance, kind) so concurrent
-    requests share one pool, and a replaced pool is closed only after a grace delay.
+    the effective default instance (see ``effective_default_instance``). Builds
+    are serialized per (instance, kind) so concurrent requests share one pool,
+    and a replaced pool is closed only after a grace delay.
     """
     instance_id = _strip_projects(instance_id) if instance_id else ""
-    is_default = (not instance_id) or (instance_id == DEFAULT_INSTANCE)
+    is_default = (not instance_id) or (instance_id == effective_default_instance())
 
     # Default instance → the existing native-auth pools.
     if is_default and os.environ.get("PGHOST"):
