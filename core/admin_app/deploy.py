@@ -40,6 +40,14 @@ from bootstrap.adapters import APPS_API_BASE
 # secret RESOURCE named after the key so the launch-time ``valueFrom`` resolves.
 _PG_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pguser", "pgpassword"]
 
+# On-behalf-of-user API scopes the console needs. The admin console is a fleet
+# DBA tool: it connects to every Lakebase instance in the workspace as the
+# signed-in admin (their own Postgres identity), which requires the ``postgres``
+# scope on the forwarded user token. The identity scopes it also relies on
+# (``iam.current-user:read`` for group-based admin gating, ``iam.access-control:read``)
+# are auto-granted defaults and are NOT declarable here — only ``postgres`` is.
+_USER_API_SCOPES: List[str] = ["postgres"]
+
 # App compute + deployment poll budgets (apps can take minutes to go ACTIVE).
 _APP_POLL_ATTEMPTS = 60
 _APP_POLL_DELAY_SECONDS = 10.0
@@ -76,6 +84,51 @@ def _secret_resources(scope: str) -> List[Dict[str, Any]]:
         }
         for key in _PG_SECRET_KEYS
     ]
+
+
+def _ensure_user_api_scopes(w: Any, app_name: str, logger: Any) -> bool:
+    """Idempotently ensure the app declares the required user_api_scopes.
+
+    The create body sets these for NEW apps; this upgrades a pre-existing app on
+    redeploy (e.g. one created before ``postgres`` was required). Reads the app,
+    and only if a required scope is missing does a partial (update_mask) update
+    that preserves ``resources`` and token forwarding. Returns True if it changed.
+    """
+    try:
+        app = _get_app(w, app_name)
+    except Exception:  # pragma: no cover - live-only
+        return False
+    current = list(app.get("user_api_scopes") or [])
+    if all(s in current for s in _USER_API_SCOPES):
+        return False
+    desired = sorted(set(current) | set(_USER_API_SCOPES))
+    # Read-modify-write the mutable fields AND pass update_mask: if the mask is
+    # honored only scopes change; if it is ignored, the full body still preserves
+    # resources/description so nothing is clobbered either way.
+    body = {
+        "name": app.get("name", app_name),
+        "description": app.get("description", ""),
+        "resources": app.get("resources", []),
+        "user_api_scopes": desired,
+    }
+    try:
+        w.api_client.do(
+            "PATCH",
+            f"{APPS_API_BASE}/{app_name}",
+            query={"update_mask": "user_api_scopes"},
+            body=body,
+        )
+        logger.info(
+            "core/admin_app.deploy: set user_api_scopes=%s on existing app %r.",
+            desired, app_name,
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - live-only
+        logger.warning(
+            "core/admin_app.deploy: could not set user_api_scopes on %r: %s",
+            app_name, exc,
+        )
+        return False
 
 
 def _app_states(app: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,10 +228,14 @@ def deploy(ctx: Any) -> Dict[str, Any]:
                     "name": app_name,
                     "description": "Lakebase Admin console (always-on core component).",
                     "resources": _secret_resources(scope),
+                    "user_api_scopes": _USER_API_SCOPES,
                 },
             )
             created = True
             _wait_for_compute_active(w, app_name, ctx.logger)
+
+        # (1b) Ensure OBO scopes on a pre-existing app (create body covers new ones).
+        scopes_updated = _ensure_user_api_scopes(w, app_name, ctx.logger)
 
         # (2) Create a deployment from the workspace source path (SNAPSHOT).
         dep = w.api_client.do(
@@ -217,6 +274,8 @@ def deploy(ctx: Any) -> Dict[str, Any]:
             "admin_group": admin_group,
             "source_code_path": source_path,
             "created": created,
+            "user_api_scopes": _USER_API_SCOPES,
+            "scopes_updated": scopes_updated,
             "url": states["url"],
             "compute_status": states["compute_state"],
             "deployment_state": deploy_state or states["deployment_state"],

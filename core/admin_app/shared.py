@@ -486,6 +486,15 @@ def _parse_expiry(resp: dict) -> float:
     return time.time() + 3300
 
 
+def _has_forwarded_token() -> bool:
+    """True when the current request carries the viewer's forwarded OBO token."""
+    try:
+        from flask import request as _rq
+        return bool(_rq.headers.get("X-Forwarded-Access-Token"))
+    except Exception:
+        return False
+
+
 def _mint_credential(endpoint_full_name: str) -> tuple[str, float, str, str]:
     """Mint an OAuth database credential for an endpoint.
 
@@ -624,20 +633,41 @@ def effective_default_instance() -> str:
 
 
 def get_pool_for(instance_id: str | None, analytics: bool = False) -> ConnectionPool:
-    """Return a connection pool for *instance_id* (native for the default, OAuth
-    otherwise), creating or refreshing it as needed.
+    """Return a connection pool for *instance_id*, creating or refreshing it.
 
-    Falls back to the native default pool when *instance_id* is empty or matches
-    the effective default instance (see ``effective_default_instance``). Builds
-    are serialized per (instance, kind) so concurrent requests share one pool,
-    and a replaced pool is closed only after a grace delay.
+    Admin-only, always-OBO: with a forwarded user token the console connects to
+    every instance on-behalf-of the signed-in admin (their own Postgres
+    identity). Native secret creds are a fallback for the home instance only —
+    when there is no forwarded token (non-interactive/health) or the OBO connect
+    fails. Builds are serialized per (instance, kind) so concurrent requests
+    share one pool, and a replaced pool is closed only after a grace delay.
     """
     instance_id = _strip_projects(instance_id) if instance_id else ""
-    is_default = (not instance_id) or (instance_id == effective_default_instance())
+    eff = effective_default_instance()
+    if not instance_id:
+        instance_id = eff
+    is_home = (not instance_id) or (instance_id == eff)
+    native_ok = is_home and bool(os.environ.get("PGHOST"))
+    has_token = _has_forwarded_token()
 
-    # Default instance → the existing native-auth pools.
-    if is_default and os.environ.get("PGHOST"):
+    def _native() -> ConnectionPool:
         return get_analytics_pool() if analytics else get_pool()
+
+    # Admin-only, always-OBO: connect to EVERY instance on-behalf-of the
+    # signed-in admin (their own Postgres identity/permissions) whenever a
+    # forwarded token is present — the home instance and every other instance
+    # alike. The native secret creds are a fallback ONLY for the home instance:
+    # used when there is no forwarded token (non-interactive/health) or when the
+    # OBO connect fails (e.g. the admin has no Postgres role on the home instance
+    # yet). Reaching a *non-home* instance requires a forwarded token.
+    if not has_token or not instance_id:
+        if native_ok:
+            return _native()
+        raise RuntimeError(
+            f"Cannot reach instance '{instance_id or '(unset)'}' without a signed-in "
+            "user. Reopen the app in your browser so it can act on your behalf "
+            "(on-behalf-of), then retry."
+        )
 
     kind = "a" if analytics else "i"
     prefix = f"{instance_id}::{kind}::"
@@ -673,6 +703,15 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
             _probe.close()
         except Exception as ce:
             msg = str(ce).strip().splitlines()[0][:220] if str(ce).strip() else "connection failed"
+            # Home instance: fall back to the guaranteed native secret creds
+            # rather than fail the console when the admin has no Postgres role
+            # for the on-behalf-of connect.
+            if native_ok:
+                log.warning(
+                    f"OBO connect to home instance '{instance_id}' as '{pguser}' failed "
+                    f"({msg}); falling back to native secret creds."
+                )
+                return _native()
             raise RuntimeError(
                 f"Cannot connect to instance '{instance_id}' as '{pguser}' (auth={auth_mode}): {msg}. "
                 f"The {'user' if auth_mode == 'user' else 'app service principal'} needs a Postgres "
