@@ -224,6 +224,8 @@ class FakeApiClient:
         # userName -> stable id (auto-vivified on first lookup).
         self._scim_groups: Dict[str, Dict[str, Any]] = {}
         self._scim_users: Dict[str, str] = {}
+        # Native PG login toggle on the postgres project (spec.enable_pg_native_login).
+        self._pg_native_login = False
         self._seq = 0
         self.calls: List[Tuple[str, str, Any]] = []
 
@@ -417,6 +419,7 @@ class FakeApiClient:
         if m == "GET" and p.endswith("/branches/production"):
             return {"uid": "branch-uid-1", "status": {"current_state": "READY"}}
         if m == "POST" and p.endswith("/postgres/projects"):
+            self._project_exists = True  # after create, the project exists (post-create GETs succeed)
             return {}
         if m == "GET" and p.endswith("/endpoints"):
             status: Dict[str, Any] = {"hosts": {"host": self._host}, "current_state": "AVAILABLE"}
@@ -429,11 +432,18 @@ class FakeApiClient:
             self._cu_min = spec.get("autoscaling_limit_min_cu", self._cu_min)
             self._cu_max = spec.get("autoscaling_limit_max_cu", self._cu_max)
             return {}
+        # Project-level PATCH (e.g. spec.enable_pg_native_login).
+        if m == "PATCH" and "/postgres/projects/" in p and "/endpoints/" not in p:
+            spec = (body or {}).get("spec", {})
+            if "enable_pg_native_login" in spec:
+                self._pg_native_login = bool(spec["enable_pg_native_login"])
+            return {}
         if m == "DELETE" and "/postgres/projects/" in p:
             return {}
         if m == "GET" and "/postgres/projects/" in p:
             if self._project_exists:
-                return {"project_id": p.rsplit("/", 1)[-1], "uid": "project-uid-1", "spec": {}}
+                return {"project_id": p.rsplit("/", 1)[-1], "uid": "project-uid-1", "spec": {},
+                        "status": {"enable_pg_native_login": self._pg_native_login}}
             raise FakeNotFound()
         return {}
 

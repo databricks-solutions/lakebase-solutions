@@ -37,22 +37,28 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
         c for c in api.calls if c[0] == "POST" and c[1] == "/api/2.0/postgres/projects"
     ]
     # project_id is passed as a query param (verified live); the body is spec-only.
+    # enable_pg_native_login=True is required so apps/jobs can use native PG auth.
     assert post_projects == [
         (
             "POST",
             "/api/2.0/postgres/projects",
-            {"spec": {"display_name": "acme-ws"}},
+            {"spec": {"display_name": "acme-ws", "enable_pg_native_login": True}},
         )
     ]
 
-    # (2) The primary endpoint's autoscaling CU range is PATCHed from the params.
-    assert api.calls_for("PATCH") == [
-        (
-            "PATCH",
-            "/api/2.0/postgres/projects/acme-ws/branches/production/endpoints/primary",
-            {"spec": {"autoscaling_limit_min_cu": 1.0, "autoscaling_limit_max_cu": 4.0}},
-        )
-    ]
+    # (2) The primary endpoint's autoscaling CU range is PATCHed from the params,
+    #     and native PG login is enabled on the project (spec.enable_pg_native_login).
+    patches = api.calls_for("PATCH")
+    assert (
+        "PATCH",
+        "/api/2.0/postgres/projects/acme-ws/branches/production/endpoints/primary",
+        {"spec": {"autoscaling_limit_min_cu": 1.0, "autoscaling_limit_max_cu": 4.0}},
+    ) in patches
+    assert (
+        "PATCH",
+        "/api/2.0/postgres/projects/acme-ws",
+        {"spec": {"enable_pg_native_login": True}},
+    ) in patches
     # (2 cont.) Availability was polled via GET project (create-check + poll) before connecting.
     assert api.calls.count(("GET", "/api/2.0/postgres/projects/acme-ws", None)) >= 2
     # Provisioning summary surfaced on the result.
@@ -62,6 +68,8 @@ def test_deploy_provisions_project_endpoint_scope_then_database_and_schema():
     # the endpoint must be provisioned BEFORE the PATCH, then confirmed to have
     # adopted the requested range.
     assert result["provisioned"]["autoscaling_cu_verified"] is True
+    # Native PG password login enabled on the project (so app/jobs can authenticate).
+    assert result["provisioned"]["pg_native_login"] is True
 
     # Workshop DATABASE created first (autoscaling: default `postgres` db has a
     # restricted public schema), then the idempotent workshop schema DDL.

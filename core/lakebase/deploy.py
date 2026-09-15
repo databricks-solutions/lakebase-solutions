@@ -155,6 +155,40 @@ def _cu_matches(actual: Any, requested: float) -> bool:
         return False
 
 
+def _enable_pg_native_login(w: Any, project: str, logger: Any) -> bool:
+    """Enable native PG password login on the project (idempotent PATCH).
+
+    The input field is ``spec.enable_pg_native_login`` (echoed back on
+    ``status.enable_pg_native_login``). Autoscaling projects default it to FALSE
+    (OAuth-only), which rejects the app's native-password role. Returns whether
+    the setting reads back as enabled; best-effort (logs loudly on failure).
+    """
+
+    try:
+        w.api_client.do(
+            "PATCH",
+            f"{POSTGRES_API_BASE}/projects/{project}",
+            query={"update_mask": "spec.enable_pg_native_login"},
+            body={"spec": {"enable_pg_native_login": True}},
+        )
+        proj = w.api_client.do("GET", f"{POSTGRES_API_BASE}/projects/{project}")
+        enabled = bool((proj.get("status") or {}).get("enable_pg_native_login")) if isinstance(proj, dict) else False
+        if enabled:
+            logger.info("core/lakebase.deploy: native PG login enabled on project %r.", project)
+        else:
+            logger.warning(
+                "core/lakebase.deploy: native PG login PATCH did not read back enabled on %r; "
+                "native-password auth (app/jobs) may fail.", project
+            )
+        return enabled
+    except Exception as exc:  # pragma: no cover - live-only
+        logger.warning(
+            "core/lakebase.deploy: could not enable native PG login on %r (%s); "
+            "native-password auth (app/jobs) may fail.", project, exc
+        )
+        return False
+
+
 def _apply_autoscaling_cu(
     w: Any, endpoint_name: str, project: str, min_cu: float, max_cu: float, logger: Any
 ) -> Dict[str, Any]:
@@ -302,7 +336,11 @@ def deploy(ctx: Any) -> Dict[str, Any]:
                 "POST",
                 f"{POSTGRES_API_BASE}/projects",
                 query={"project_id": project},
-                body={"spec": {"display_name": project}},
+                # enable_pg_native_login=True is REQUIRED for apps/jobs to connect
+                # with a native PG password (from Databricks Secrets). Autoscaling
+                # projects default it to FALSE (OAuth-only), which rejects the app's
+                # native-password role ("native postgres login is disabled ...").
+                body={"spec": {"display_name": project, "enable_pg_native_login": True}},
             )
             provisioned["project_created"] = True
         except Exception as create_exc:
@@ -338,6 +376,12 @@ def deploy(ctx: Any) -> Dict[str, Any]:
     provisioned["autoscaling_min_cu"] = cu_result["min_cu"]
     provisioned["autoscaling_max_cu"] = cu_result["max_cu"]
     provisioned["autoscaling_cu_verified"] = cu_result["verified"]
+
+    # Ensure native PG password login is enabled on the project (idempotent; also
+    # upgrades projects created before this setting was added). Without it, apps/
+    # jobs using the native-password app role are rejected ("native postgres login
+    # is disabled for this endpoint").
+    provisioned["pg_native_login"] = _enable_pg_native_login(w, project, ctx.logger)
 
     # NOTE: the deploy's own PG connections use a short-lived OAuth credential
     # minted per-connection by the adapter (role="admin"). We deliberately do
