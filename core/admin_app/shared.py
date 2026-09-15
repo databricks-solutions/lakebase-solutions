@@ -693,29 +693,31 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
             return p
 
         now = time.time()
-        host, endpoint_full_name = _resolve_host(instance_id)
-        token, tok_exp, pguser, auth_mode = _mint_credential(endpoint_full_name)
-        conninfo = _conninfo(host, pguser, token)
-
-        # Fail fast with a clear error rather than letting the pool retry for 30 s.
+        # The ENTIRE on-behalf-of build is guarded so a home instance always has a
+        # guaranteed path: the credential MINT can 403 (forwarded token lacks the
+        # `postgres` scope until the admin re-consents) and the probe connect can
+        # fail (admin has no Postgres role yet). In either case, for the home
+        # instance we fall back to the native secret creds rather than break the
+        # console. A non-home instance has no native fallback, so it raises.
         try:
+            host, endpoint_full_name = _resolve_host(instance_id)
+            token, tok_exp, pguser, auth_mode = _mint_credential(endpoint_full_name)
+            conninfo = _conninfo(host, pguser, token)
+            # Fail fast with a clear error rather than letting the pool retry 30 s.
             _probe = psycopg.connect(conninfo + " connect_timeout=6")
             _probe.close()
         except Exception as ce:
             msg = str(ce).strip().splitlines()[0][:220] if str(ce).strip() else "connection failed"
-            # Home instance: fall back to the guaranteed native secret creds
-            # rather than fail the console when the admin has no Postgres role
-            # for the on-behalf-of connect.
             if native_ok:
                 log.warning(
-                    f"OBO connect to home instance '{instance_id}' as '{pguser}' failed "
-                    f"({msg}); falling back to native secret creds."
+                    f"OBO path for home instance '{instance_id}' failed ({msg}); "
+                    "falling back to native secret creds."
                 )
                 return _native()
             raise RuntimeError(
-                f"Cannot connect to instance '{instance_id}' as '{pguser}' (auth={auth_mode}): {msg}. "
-                f"The {'user' if auth_mode == 'user' else 'app service principal'} needs a Postgres "
-                f"login/role on this instance."
+                f"Cannot connect to instance '{instance_id}' on your behalf: {msg}. "
+                "Reopen the app and approve the 'postgres' permission when prompted, and "
+                "ensure your account has a Postgres login/role on this instance."
             )
 
         stmt_timeout = ANALYTICS_STMT_TIMEOUT if analytics else POOL_STMT_TIMEOUT
