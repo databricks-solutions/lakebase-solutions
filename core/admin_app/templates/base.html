@@ -166,6 +166,20 @@
             border: 1px solid var(--border-primary, #263140);
             color: var(--text-primary, #e6e6e6); border-radius: 8px;
         }
+
+        /* ── Self-elevation control (grant self DATABRICKS_SUPERUSER here) ── */
+        .elevate-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 10px; cursor: pointer;
+            font-size: 0.78rem; font-weight: 600;
+            background: var(--bg-tertiary, #1a222c);
+            border: 1px solid var(--border-primary, #263140);
+            color: var(--text-secondary, #9aa7b4); border-radius: 8px;
+        }
+        .elevate-btn:hover { color: var(--text-primary, #e6e6e6); border-color: var(--accent-primary, #1B7FE3); }
+        .elevate-btn:disabled { opacity: 0.6; cursor: default; }
+        .elevate-status { font-size: 0.72rem; font-weight: 600; max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .elevate-status[hidden] { display: none; }
     </style>
 </head>
 <body data-page="{{ page_id }}">
@@ -197,6 +211,10 @@
                     <div class="inst-list" id="instList"><div class="inst-empty">Loading instances…</div></div>
                 </div>
             </div>
+            <span class="elevate-status" id="elevateStatus" hidden></span>
+            <button class="elevate-btn" id="elevateBtn"
+                    title="Grant yourself DATABRICKS_SUPERUSER on the selected instance (requires CAN_MANAGE)"
+                    onclick="elevateHere()">&#x2B06; Elevate me here</button>
             <button class="theme-toggle" id="themeToggle" title="Toggle light / dark" onclick="toggleTheme()">&#x1F319;</button>
         </div>
     </div>
@@ -389,6 +407,42 @@
             if (!name) return;
             try { localStorage.setItem('lbadmin-database', name); } catch (e) {}
             location.reload();  // re-fetch every panel against the new database
+        }
+
+        // ── Self-elevation ─────────────────────────────────────────────────
+        // POST /api/admin/elevate grants the signed-in operator DATABRICKS_SUPERUSER
+        // on the selected instance via the Roles API. The head fetch wrapper attaches
+        // X-Lakebase-Instance, so this targets whichever instance the selector picked.
+        // On success we reload after ~1s so every panel re-fetches as superuser; on
+        // failure (e.g. no CAN_MANAGE here) we surface the error inline.
+        function elevateHere() {
+            var btn = document.getElementById('elevateBtn');
+            var status = document.getElementById('elevateStatus');
+            if (btn) btn.disabled = true;
+            if (status) {
+                status.hidden = false;
+                status.textContent = 'Elevating…';
+                status.style.color = 'var(--text-secondary, #9aa7b4)';
+            }
+            fetch('/api/admin/elevate', { method: 'POST' })
+                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+                .then(function (res) {
+                    if (res.ok && res.body && res.body.ok) {
+                        if (status) {
+                            status.textContent = 'Elevated on ' + (res.body.instance || 'instance') + '; reloading…';
+                            status.style.color = 'var(--accent-primary, #1B7FE3)';
+                        }
+                        setTimeout(function () { location.reload(); }, 1000);
+                    } else {
+                        var err = (res.body && res.body.error) ? String(res.body.error) : 'Elevation failed';
+                        if (status) { status.textContent = err; status.style.color = '#FF6F42'; }
+                        if (btn) btn.disabled = false;
+                    }
+                })
+                .catch(function (e) {
+                    if (status) { status.textContent = 'Elevation failed: ' + e; status.style.color = '#FF6F42'; }
+                    if (btn) btn.disabled = false;
+                });
         }
 
         loadInstances();

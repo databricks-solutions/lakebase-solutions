@@ -60,6 +60,7 @@ from shared import (
     get_current_user,
     get_role_from_groups,
     validate_identifier,
+    elevate_instance,
 )
 
 log = logging.getLogger(__name__)
@@ -253,6 +254,25 @@ def admin_databases():
         log_error("admin_databases", e)
         return jsonify({"databases": [], "active": active_database(),
                         "default": native_db, "error": str(e)}), 500
+
+
+@admin_bp.route("/elevate", methods=["POST"])
+def admin_elevate():
+    """Grant the signed-in operator DATABRICKS_SUPERUSER on the active instance.
+
+    Uses the Lakebase Roles API (executed control-plane side) so an admin can
+    administer an instance they did not create -- governance supersession. Gated
+    twice: the ``before_request`` admin gate on this blueprint, AND the Roles API
+    itself, which rejects operators without CAN_MANAGE on the target instance (a
+    permission-denied error is returned to the caller, not a success).
+    """
+    result = elevate_instance(active_instance_name(), get_current_user().get("email"))
+    if result.get("ok"):
+        return jsonify(result), 200
+    # Distinguish "you lack CAN_MANAGE here" (403) from an unexpected failure (500).
+    err = (result.get("error") or "").lower()
+    status = 403 if ("permission" in err or "denied" in err or "403" in err) else 500
+    return jsonify(result), status
 
 
 # ═══════════════════════════════════════════════════════════════════════════

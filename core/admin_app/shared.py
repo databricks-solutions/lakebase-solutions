@@ -68,6 +68,9 @@ __all__ = [
     # Multi-database (cross-database selector)
     "active_database",
     "list_databases",
+    # Self-elevation (Roles API)
+    "elevate_instance",
+    "_role_id_slug",
 ]
 
 log = logging.getLogger(__name__)
@@ -790,6 +793,79 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
             _schedule_pool_close(old["pool"])  # grace-close; never kill an in-use pool
         log.info(f"Opened OAuth pool for instance '{instance_id}' db '{db}' as '{pguser}' (kind={kind})")
         return pool
+
+
+# ---------------------------------------------------------------------------
+# Self-elevation via the Lakebase Roles API
+# ---------------------------------------------------------------------------
+# Lakebase separates Databricks admin from Postgres admin: a workspace admin has
+# NO in-Postgres privileges by default, and a raw SQL ``GRANT databricks_superuser``
+# can't bootstrap that (it needs in-DB ADMIN OPTION). The Roles API CAN, because
+# the control plane executes it on behalf of a workspace admin / CAN_MANAGE holder.
+# This lets an admin take over an instance they didn't create (governance
+# supersession). It is gated twice: the console's before_request admin gate, AND
+# the Roles API itself, which rejects callers without CAN_MANAGE on the instance.
+
+
+def _role_id_slug(email: str) -> str:
+    """Sanitize an email/identity into a Lakebase ``role_id`` slug.
+
+    The Roles API requires ``role_id`` to match
+    ``^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`` — lowercase, alphanumerics + hyphens,
+    starting with a letter, no leading/trailing hyphen, max 63 chars. The
+    ``[^a-z0-9]+`` substitution both replaces disallowed characters and collapses
+    runs of them into a single hyphen, e.g. ``chase.marler@databricks.com`` ->
+    ``chase-marler-databricks-com``.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", (email or "").lower()).strip("-")
+    if not slug or not slug[0].isalpha():
+        slug = "u-" + slug
+    return slug[:63].rstrip("-")
+
+
+def elevate_instance(instance_id: str, email: str) -> dict:
+    """Grant *email* ``DATABRICKS_SUPERUSER`` on *instance_id* via the Roles API.
+
+    Issues the long-running create-role op (``replace_existing=true`` so it is
+    idempotent) and reports success without polling — fire-and-report is fine for
+    the console; the op completes control-plane side. On any failure returns the
+    error string (truncated) so a permission-denied — the "you lack CAN_MANAGE
+    here" signal — surfaces clearly to the operator.
+
+    After a successful elevation, evict any cached pools for this instance so the
+    next query reconnects with the now-superuser role rather than a pool opened
+    under the operator's prior (unprivileged) identity.
+    """
+    instance_id = _strip_projects(instance_id) if instance_id else ""
+    slug = _role_id_slug(email)
+    try:
+        w = get_workspace_client()
+        w.api_client.do(
+            "POST",
+            f"/api/2.0/postgres/projects/{instance_id}/branches/production/roles",
+            query={"replace_existing": "true", "role_id": slug},
+            body={"spec": {
+                "identity_type": "USER",
+                "postgres_role": email,
+                "auth_method": "LAKEBASE_OAUTH_V1",
+                "membership_roles": ["DATABRICKS_SUPERUSER"],
+            }},
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:300]}
+
+    # Evict this instance's cached pools (all databases/kinds/identities) so the
+    # next request rebuilds a connection under the freshly-granted role. Grace-
+    # close the replaced pools so in-flight requests finish (never kill in-use).
+    with _pools_lock:
+        stale = [k for k in _pools if k.startswith(f"{instance_id}::")]
+        for k in stale:
+            entry = _pools.pop(k, None)
+            if entry:
+                _schedule_pool_close(entry["pool"])
+
+    return {"ok": True, "instance": instance_id, "role_id": slug,
+            "membership": ["DATABRICKS_SUPERUSER"]}
 
 
 # ---------------------------------------------------------------------------

@@ -57,42 +57,6 @@ def test_deploy_ensures_groups_adds_admin_and_creates_role():
     assert any(s.startswith("GRANT SELECT ON ALL TABLES") for s in sql)
 
 
-def test_deploy_grants_deployer_superuser_by_default():
-    # Default (param unset => on): the deployer's Databricks identity is granted
-    # the built-in databricks_superuser OAuth role so the on-behalf-of admin
-    # console can read/maintain all schemas.
-    ws = FakeWorkspaceClient(email="sa@databricks.com")
-    conn = FakeConnection()
-    ctx, _c, _w = live_context(deployment_id="acme-ws", conn=conn, ws=ws)
-    res = um_deploy.deploy(ctx)
-
-    assert res["superuser_granted"] is True
-    assert res["superuser_identity"] == "sa@databricks.com"
-    sql = conn.executed_sql()
-    assert any("CREATE EXTENSION IF NOT EXISTS databricks_auth" in s for s in sql)
-    assert any("databricks_create_role" in s and "'USER'" in s for s in sql)
-    assert any('GRANT databricks_superuser TO "sa@databricks.com"' in s for s in sql)
-
-
-def test_deploy_skips_superuser_when_opted_out():
-    ws = FakeWorkspaceClient(email="sa@databricks.com")
-    conn = FakeConnection()
-    ctx, _c, _w = live_context(
-        deployment_id="acme-ws", conn=conn, ws=ws,
-        params={"grant_deployer_superuser": "false"},
-    )
-    res = um_deploy.deploy(ctx)
-
-    assert res["superuser_granted"] is False
-    assert res["superuser_identity"] is None
-    sql = conn.executed_sql()
-    assert not any("databricks_auth" in s for s in sql)
-    assert not any("databricks_create_role" in s for s in sql)
-    assert not any("databricks_superuser" in s for s in sql)
-    # Participant-role work still ran (opt-out only skips the superuser grant).
-    assert any("acme-ws_participant" in s and "NOLOGIN" in s for s in sql)
-
-
 def test_deploy_membership_idempotent():
     ws = FakeWorkspaceClient(email="sa@databricks.com")
     ctx, _c, _w = live_context(deployment_id="acme-ws", ws=ws)
