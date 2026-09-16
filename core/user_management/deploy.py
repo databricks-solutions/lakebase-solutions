@@ -123,5 +123,62 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         ctx.logger.error("[user_management] participant role deferred: %s", exc)
         result["pg_role_error"] = str(exc)
 
+    # (3) Grant the DEPLOYER's Databricks identity the built-in databricks_superuser
+    #     OAuth role. Lakebase separates Databricks admin from Postgres admin -- a
+    #     workspace admin has NO Postgres privileges by default. The admin console
+    #     connects on-behalf-of the signed-in admin, so without this it can't
+    #     read/maintain the schemas. Default ON; opt out with grant_deployer_superuser.
+    #     Mirrors the SP variant in core/data_api (databricks_auth + create_role + grant).
+    result["superuser_identity"] = None
+    result["superuser_granted"] = False
+    grant_superuser = str(ctx.params.get("grant_deployer_superuser", True)).lower() != "false"
+    if not grant_superuser:
+        result["superuser_skipped"] = True
+        ctx.logger.info("core/user_management.deploy: grant_deployer_superuser is off; skipping.")
+    else:
+        try:
+            email = result.get("deployer") or ctx.workspace_client().current_user.me().user_name
+            conn = ctx.pg_connection(role="admin", database=database)
+            try:  # extension + role creation run cleanly on autocommit.
+                conn.autocommit = True
+            except Exception:  # pragma: no cover - fake/driver without the attribute
+                pass
+            cur = conn.cursor()
+            su_sql: List[str] = []
+            # (label, callable) -- best-effort per statement (role may already exist).
+            statements = [
+                ("CREATE EXTENSION IF NOT EXISTS databricks_auth",
+                 lambda: cur.execute("CREATE EXTENSION IF NOT EXISTS databricks_auth")),
+                (f"SELECT databricks_create_role('{email}', 'USER')",
+                 lambda: cur.execute("SELECT databricks_create_role(%s, 'USER')", (email,))),
+                (f'GRANT databricks_superuser TO "{email}"',
+                 lambda: cur.execute(f'GRANT databricks_superuser TO "{email}"')),
+            ]
+            for label, run in statements:
+                try:
+                    run()
+                    conn.commit()
+                    su_sql.append(label)
+                except Exception as exc:  # idempotent re-run / role may exist -- best effort
+                    conn.rollback()
+                    ctx.logger.info(
+                        "core/user_management.deploy: superuser stmt deferred (%s): %s",
+                        label, str(exc)[:120],
+                    )
+            result["superuser_identity"] = email
+            # Report granted only when the GRANT itself succeeded (not merely the
+            # extension/role-create), so the deploy result reflects real privilege.
+            result["superuser_granted"] = any(
+                s.startswith("GRANT databricks_superuser") for s in su_sql
+            )
+            result.setdefault("sql", []).extend(su_sql)
+            ctx.logger.info(
+                "core/user_management.deploy: databricks_superuser grant for %r = %s (%d stmt).",
+                email, result["superuser_granted"], len(su_sql),
+            )
+        except Exception as exc:
+            ctx.logger.error("[user_management] superuser grant deferred: %s", exc)
+            result["superuser_error"] = str(exc)
+
     result["status"] = "deferred" if ("groups_error" in result or "pg_role_error" in result) else "deployed"
     return result

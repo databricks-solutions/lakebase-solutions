@@ -56,6 +56,19 @@ def teardown(ctx: Any) -> Dict[str, Any]:
         ctx.logger.error("[user_management] drop role deferred: %s", exc)
         result["pg_role_error"] = str(exc)
 
+    # (1b) Revoke databricks_superuser from the deployer -- just the membership,
+    #      NOT the user's OAuth role itself (dropping that would affect other uses).
+    #      Best-effort: a never-granted membership just errors and is swallowed.
+    try:
+        email = ctx.workspace_client().current_user.me().user_name
+        conn = ctx.pg_connection(role="admin", database=database)
+        cur = conn.cursor()
+        cur.execute(f'REVOKE databricks_superuser FROM "{email}"')
+        conn.commit()
+        result["superuser_revoked"] = email
+    except Exception as exc:
+        ctx.logger.info("[user_management] superuser revoke deferred: %s", exc)
+
     # (2) Delete deployment-owned workspace groups.
     try:
         w = ctx.workspace_client()

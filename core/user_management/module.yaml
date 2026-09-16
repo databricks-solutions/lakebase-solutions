@@ -21,6 +21,17 @@ parameters:
     advanced: false
     label: Workshop group
     help: Databricks workshop group. Blank = ${prefix}-participants.
+  - name: grant_deployer_superuser
+    type: bool
+    default: true
+    required: false
+    advanced: true
+    label: Grant deployer databricks_superuser
+    help: >-
+      Grant the deploying admin the built-in databricks_superuser PG role so the
+      admin console (which connects on-behalf-of the signed-in admin) can
+      read/maintain all schemas. A workspace admin has no Postgres privileges by
+      default. Uncheck to opt out.
 provides:
   databricks_groups: ["${prefix}-admins", "${prefix}-participants"]
   # PG workshop-user roles are created via `CREATE ROLE` SQL (not postgres_role).
