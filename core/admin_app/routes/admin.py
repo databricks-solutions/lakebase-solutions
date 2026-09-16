@@ -50,6 +50,8 @@ from shared import (
     get_pool_for,
     active_instance_name,
     list_lakebase_instances,
+    active_database,
+    list_databases,
     DEFAULT_INSTANCE,
     effective_default_instance,
     get_workspace_client,
@@ -76,9 +78,35 @@ def current_analytics_pool():
 # Configuration — target schema and optional feature wiring
 # ---------------------------------------------------------------------------
 
-# The schema this console administers. Validated as an identifier because it
+# The console's HOME schema — where it keeps its own objects (the ASH history
+# tables) and the OPTIONAL default filter. Validated as an identifier because it
 # is interpolated into SQL (it comes from deploy-time config, never a request).
+#
+# All-schema introspection
+# ------------------------
+# As a fleet DBA tool the console introspects EVERY user schema, not just this
+# one: the instance-info listings and the schema explorer span all user schemas
+# and return SCHEMA-QUALIFIED names so tables with the same name in different
+# schemas stay distinct. ``SCHEMA`` remains defined as the home schema (see the
+# ASH sampler, which still writes only here) and as an optional default; the
+# default *behavior*, however, is now all user schemas. ``_user_schema_filter``
+# builds the WHERE fragment that excludes the Postgres system schemas.
 SCHEMA = validate_identifier(os.environ.get("TARGET_SCHEMA", "public"), "TARGET_SCHEMA")
+
+
+def _user_schema_filter(col: str) -> str:
+    """SQL predicate selecting all USER schemas for a schema-name column.
+
+    Excludes the Postgres system schemas (``pg_catalog``, ``information_schema``,
+    ``pg_toast``, and anything starting with ``pg_``) so the console spans every
+    user schema instead of a single one. ``col`` is always a literal column name
+    from this module (e.g. ``schemaname``, ``table_schema``) — never request
+    input — so interpolating it is safe. The ``%%`` doubles the LIKE wildcard so
+    the fragment is correct whether or not the surrounding ``execute()`` call
+    passes parameters.
+    """
+    return (f"{col} NOT IN ('pg_catalog','information_schema','pg_toast') "
+            f"AND {col} NOT LIKE 'pg_%%'")
 
 # UC Volume directory for persisted pg_dump backups (optional). When unset,
 # backup save/list/restore are disabled but fresh generate + download work.
@@ -206,6 +234,27 @@ def admin_instances():
                         "default": DEFAULT_INSTANCE, "error": str(e)}), 500
 
 
+@admin_bp.route("/databases")
+def admin_databases():
+    """List connectable databases on the active instance, plus which is active.
+
+    Powers the cross-database selector. ``active`` reflects the
+    ``X-Lakebase-Database`` header for this request (native ``PGDATABASE`` when
+    absent). Discovery is best-effort — an empty list just degrades the selector.
+    """
+    native_db = os.environ.get("PGDATABASE", "databricks_postgres")
+    try:
+        return jsonify({
+            "databases": list_databases(),
+            "active": active_database(),
+            "default": native_db,
+        })
+    except Exception as e:
+        log_error("admin_databases", e)
+        return jsonify({"databases": [], "active": active_database(),
+                        "default": native_db, "error": str(e)}), 500
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Instance Info & Connection
 # ═══════════════════════════════════════════════════════════════════════════
@@ -230,20 +279,23 @@ def admin_instance_info():
                 cur.execute("/* page:admin/instance_info:db_size */ SELECT pg_size_pretty(pg_database_size(current_database()))")
                 info["database_size"] = cur.fetchone()[0]
 
-                # Table sizes (target schema)
+                # Table sizes (all user schemas, schema-qualified). Size lookups
+                # are already qualified as schemaname||'.'||tablename, so they
+                # resolve correctly across schemas.
                 cur.execute(f"""
                     /* page:admin/instance_info:tables */
-                    SELECT tablename,
+                    SELECT schemaname, tablename,
                            pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS total_size,
                            pg_total_relation_size(schemaname||'.'||tablename) AS size_bytes,
                            (SELECT n_live_tup FROM pg_stat_user_tables
                             WHERE schemaname = t.schemaname AND relname = t.tablename) AS row_estimate
                     FROM pg_tables t
-                    WHERE schemaname = '{SCHEMA}'
+                    WHERE {_user_schema_filter('schemaname')}
                     ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC
                 """)
-                info["tables"] = [{"name": r[0], "size": r[1], "size_bytes": r[2],
-                                   "rows": r[3]} for r in cur.fetchall()]
+                info["tables"] = [{"name": f"{r[0]}.{r[1]}", "schema": r[0],
+                                   "table": r[1], "size": r[2], "size_bytes": r[3],
+                                   "rows": r[4]} for r in cur.fetchall()]
 
                 # Active connections grouped by user and state
                 cur.execute("""
@@ -271,41 +323,43 @@ def admin_instance_info():
                 info["roles"] = [{"name": r[0], "can_login": r[1], "is_super": r[2],
                                   "member_of": r[3]} for r in cur.fetchall()]
 
-                # Triggers in target schema
+                # Triggers across all user schemas (table shown schema-qualified)
                 cur.execute(f"""
                     /* page:admin/instance_info:triggers */
-                    SELECT trigger_name, event_object_table, action_timing, event_manipulation
+                    SELECT trigger_schema, trigger_name, event_object_table, action_timing, event_manipulation
                     FROM information_schema.triggers
-                    WHERE trigger_schema = '{SCHEMA}'
+                    WHERE {_user_schema_filter('trigger_schema')}
                 """)
-                info["triggers"] = [{"name": r[0], "table": r[1], "timing": r[2], "event": r[3]}
+                info["triggers"] = [{"name": r[1], "schema": r[0],
+                                     "table": f"{r[0]}.{r[2]}", "timing": r[3], "event": r[4]}
                                     for r in cur.fetchall()]
 
-                # User-defined functions
+                # User-defined functions across all user schemas (schema-qualified)
                 cur.execute(f"""
                     /* page:admin/instance_info:functions */
-                    SELECT routine_name, routine_type, security_type
+                    SELECT routine_schema, routine_name, routine_type, security_type
                     FROM information_schema.routines
-                    WHERE routine_schema = '{SCHEMA}'
+                    WHERE {_user_schema_filter('routine_schema')}
                 """)
-                info["functions"] = [{"name": r[0], "type": r[1], "security": r[2]}
+                info["functions"] = [{"name": f"{r[0]}.{r[1]}", "type": r[2], "security": r[3]}
                                      for r in cur.fetchall()]
 
-                # Materialized views
+                # Materialized views across all user schemas (schema-qualified;
+                # size qualified with the view's own schemaname)
                 cur.execute(f"""
                     /* page:admin/instance_info:matviews */
-                    SELECT matviewname, matviewowner,
-                           pg_size_pretty(pg_total_relation_size('{SCHEMA}.' || matviewname))
+                    SELECT schemaname, matviewname, matviewowner,
+                           pg_size_pretty(pg_total_relation_size(schemaname || '.' || matviewname))
                     FROM pg_matviews
-                    WHERE schemaname = '{SCHEMA}'
+                    WHERE {_user_schema_filter('schemaname')}
                 """)
-                info["matviews"] = [{"name": r[0], "owner": r[1], "size": r[2]}
+                info["matviews"] = [{"name": f"{r[0]}.{r[1]}", "owner": r[2], "size": r[3]}
                                     for r in cur.fetchall()]
 
-                # Total index count
+                # Total index count across all user schemas
                 cur.execute(f"""
                     /* page:admin/instance_info:indexes */
-                    SELECT COUNT(*) FROM pg_indexes WHERE schemaname = '{SCHEMA}'
+                    SELECT COUNT(*) FROM pg_indexes WHERE {_user_schema_filter('schemaname')}
                 """)
                 info["index_count"] = cur.fetchone()[0]
 
@@ -385,60 +439,81 @@ def admin_connection_test():
 
 @admin_bp.route("/schema-explorer")
 def admin_schema_explorer():
-    """Get full schema info — tables, columns, FKs, indexes."""
+    """Get full schema info across all user schemas — tables, columns, FKs.
+
+    Tables from every user schema are returned SCHEMA-QUALIFIED (``schema.table``
+    keys) so same-named tables in different schemas stay distinct. Each table's
+    own schema is carried through to its column / constraint / row-count lookups
+    so they target the right (schema, table). Both identifier parts are validated
+    with ``validate_identifier`` AND the lookups are parameterized — no
+    unvalidated string interpolation of identifiers (preserves the SQLi fix).
+    """
     try:
         pool = current_pool()
         schema = {}
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                # All base tables in target schema
+                # All base tables across user schemas, schema-qualified
                 cur.execute(f"""
                     /* page:admin/schema_explorer:tables */
-                    SELECT table_name FROM information_schema.tables
-                    WHERE table_schema = '{SCHEMA}' AND table_type = 'BASE TABLE'
-                    ORDER BY table_name
+                    SELECT table_schema, table_name FROM information_schema.tables
+                    WHERE {_user_schema_filter('table_schema')} AND table_type = 'BASE TABLE'
+                    ORDER BY table_schema, table_name
                 """)
-                tables = [r[0] for r in cur.fetchall()]
+                tables = cur.fetchall()
 
-                for tbl in tables:
+                for tbl_schema, tbl in tables:
+                    # Validate BOTH identifier parts (defense-in-depth alongside
+                    # the parameterized lookups); skip anything that is not a plain
+                    # SQL identifier rather than failing the whole explorer.
+                    try:
+                        validate_identifier(tbl_schema, "schema")
+                        validate_identifier(tbl, "table")
+                    except ValueError:
+                        continue
+
                     # Column definitions
-                    cur.execute(f"""
+                    cur.execute("""
                         /* page:admin/schema_explorer:columns */
                         SELECT column_name, data_type, is_nullable, column_default
                         FROM information_schema.columns
-                        WHERE table_schema = '{SCHEMA}' AND table_name = %s
+                        WHERE table_schema = %s AND table_name = %s
                         ORDER BY ordinal_position
-                    """, (tbl,))
+                    """, (tbl_schema, tbl))
                     columns = [{"name": r[0], "type": r[1], "nullable": r[2], "default": r[3]}
                                for r in cur.fetchall()]
 
                     # Foreign key relationships
-                    cur.execute(f"""
+                    cur.execute("""
                         /* page:admin/schema_explorer:fks */
                         SELECT kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
                         FROM information_schema.table_constraints tc
                         JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
                         JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
                         WHERE tc.constraint_type = 'FOREIGN KEY'
-                          AND tc.table_schema = '{SCHEMA}' AND tc.table_name = %s
-                    """, (tbl,))
+                          AND tc.table_schema = %s AND tc.table_name = %s
+                    """, (tbl_schema, tbl))
                     fks = [{"column": r[0], "ref_table": r[1], "ref_column": r[2]}
                            for r in cur.fetchall()]
 
                     # Approximate row count from pg_stat
                     cur.execute(
                         "SELECT n_live_tup FROM pg_stat_user_tables WHERE schemaname = %s AND relname = %s",
-                        (SCHEMA, tbl),
+                        (tbl_schema, tbl),
                     )
                     row_count = cur.fetchone()
 
-                    schema[tbl] = {
+                    schema[f"{tbl_schema}.{tbl}"] = {
+                        "schema": tbl_schema,
+                        "table": tbl,
                         "columns": columns,
                         "foreign_keys": fks,
                         "row_count": row_count[0] if row_count else 0,
                     }
 
-        return jsonify({"schema": SCHEMA, "tables": schema})
+        # ``schema`` retained for back-compat; it is now the console's DEFAULT
+        # home schema, while ``tables`` spans all user schemas (keys qualified).
+        return jsonify({"schema": SCHEMA, "all_schemas": True, "tables": schema})
     except Exception as e:
         log_error("admin_schema_explorer", e)
         return jsonify({"error": str(e)}), 500
@@ -685,63 +760,69 @@ def admin_live_dashboard_summary():
                 r = cur.fetchone()
                 active, waiting, blocked, longest, idle_txn = r[0], r[1], r[2], r[3], r[4]
 
-                # ── ASH sampling (best-effort, non-critical) ──
-                try:
-                    cur.execute(f"""
-                        CREATE TABLE IF NOT EXISTS {SCHEMA}.ash_history (
-                            sample_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                            active_sessions INTEGER DEFAULT 0,
-                            waiting_sessions INTEGER DEFAULT 0,
-                            blocked_sessions INTEGER DEFAULT 0,
-                            idle_in_txn INTEGER DEFAULT 0,
-                            total_sessions INTEGER DEFAULT 0,
-                            longest_sec INTEGER DEFAULT 0
-                        )
-                    """)
-                    cur.execute(f"""
-                        CREATE TABLE IF NOT EXISTS {SCHEMA}.ash_query_log (
-                            sample_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                            pid INTEGER,
-                            usename TEXT,
-                            state TEXT,
-                            wait_event_type TEXT,
-                            wait_event TEXT,
-                            duration INTERVAL,
-                            query TEXT
-                        )
-                    """)
-                    cur.execute(f"""
-                        CREATE INDEX IF NOT EXISTS idx_ash_query_log_time
-                        ON {SCHEMA}.ash_query_log (sample_time DESC)
-                    """)
-
-                    cur.execute(f"""
-                        INSERT INTO {SCHEMA}.ash_history
-                        (active_sessions, waiting_sessions, blocked_sessions, idle_in_txn, total_sessions, longest_sec)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (active, waiting, blocked, idle_txn, active + waiting + blocked + idle_txn, longest))
-
-                    cur.execute(f"""
-                        INSERT INTO {SCHEMA}.ash_query_log (pid, usename, state, wait_event_type, wait_event, duration, query)
-                        SELECT pid, usename, state, wait_event_type, wait_event,
-                               clock_timestamp() - query_start, LEFT(query, 2000)
-                        FROM pg_stat_activity
-                        WHERE datname = current_database()
-                          AND pid != pg_backend_pid()
-                          AND state != 'idle'
-                          AND query IS NOT NULL
-                          AND query != ''
-                    """)
-                    conn.commit()
-
-                    cur.execute(f"DELETE FROM {SCHEMA}.ash_history WHERE sample_time < NOW() - INTERVAL '24 hours'")
-                    cur.execute(f"DELETE FROM {SCHEMA}.ash_query_log WHERE sample_time < NOW() - INTERVAL '24 hours'")
-                    conn.commit()
-                except Exception:
+                # ── ASH sampling (best-effort, non-critical) — HOME INSTANCE ONLY ──
+                # The ASH tables are the console's OWN objects and live only in its
+                # home instance's default SCHEMA. On any other selected instance we
+                # still return the live counts computed above, but never
+                # CREATE/INSERT/DELETE — so the console never seeds its tables into
+                # another admin's database.
+                if active_instance_name() in ("", effective_default_instance()):
                     try:
-                        conn.rollback()
+                        cur.execute(f"""
+                            CREATE TABLE IF NOT EXISTS {SCHEMA}.ash_history (
+                                sample_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                                active_sessions INTEGER DEFAULT 0,
+                                waiting_sessions INTEGER DEFAULT 0,
+                                blocked_sessions INTEGER DEFAULT 0,
+                                idle_in_txn INTEGER DEFAULT 0,
+                                total_sessions INTEGER DEFAULT 0,
+                                longest_sec INTEGER DEFAULT 0
+                            )
+                        """)
+                        cur.execute(f"""
+                            CREATE TABLE IF NOT EXISTS {SCHEMA}.ash_query_log (
+                                sample_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                                pid INTEGER,
+                                usename TEXT,
+                                state TEXT,
+                                wait_event_type TEXT,
+                                wait_event TEXT,
+                                duration INTERVAL,
+                                query TEXT
+                            )
+                        """)
+                        cur.execute(f"""
+                            CREATE INDEX IF NOT EXISTS idx_ash_query_log_time
+                            ON {SCHEMA}.ash_query_log (sample_time DESC)
+                        """)
+
+                        cur.execute(f"""
+                            INSERT INTO {SCHEMA}.ash_history
+                            (active_sessions, waiting_sessions, blocked_sessions, idle_in_txn, total_sessions, longest_sec)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (active, waiting, blocked, idle_txn, active + waiting + blocked + idle_txn, longest))
+
+                        cur.execute(f"""
+                            INSERT INTO {SCHEMA}.ash_query_log (pid, usename, state, wait_event_type, wait_event, duration, query)
+                            SELECT pid, usename, state, wait_event_type, wait_event,
+                                   clock_timestamp() - query_start, LEFT(query, 2000)
+                            FROM pg_stat_activity
+                            WHERE datname = current_database()
+                              AND pid != pg_backend_pid()
+                              AND state != 'idle'
+                              AND query IS NOT NULL
+                              AND query != ''
+                        """)
+                        conn.commit()
+
+                        cur.execute(f"DELETE FROM {SCHEMA}.ash_history WHERE sample_time < NOW() - INTERVAL '24 hours'")
+                        cur.execute(f"DELETE FROM {SCHEMA}.ash_query_log WHERE sample_time < NOW() - INTERVAL '24 hours'")
+                        conn.commit()
                     except Exception:
-                        pass
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
 
                 return jsonify({
                     "active": active, "waiting": waiting,

@@ -65,6 +65,9 @@ __all__ = [
     "active_instance_name",
     "list_lakebase_instances",
     "get_pool_for",
+    # Multi-database (cross-database selector)
+    "active_database",
+    "list_databases",
 ]
 
 log = logging.getLogger(__name__)
@@ -409,6 +412,45 @@ def active_instance_name() -> str:
     return _strip_projects(v) if v else DEFAULT_INSTANCE
 
 
+def active_database() -> str:
+    """Resolve the target database for the current request.
+
+    Reads the ``X-Lakebase-Database`` header (set by the frontend database
+    selector); falls back to the native ``PGDATABASE`` env var (default
+    ``databricks_postgres``). This is the DB counterpart to
+    ``active_instance_name`` and lets a fleet DBA reach data in databases other
+    than the console's native one.
+    """
+    try:
+        from flask import request as _rq
+        v = (_rq.headers.get("X-Lakebase-Database") or "").strip()
+    except Exception:
+        v = ""
+    return v or os.environ.get("PGDATABASE", "databricks_postgres")
+
+
+def list_databases() -> list[str]:
+    """List the connectable, non-template databases on the active instance.
+
+    Best-effort: returns ``[]`` on any error so the selector degrades
+    gracefully. ``pg_database`` is instance-wide, so this reflects every
+    database the signed-in admin's connection can see regardless of which one is
+    currently active.
+    """
+    try:
+        pool = get_pool_for(active_instance_name(), analytics=False)
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT datname FROM pg_database "
+                    "WHERE NOT datistemplate AND datallowconn ORDER BY datname"
+                )
+                return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        log_error("list_databases", e)
+        return []
+
+
 def list_lakebase_instances() -> list[dict]:
     """Discover Lakebase projects in the workspace (cached ~60 s).
 
@@ -556,9 +598,9 @@ def _mint_credential(endpoint_full_name: str) -> tuple[str, float, str, str]:
     return resp["token"], _parse_expiry(resp), _own_identity(), "sp"
 
 
-def _conninfo(host: str, user: str, password: str) -> str:
+def _conninfo(host: str, user: str, password: str, dbname: str | None = None) -> str:
     return (
-        f"dbname={os.environ.get('PGDATABASE', 'databricks_postgres')} "
+        f"dbname={dbname or active_database()} "
         f"user={user} password={password} host={host} "
         f"port={os.environ.get('PGPORT', '5432')} sslmode=require"
     )
@@ -647,7 +689,13 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
     if not instance_id:
         instance_id = eff
     is_home = (not instance_id) or (instance_id == eff)
-    native_ok = is_home and bool(os.environ.get("PGHOST"))
+    # The native secret-cred pools point at the native PGDATABASE only, so they
+    # are usable ONLY when the selected database is that same native database.
+    # A different (cross-database) selection on the home instance must go through
+    # the OBO path so we actually connect to the chosen database.
+    db = active_database()
+    native_db = os.environ.get("PGDATABASE", "databricks_postgres")
+    native_ok = is_home and (db == native_db) and bool(os.environ.get("PGHOST"))
     has_token = _has_forwarded_token()
 
     def _native() -> ConnectionPool:
@@ -670,7 +718,7 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
         )
 
     kind = "a" if analytics else "i"
-    prefix = f"{instance_id}::{kind}::"
+    prefix = f"{instance_id}::{db}::{kind}::"
 
     def _live_pool():
         now = time.time()
@@ -702,7 +750,7 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
         try:
             host, endpoint_full_name = _resolve_host(instance_id)
             token, tok_exp, pguser, auth_mode = _mint_credential(endpoint_full_name)
-            conninfo = _conninfo(host, pguser, token)
+            conninfo = _conninfo(host, pguser, token, db)
             # Fail fast with a clear error rather than letting the pool retry 30 s.
             _probe = psycopg.connect(conninfo + " connect_timeout=6")
             _probe.close()
@@ -740,7 +788,7 @@ def get_pool_for(instance_id: str | None, analytics: bool = False) -> Connection
             _pools[key] = {"pool": pool, "exp": exp}
         if old and old["pool"] is not pool:
             _schedule_pool_close(old["pool"])  # grace-close; never kill an in-use pool
-        log.info(f"Opened OAuth pool for instance '{instance_id}' as '{pguser}' (kind={kind})")
+        log.info(f"Opened OAuth pool for instance '{instance_id}' db '{db}' as '{pguser}' (kind={kind})")
         return pool
 
 

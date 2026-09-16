@@ -27,12 +27,14 @@
                     var url = (typeof input === 'string') ? input : (input && input.url) || '';
                     var sameOriginApi = url && (url.charAt(0) === '/' || url.indexOf(location.origin) === 0) && url.indexOf('/api/') !== -1;
                     if (sameOriginApi) {
-                        var inst = null;
+                        var inst = null, db = null;
                         try { inst = localStorage.getItem('lbadmin-instance'); } catch (e) {}
-                        if (inst) {
+                        try { db = localStorage.getItem('lbadmin-database'); } catch (e) {}
+                        if (inst || db) {
                             init = init || {};
                             var h = new Headers(init.headers || {});
-                            h.set('X-Lakebase-Instance', inst);
+                            if (inst) h.set('X-Lakebase-Instance', inst);
+                            if (db) h.set('X-Lakebase-Database', db);
                             init.headers = h;
                         }
                     }
@@ -153,6 +155,17 @@
         .inst-item .inst-item-meta { margin-left: auto; font-size: 0.68rem; color: var(--text-secondary, #9aa7b4); font-family: var(--font-mono, monospace); white-space: nowrap; }
         .inst-item .inst-badge { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 1px 6px; border-radius: 999px; background: var(--accent-primary, #1B7FE3); color: #fff; }
         .inst-empty { padding: 14px; text-align: center; font-size: 0.78rem; color: var(--text-secondary, #9aa7b4); }
+
+        /* ── Database selector (plain dropdown, mirrors the instance selector) ── */
+        .db-selector { display: inline-flex; align-items: center; gap: 6px; }
+        .db-selector .db-icon { font-size: 0.7rem; color: var(--text-secondary, #9aa7b4); }
+        .db-select {
+            max-width: 220px; padding: 5px 10px; cursor: pointer;
+            font-size: 0.8rem; font-weight: 600;
+            background: var(--bg-tertiary, #1a222c);
+            border: 1px solid var(--border-primary, #263140);
+            color: var(--text-primary, #e6e6e6); border-radius: 8px;
+        }
     </style>
 </head>
 <body data-page="{{ page_id }}">
@@ -165,6 +178,12 @@
         <div class="top-bar-sep"></div>
         <div class="top-bar-title">{% block page_title %}Admin{% endblock %}</div>
         <div class="top-bar-right">
+            <div class="db-selector" title="Switch database on the selected instance">
+                <span class="db-icon">&#x1F5C4;</span>
+                <select class="db-select" id="dbSelect" onchange="selectDatabase(this.value)">
+                    <option>Loading…</option>
+                </select>
+            </div>
             <div class="inst-selector">
                 <button class="inst-btn" id="instBtn" title="Switch Lakebase instance" onclick="toggleInstancePanel(event)">
                     <img src="/static/lakebase-icon-full-color.webp" alt="" style="width:15px;height:15px;">
@@ -308,6 +327,9 @@
 
         function selectInstance(name) {
             try { localStorage.setItem('lbadmin-instance', name); } catch (e) {}
+            // Drop the database selection: it may not exist on the new instance,
+            // so reset to the default (loadDatabases picks it up after reload).
+            try { localStorage.removeItem('lbadmin-database'); } catch (e) {}
             location.reload();  // re-fetch every panel against the new instance
         }
 
@@ -330,7 +352,47 @@
             if (e.key === 'Escape') { var p = document.getElementById('instPanel'); if (p) p.hidden = true; }
         });
 
+        // ── Database selector ──────────────────────────────────────────────
+        // Mirrors the instance selector: the choice is stored in localStorage
+        // ('lbadmin-database') and the head fetch wrapper attaches it as the
+        // X-Lakebase-Database header on every /api call. Changing it reloads the
+        // page so every panel re-fetches against the new database.
+        function _savedDatabase() {
+            try { return localStorage.getItem('lbadmin-database'); } catch (e) { return null; }
+        }
+
+        function loadDatabases() {
+            fetch('/api/admin/databases')
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var dbs = data.databases || [];
+                    var active = _savedDatabase() || data.active || data.default || null;
+                    var sel = document.getElementById('dbSelect');
+                    if (!sel) return;
+                    // Keep showing the active/default even if discovery came back empty.
+                    if (!dbs.length) dbs = active ? [active] : (data.default ? [data.default] : []);
+                    if (active && dbs.indexOf(active) === -1) dbs = [active].concat(dbs);
+                    sel.innerHTML = dbs.map(function (d) {
+                        var s = String(d).replace(/</g, '&lt;');
+                        return '<option value="' + s + '"' +
+                            (d === active ? ' selected' : '') + '>' + s + '</option>';
+                    }).join('');
+                })
+                .catch(function () {
+                    var sel = document.getElementById('dbSelect');
+                    if (sel) sel.innerHTML = '<option>' +
+                        (_savedDatabase() || 'databricks_postgres') + '</option>';
+                });
+        }
+
+        function selectDatabase(name) {
+            if (!name) return;
+            try { localStorage.setItem('lbadmin-database', name); } catch (e) {}
+            location.reload();  // re-fetch every panel against the new database
+        }
+
         loadInstances();
+        loadDatabases();
 
         // Surface admin API errors (e.g. instance connection/consent issues) as a
         // transient banner: never blank, and auto-dismisses so a one-off hiccup
