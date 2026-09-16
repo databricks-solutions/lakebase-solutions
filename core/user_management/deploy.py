@@ -145,6 +145,7 @@ def deploy(ctx: Any) -> Dict[str, Any]:
                 pass
             cur = conn.cursor()
             su_sql: List[str] = []
+            su_errors: List[str] = []  # per-statement failures, surfaced for diagnosis
             # (label, callable) -- best-effort per statement (role may already exist).
             statements = [
                 ("CREATE EXTENSION IF NOT EXISTS databricks_auth",
@@ -161,10 +162,13 @@ def deploy(ctx: Any) -> Dict[str, Any]:
                     su_sql.append(label)
                 except Exception as exc:  # idempotent re-run / role may exist -- best effort
                     conn.rollback()
+                    su_errors.append(f"{label} -> {str(exc)[:220]}")
                     ctx.logger.info(
                         "core/user_management.deploy: superuser stmt deferred (%s): %s",
                         label, str(exc)[:120],
                     )
+            if su_errors:
+                result["superuser_errors"] = su_errors
             result["superuser_identity"] = email
             # Report granted only when the GRANT itself succeeded (not merely the
             # extension/role-create), so the deploy result reflects real privilege.
