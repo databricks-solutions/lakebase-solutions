@@ -26,7 +26,7 @@ from bootstrap.adapters import POSTGRES_API_BASE
 
 # Connection-info secret keys the deploy step wrote (documented here for
 # reference; teardown removes the whole scope rather than deleting keys 1-by-1).
-CONN_SECRET_KEYS = ["pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"]
+CONN_SECRET_KEYS = ["pghost", "pgdatabase", "pgschema"]
 
 
 def teardown(ctx: Any) -> Dict[str, Any]:

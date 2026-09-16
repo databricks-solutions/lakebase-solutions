@@ -111,6 +111,7 @@ class DeployContext:
             # identifiers are double-quoted where they appear in SQL.
             "workshop_schema": "workshop",
             "pg_app_role": f"{self.deployment_id}_app",
+            "pg_fs_app_role": f"{self.deployment_id}_fs_app",
             "pg_readonly_role": f"{self.deployment_id}_readonly",
             "pg_participant_role": f"{self.deployment_id}_participant",
         }

@@ -16,9 +16,9 @@ env:
 - name: PGDATABASE
   value: __INJECTED_AT_DEPLOY__
 - name: PGUSER
-  valueFrom: pguser
+  valueFrom: field_service-pguser
 - name: PGPASSWORD
-  valueFrom: pgpassword
+  valueFrom: field_service-pgpassword
 # ── Genie spaces (ids injected from the genie step's results) ──
 - name: GENIE_SPACE_POSTGRES
   value: __INJECTED_AT_DEPLOY__

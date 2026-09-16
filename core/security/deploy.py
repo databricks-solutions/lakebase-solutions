@@ -18,11 +18,18 @@ When no live clients are injected it logs intent and returns a ``stub`` result.
 
 from __future__ import annotations
 
-import secrets as _secrets
-import string
 from typing import Any, Dict, List, Tuple
 
-_PW_ALPHABET = string.ascii_letters + string.digits + "!@#$%&*"
+# Shared native-auth role helpers live in ``bootstrap`` (``core`` is loaded flat
+# by path, so sibling step files can't import one another). Re-imported here so
+# the historical local names still resolve.
+from bootstrap.roles import (
+    create_role_sql,
+    dba_console_grants,
+    generate_password,
+    provision_native_app_role,
+    write_app_secrets,
+)
 
 # Secret keys this step writes (and teardown removes).
 ROLE_SECRET_KEYS: List[str] = [
@@ -31,23 +38,6 @@ ROLE_SECRET_KEYS: List[str] = [
     "readonly-role-username",
     "readonly-role-password",
 ]
-
-
-def generate_password(length: int = 24) -> str:
-    """Return a random password for a native-auth PG role."""
-
-    return "".join(_secrets.choice(_PW_ALPHABET) for _ in range(length))
-
-
-def create_role_sql(role: str) -> str:
-    """Idempotent ``CREATE ROLE`` via a ``DO``-block guard (no PW in the block)."""
-
-    return (
-        "DO $$ BEGIN "
-        f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{role}') THEN "
-        f'CREATE ROLE "{role}" WITH LOGIN; '
-        "END IF; END $$;"
-    )
 
 
 def grant_sql(role: str, database: str, schema: str, readonly: bool) -> List[str]:
@@ -73,30 +63,6 @@ def grant_sql(role: str, database: str, schema: str, readonly: bool) -> List[str
             f'GRANT ALL PRIVILEGES ON SEQUENCES TO "{role}"',
         ]
     return stmts
-
-
-def dba_console_grants(role: str) -> List[str]:
-    """Extension + monitoring grants so the app's DBA/admin queries work.
-
-    Ported from FSM ``03_setup_permissions``. Best-effort at the call site
-    (each runs on its own commit; a missing privilege is logged, not fatal):
-    ``pg_monitor`` gives cross-session visibility into ``pg_stat_statements``
-    query text, and ``pgstattuple`` powers the table-bloat card.
-    """
-
-    return [
-        "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
-        "CREATE EXTENSION IF NOT EXISTS pgstattuple",
-        f'GRANT SELECT ON pg_stat_statements TO "{role}"',
-        # Full pgstattuple/pgstatindex function set the admin table/index-bloat
-        # cards call (ported 1:1 from FSM 03_setup_permissions.py).
-        f'GRANT EXECUTE ON FUNCTION pgstattuple(regclass) TO "{role}"',
-        f'GRANT EXECUTE ON FUNCTION pgstattuple(text) TO "{role}"',
-        f'GRANT EXECUTE ON FUNCTION pgstatindex(regclass) TO "{role}"',
-        f'GRANT EXECUTE ON FUNCTION pgstatindex(text) TO "{role}"',
-        f'GRANT EXECUTE ON FUNCTION pgstattuple_approx(regclass) TO "{role}"',
-        f'GRANT pg_monitor TO "{role}"',
-    ]
 
 
 def deploy(ctx: Any) -> Dict[str, Any]:
@@ -126,15 +92,8 @@ def deploy(ctx: Any) -> Dict[str, Any]:
 
     roles: Tuple[Tuple[str, bool], ...] = ((app_role, False), (ro_role, True))
     for role, readonly in roles:
-        create = create_role_sql(role)
-        cur.execute(create)
-        executed.append(create)
-        # ALTER ROLE ... PASSWORD is DDL and does NOT accept bind parameters, so
-        # inline the password as a single-quoted SQL literal (the generated
-        # alphabet excludes quotes/backslashes; any quote is doubled defensively).
-        pw_literal = "'" + passwords[role].replace("'", "''") + "'"
-        cur.execute(f'ALTER ROLE "{role}" WITH LOGIN PASSWORD {pw_literal}')
-        executed.append(f'ALTER ROLE "{role}" WITH LOGIN PASSWORD <redacted>')
+        # Create the role + set its native LOGIN password (idempotent, redacted SQL).
+        executed.extend(provision_native_app_role(cur, role, passwords[role]))
         for stmt in grant_sql(role, database, schema, readonly=readonly):
             cur.execute(stmt)
             executed.append(stmt)
@@ -154,20 +113,23 @@ def deploy(ctx: Any) -> Dict[str, Any]:
                             stmt[:48], str(exc)[:100])
 
     w = ctx.workspace_client()
-    # pguser/pgpassword = the NATIVE-password app role. This is the durable
-    # credential the field-service app + scheduled jobs use for PG auth
-    # (native password via Databricks Secrets) -- NOT an OAuth token, which
-    # expires. core/lakebase deliberately does not write these.
+    # Role-credential secrets. The app role IS the admin console's own role, so
+    # its native creds are ALSO written under the console's own keys
+    # (``admin_app-pguser``/``admin_app-pgpassword``) via ``write_app_secrets`` --
+    # no shared ``pguser``/``pgpassword`` are written any more (each app reads its
+    # own keys). core/lakebase writes the non-credential connection info
+    # (pghost/pgdatabase/pgschema); those stay shared.
     secret_map = {
         "app-role-username": app_role,
         "app-role-password": passwords[app_role],
         "readonly-role-username": ro_role,
         "readonly-role-password": passwords[ro_role],
-        "pguser": app_role,
-        "pgpassword": passwords[app_role],
     }
     for key, value in secret_map.items():
         w.secrets.put_secret(scope=scope, key=key, string_value=value)
+    # The admin console's OWN per-app credential keys (role ``<id>_app``).
+    app_secret_keys = write_app_secrets(w, scope, "admin_app", app_role, passwords[app_role])
+    secrets_written = sorted(list(secret_map) + app_secret_keys)
 
     ctx.logger.info(
         "core/security.deploy: ensured roles %r + %r on %s.%s; wrote %d role "
@@ -176,13 +138,13 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         ro_role,
         database,
         schema,
-        len(secret_map),
+        len(secrets_written),
         scope,
     )
     return {
         "pg_roles": [app_role, ro_role],
         "secret_scope": scope,
         "sql": executed,
-        "secrets_written": sorted(secret_map),
+        "secrets_written": secrets_written,
         "status": "deployed",
     }

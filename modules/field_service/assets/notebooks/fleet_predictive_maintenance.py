@@ -86,8 +86,8 @@ gold_pd = spark.table("gold_vehicle_health").select("vehicle_id", *feature_cols)
 # Real outcome label from Lakebase: did this vehicle have an unplanned repair?
 _host = dbutils.widgets.get("pg_host")
 _scope = dbutils.widgets.get("secret_scope")
-_user = dbutils.secrets.get(scope=_scope, key="pguser")
-_token = dbutils.secrets.get(scope=_scope, key="pgpassword")
+_user = dbutils.secrets.get(scope=_scope, key="field_service-pguser")
+_token = dbutils.secrets.get(scope=_scope, key="field_service-pgpassword")
 _conn = psycopg2.connect(host=_host, port=5432, user=_user, password=_token,
                          database=dbutils.widgets.get("pg_database") or "databricks_postgres", sslmode="require")
 _cur = _conn.cursor()

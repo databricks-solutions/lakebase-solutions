@@ -47,8 +47,10 @@ from bootstrap.adapters import (
     resolve_primary_endpoint,
 )
 
-# Connection-info secret keys this step writes (and teardown removes).
-CONN_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pgschema", "pguser", "pgpassword"]
+# Connection-info secret keys this step writes (and teardown removes). Credentials
+# (pguser/pgpassword) are NOT written here -- each app gets its own per-app keys
+# from core/security (admin_app-*) and field_service (field_service-*).
+CONN_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pgschema"]
 
 # Maintenance/default db on an autoscaling endpoint; `CREATE DATABASE` runs here.
 MAINTENANCE_DB = "postgres"

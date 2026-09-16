@@ -186,9 +186,9 @@ def _pg_host(ctx: Any) -> str:
 def _pg_base_params(ctx: Any) -> Dict[str, str]:
     """Common base_params for notebooks that connect to Lakebase.
 
-    The notebook reads pguser/pgpassword from ``secret_scope`` via
-    ``dbutils.secrets.get`` (the ash_sampler pattern) — creds never travel as
-    plaintext job parameters.
+    The notebook reads field_service-pguser/field_service-pgpassword (the app's
+    OWN credential keys) from ``secret_scope`` via ``dbutils.secrets.get`` (the
+    ash_sampler pattern) — creds never travel as plaintext job parameters.
     """
 
     return {
@@ -270,6 +270,17 @@ def _mk(step: str, deploy_detail: str, teardown_detail: str, health_detail: str)
     return d, t, h
 
 
+def _fs_app_role(ctx: Any) -> str:
+    """The field-service app's OWN native-auth PG role (never the admin console's).
+
+    Namespaced per deployment (``<id>_fs_app``); its credentials are written to
+    the standalone scope under the ``field_service-*`` keys so the app reads its
+    own creds and shares none with the admin console.
+    """
+
+    return ctx.resolved_names.get("pg_fs_app_role") or f"{ctx.deployment_id}_fs_app"
+
+
 def _app_role_grant_sql(role: str, schemas: List[str]) -> List[str]:
     """Grant the app role read/write on the module schemas (ported from FSM
     03_setup_permissions grant loop): USAGE/CREATE + DML on all tables +
@@ -331,11 +342,26 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
         except Exception as exc:
             ctx.logger.info("field_service.data.deploy: index/analyze deferred: %s", str(exc)[:120])
 
-    # Grant the core app role (used by the field-service app + jobs via native PG
-    # auth) read/write on the module's schemas. The app owns none of these schemas
-    # (the admin identity created them), so without this the app connects but sees
-    # nothing. Best-effort per statement.
-    app_role = ctx.resolved_names.get("pg_app_role", f"{ctx.deployment_id}_app")
+    # Provision the field-service app's OWN native-auth PG role + credentials
+    # (never shared with the admin console). This runs in the DATA step -- the
+    # FIRST step -- because the module's early jobs (datagen/ml/dispatch/dtc/fuel/
+    # ops) read field_service-pguser/pgpassword from the secret scope; the app
+    # step (last) only binds those already-written keys as app resources.
+    from bootstrap.roles import (
+        dba_console_grants,
+        generate_password,
+        provision_native_app_role,
+        write_app_secrets,
+    )
+
+    app_role = _fs_app_role(ctx)
+    password = generate_password()
+    provision_native_app_role(cur, app_role, password)
+    conn.commit()
+
+    # Grant the app role read/write on the module's schemas. The app owns none of
+    # these schemas (the admin identity created them), so without this the app
+    # connects but sees nothing. Best-effort per statement.
     granted = 0
     # + public for the data_api_demo sandbox table (mirrors FSM's public grant).
     for stmt in _app_role_grant_sql(app_role, fs_sql.DATA_SCHEMAS + ["public"]):
@@ -344,6 +370,14 @@ def _data_deploy(ctx: Any) -> Dict[str, Any]:
             granted += 1
         except Exception as exc:
             ctx.logger.info("field_service.data.deploy: app-role grant deferred: %s", str(exc)[:120])
+    # DBA-console visibility for the app role (best-effort; mirrors FSM 03_setup).
+    for stmt in dba_console_grants(app_role):
+        try:
+            cur.execute(stmt)
+        except Exception as exc:
+            ctx.logger.info("field_service.data.deploy: dba grant deferred: %s", str(exc)[:120])
+    # Write the app's OWN credential keys to the standalone scope (its own creds).
+    write_app_secrets(ctx.workspace_client(), _scope(ctx), "field_service", app_role, password)
     ctx.logger.info(
         "field_service.data.deploy: applied %d statement(s) across %d file(s) "
         "(seed_volume=%s); %d still failing; %d index/analyze stmts.",
@@ -1528,7 +1562,7 @@ def _ops_health(ctx: Any) -> Dict[str, Any]:
 
 
 _ops = (_ops_deploy, _ops_teardown, _ops_health)
-_APP_PG_SECRET_KEYS = ["pguser", "pgpassword"]
+_APP_PG_SECRET_KEYS = ["field_service-pguser", "field_service-pgpassword"]
 _APP_POLL_ATTEMPTS = 60
 _APP_POLL_DELAY = 10.0
 
@@ -1565,7 +1599,7 @@ def _render_app_yaml(ctx: Any) -> str:
     }
     lines = ["command:", "- python", "- app.py", "env:"]
     for key in _APP_PG_SECRET_KEYS:  # secrets via valueFrom
-        env_name = "PGUSER" if key == "pguser" else "PGPASSWORD"
+        env_name = "PGUSER" if key.endswith("pguser") else "PGPASSWORD"
         lines += [f"- name: {env_name}", f"  valueFrom: {key}"]
     for k, v in env.items():
         lines += [f"- name: {k}", f"  value: {json.dumps(v)}"]
@@ -1610,6 +1644,9 @@ def _app_deploy(ctx: Any) -> Dict[str, Any]:
     w = ctx.workspace_client()
     source_path = ctx.params.get("field_service_app_source_path") or _fs_workspace_path(ctx, "assets/app")
     try:
+        # The field-service app's OWN role + field_service-* credentials are
+        # provisioned in the DATA step (which runs first), so the module's early
+        # jobs find them; here the app just binds those secret keys as resources.
         # 1. Render + upload the real app.yaml (host/genie/warehouse/catalog/agent).
         _upload_app_yaml(ctx, source_path, _render_app_yaml(ctx))
 
@@ -1672,7 +1709,24 @@ def _app_teardown(ctx: Any) -> Dict[str, Any]:
         deleted = True
     except Exception as exc:
         ctx.logger.info("field_service.app.teardown: %s", exc)
-    return {"step": "app", "app_deleted": deleted, "status": "torn_down"}
+    # Drop the field-service app's own PG role (mirror core/security teardown):
+    # DROP OWNED BY clears any grants/objects it still holds so DROP ROLE succeeds.
+    role_dropped = False
+    if ctx.has_pg_connection():
+        fs_app_role = _fs_app_role(ctx)
+        database = ctx.params.get("database") or "databricks_postgres"
+        conn = ctx.pg_connection(role="admin", database=database)
+        cur = conn.cursor()
+        for stmt in (f'DROP OWNED BY "{fs_app_role}"', f'DROP ROLE IF EXISTS "{fs_app_role}"'):
+            try:
+                cur.execute(stmt)
+                conn.commit()
+                role_dropped = True
+            except Exception as exc:  # role/grant may already be gone -- best effort
+                conn.rollback()
+                ctx.logger.info("field_service.app.teardown: %s -> %s", stmt, exc)
+    return {"step": "app", "app_deleted": deleted, "role_dropped": role_dropped,
+            "status": "torn_down"}
 
 
 def _app_health(ctx: Any) -> Dict[str, Any]:

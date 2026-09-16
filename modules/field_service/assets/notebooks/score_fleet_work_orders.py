@@ -49,8 +49,8 @@ MODEL_NAME = f"{CATALOG}.{SCHEMA}.fleet_maintenance_model"
 PG_DB = dbutils.widgets.get("pg_database") or "databricks_postgres"
 PG_HOST = dbutils.widgets.get("pg_host")
 _secret_scope = dbutils.widgets.get("secret_scope")
-PG_USER = dbutils.secrets.get(scope=_secret_scope, key="pguser")
-PG_TOKEN = dbutils.secrets.get(scope=_secret_scope, key="pgpassword")
+PG_USER = dbutils.secrets.get(scope=_secret_scope, key="field_service-pguser")
+PG_TOKEN = dbutils.secrets.get(scope=_secret_scope, key="field_service-pgpassword")
 
 spark.sql(f"USE CATALOG `{CATALOG}`")
 spark.sql(f"USE SCHEMA `{SCHEMA}`")

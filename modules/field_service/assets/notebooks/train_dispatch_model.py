@@ -60,13 +60,13 @@ def get_pg_connection():
     scope = cfg.get("secret_scope", "lakebase-secrets")
     if not pg_user:
         try:
-            pg_user = dbutils.secrets.get(scope=scope, key="pguser")
+            pg_user = dbutils.secrets.get(scope=scope, key="field_service-pguser")
             print(f"  Got pguser from secrets scope '{scope}'")
         except Exception:
             pass
     if not pg_pass:
         try:
-            pg_pass = dbutils.secrets.get(scope=scope, key="pgpassword")
+            pg_pass = dbutils.secrets.get(scope=scope, key="field_service-pgpassword")
             print(f"  Got pgpassword from secrets scope '{scope}'")
         except Exception:
             pass

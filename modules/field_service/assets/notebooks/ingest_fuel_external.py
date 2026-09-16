@@ -61,8 +61,8 @@ FQN = f"`{CATALOG}`.{SCHEMA}"
 PG_DB = dbutils.widgets.get("pg_database") or "databricks_postgres"
 PG_HOST = dbutils.widgets.get("pg_host")
 _secret_scope = dbutils.widgets.get("secret_scope")
-PG_USER = dbutils.secrets.get(scope=_secret_scope, key="pguser")
-PG_TOKEN = dbutils.secrets.get(scope=_secret_scope, key="pgpassword")
+PG_USER = dbutils.secrets.get(scope=_secret_scope, key="field_service-pguser")
+PG_TOKEN = dbutils.secrets.get(scope=_secret_scope, key="field_service-pgpassword")
 
 print(f"Catalog/Schema/Volume: {VOLUME_PATH}")
 print(f"Lakebase: {PG_HOST}")

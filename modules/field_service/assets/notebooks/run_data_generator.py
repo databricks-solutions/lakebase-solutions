@@ -75,8 +75,8 @@ host = dbutils.widgets.get("pg_host")
 database = dbutils.widgets.get("pg_database") or "databricks_postgres"
 schema = dbutils.widgets.get("schema") or "field_service"
 _scope = dbutils.widgets.get("secret_scope")
-user = dbutils.secrets.get(scope=_scope, key="pguser")
-password = dbutils.secrets.get(scope=_scope, key="pgpassword")
+user = dbutils.secrets.get(scope=_scope, key="field_service-pguser")
+password = dbutils.secrets.get(scope=_scope, key="field_service-pgpassword")
 
 print(f"Host:      {host}")
 print(f"Database:  {database}")

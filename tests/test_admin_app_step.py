@@ -31,13 +31,14 @@ def test_deploy_creates_app_with_secret_resources_then_deploys():
 
     api = ws.api_client
     # Created via REST POST /api/2.0/apps, WITH the four PG secret resources so the
-    # app.yaml `valueFrom` env resolves from this deployment's scope at launch.
+    # app.yaml `valueFrom` env resolves from this deployment's scope at launch. The
+    # credential keys are the console's OWN per-app keys (no shared pguser/pgpassword).
     posts = [c for c in api.calls if c[0] == "POST" and c[1] == "/api/2.0/apps"]
     assert len(posts) == 1
     body = posts[0][2]
     assert body["name"] == APP
     res_names = {r["name"] for r in body["resources"]}
-    assert res_names == {"pghost", "pgdatabase", "pguser", "pgpassword"}
+    assert res_names == {"pghost", "pgdatabase", "admin_app-pguser", "admin_app-pgpassword"}
     assert all(r["secret"]["scope"] == "acme-ws-secrets" for r in body["resources"])
     assert all(r["secret"]["permission"] == "READ" for r in body["resources"])
 

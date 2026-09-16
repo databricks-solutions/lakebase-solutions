@@ -57,8 +57,8 @@ pg_host = dbutils.widgets.get("pg_host")
 pg_database = dbutils.widgets.get("pg_database")
 
 # Get credentials from Databricks secrets
-pg_user = dbutils.secrets.get(scope=secret_scope, key="pguser")
-pg_password = dbutils.secrets.get(scope=secret_scope, key="pgpassword")
+pg_user = dbutils.secrets.get(scope=secret_scope, key="field_service-pguser")
+pg_password = dbutils.secrets.get(scope=secret_scope, key="field_service-pgpassword")
 
 print(f"Host:      {pg_host}")
 print(f"Database:  {pg_database}")

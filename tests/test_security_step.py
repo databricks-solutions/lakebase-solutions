@@ -43,23 +43,26 @@ def test_deploy_creates_roles_idempotently_and_writes_secrets():
     assert not any("INSERT, UPDATE, DELETE" in s and RO_ROLE in s for s in sql)
     assert conn.committed >= 1  # role txn + per-statement best-effort DBA grants
 
-    # Role credentials written to the standalone secret scope. pguser/pgpassword
-    # mirror the native-password app role (the durable PG credential the app +
-    # jobs use); core/lakebase deliberately does not write them.
+    # Role credentials written to the standalone secret scope. No shared
+    # pguser/pgpassword any more: the app role IS the admin console's own role, so
+    # its native creds are also written under the console's OWN per-app keys
+    # (admin_app-pguser/admin_app-pgpassword). core/lakebase writes the shared,
+    # non-credential connection info (pghost/pgdatabase/pgschema).
     keys = set(ws.secrets.keys_written())
     assert keys == {
         "app-role-username",
         "app-role-password",
         "readonly-role-username",
         "readonly-role-password",
-        "pguser",
-        "pgpassword",
+        "admin_app-pguser",
+        "admin_app-pgpassword",
     }
     assert ws.secrets.value_for("app-role-username") == APP_ROLE
     assert ws.secrets.value_for("readonly-role-username") == RO_ROLE
-    # pguser/pgpassword ARE the native app-role creds (durable native PG auth).
-    assert ws.secrets.value_for("pguser") == APP_ROLE
-    assert ws.secrets.value_for("pgpassword") == ws.secrets.value_for("app-role-password")
+    # admin_app-* ARE the native app-role creds (durable native PG auth) under the
+    # admin console's own per-app keys.
+    assert ws.secrets.value_for("admin_app-pguser") == APP_ROLE
+    assert ws.secrets.value_for("admin_app-pgpassword") == ws.secrets.value_for("app-role-password")
     # Passwords are non-empty and distinct.
     app_pw = ws.secrets.value_for("app-role-password")
     ro_pw = ws.secrets.value_for("readonly-role-password")

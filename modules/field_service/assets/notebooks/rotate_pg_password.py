@@ -151,8 +151,8 @@ conn.close()
 # COMMAND ----------
 
 secrets_to_update = {
-    "pguser": f"lakebase_app_{standby_role}",
-    "pgpassword": new_password,
+    "field_service-pguser": f"lakebase_app_{standby_role}",
+    "field_service-pgpassword": new_password,
     "autoscaling-pguser": f"lakebase_app_{standby_role}",
     "autoscaling-pgpassword": new_password,
     "active-role": standby_role,

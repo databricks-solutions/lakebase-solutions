@@ -11,8 +11,9 @@ In order, the step:
 
 1. GETs ``/api/2.0/apps/<name>``; on 404, POSTs ``/api/2.0/apps`` to create the
    app WITH its secret resources (so the ``valueFrom`` env in ``app.yaml`` -- the
-   PG connection secrets ``pghost`` / ``pgdatabase`` / ``pguser`` / ``pgpassword``
-   -- resolves at launch from this deployment's standalone secret scope), then
+   PG connection secrets ``pghost`` / ``pgdatabase`` / ``admin_app-pguser`` /
+   ``admin_app-pgpassword`` -- resolves at launch from this deployment's standalone
+   secret scope), then
    polls until compute is ACTIVE,
 2. creates a deployment: ``POST /api/2.0/apps/<name>/deployments`` with the
    workspace ``source_code_path`` (the app package in the synced Repo) and
@@ -35,10 +36,13 @@ from typing import Any, Dict, List
 
 from bootstrap.adapters import APPS_API_BASE
 
-# The PG connection-secret keys core/lakebase writes to the standalone scope, and
-# which app.yaml exposes to the app via ``valueFrom: <key>``. Each becomes an app
-# secret RESOURCE named after the key so the launch-time ``valueFrom`` resolves.
-_PG_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "pguser", "pgpassword"]
+# The PG connection secrets app.yaml exposes to the console via ``valueFrom:
+# <key>``. Each becomes an app secret RESOURCE named after the key so the
+# launch-time ``valueFrom`` resolves. ``pghost``/``pgdatabase`` are the shared
+# connection info core/lakebase writes; the credentials are the console's OWN
+# per-app keys (``admin_app-pguser``/``admin_app-pgpassword``, written by
+# core/security) so no credentials are shared with any other app.
+_PG_SECRET_KEYS: List[str] = ["pghost", "pgdatabase", "admin_app-pguser", "admin_app-pgpassword"]
 
 # On-behalf-of-user API scopes the console needs. The admin console is a fleet
 # DBA tool: it connects to every Lakebase instance in the workspace as the

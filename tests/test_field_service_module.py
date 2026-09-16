@@ -239,14 +239,14 @@ def test_data_step_creates_work_order_indexes():
 
 
 def test_data_step_grants_app_role_on_module_schemas():
-    # The field-service app connects as the core app role (native PG auth); the
+    # The field-service app connects as its OWN fs app role (native PG auth); the
     # data step must grant it read/write on the module schemas or the app sees
     # nothing (the "spinner" regression).
     ctx, conn, _ws = live_context(deployment_id="acme-ws")
     res = _data_step().deploy(ctx)
     assert res["app_role_grants"] >= 1
     sql = conn.executed_sql()
-    assert any('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "field_service" TO "acme-ws_app"' in s
+    assert any('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "field_service" TO "acme-ws_fs_app"' in s
                for s in sql)
 
 
@@ -454,6 +454,6 @@ def test_app_step_renders_yaml_creates_and_deploys():
     assert len(imports) == 1
     creates = [c for c in ws.api_client.calls if c[0] == "POST" and c[1] == "/api/2.0/apps"]
     assert len(creates) == 1
-    assert {r["name"] for r in creates[0][2]["resources"]} == {"pguser", "pgpassword"}
+    assert {r["name"] for r in creates[0][2]["resources"]} == {"field_service-pguser", "field_service-pgpassword"}
     assert any(c[0] == "POST" and c[1].endswith("/deployments") for c in ws.api_client.calls)
     assert _step("app").health(ctx)["status"] == "ok"
