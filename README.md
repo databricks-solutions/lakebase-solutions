@@ -93,6 +93,7 @@ dependency (core before modules), and runs each one's
 Databricks SDK / REST + SQL**.
 
 ```mermaid
+%%{init: {'theme':'dark', 'themeVariables': {'fontSize':'20px', 'fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
 flowchart TB
     subgraph CP["① &nbsp;CONTROL PLANE"]
         direction LR
@@ -122,7 +123,7 @@ flowchart TB
     CP --> CORE --> MODS --> PROV --> TGT
     TGT -.-> MAT
 
-    classDef band fill:none,stroke:#94a3b8,stroke-width:1px,color:#334155;
+    classDef band fill:none,stroke:#64748b,stroke-width:1.5px,color:#e2e8f0,font-weight:bold;
     class CP,CORE,MODS,PROV,TGT,MAT band;
     classDef cp fill:#0b3d91,color:#fff,stroke:#08306b;
     classDef core fill:#1168bd,color:#fff,stroke:#0b3d91;
