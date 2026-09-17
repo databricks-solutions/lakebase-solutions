@@ -64,6 +64,15 @@ provides:
   dashboards: ["${prefix}-fs-field-ops", "${prefix}-fs-network-ops"]
   serving_endpoints: ["${prefix}-fs-predictive-maintenance", "${prefix}-fs-agent"]
   app: ["${prefix}-field-service"]
+# ── App service-principal authorization (Databricks-resource plane) ──
+# The `authz` step (modules/field_service/fs_steps.py -> bootstrap/acls.py) grants
+# the field-service app's OWN service principal LEAST-PRIVILEGE ACLs on the
+# resources declared above: CAN_QUERY on serving_endpoints, CAN_USE on
+# sql_warehouse, CAN_RUN on genie_spaces, and USE/SELECT on uc_catalog + uc_schemas.
+# Idempotent + additive; reversed on teardown. To override a default level, add an
+# `app_grants:` map (resource-kind -> permission level); absent => the
+# least-privilege defaults in bootstrap/acls.DEFAULT_LEVELS apply. This module
+# uses the defaults.
 features:
   - name: Genie spaces (create/manage API)
     maturity: GA

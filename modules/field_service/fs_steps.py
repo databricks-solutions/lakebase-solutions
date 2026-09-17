@@ -1751,6 +1751,122 @@ def _app_health(ctx: Any) -> Dict[str, Any]:
 _app = (_app_deploy, _app_teardown, _app_health)
 
 
+# --------------------------------------------------------------------------- #
+# authz -- grant the field-service app's OWN service principal the Databricks
+# resource ACLs it needs (the counterpart to the DATA step's Postgres role/grants).
+# See bootstrap/acls.py. Runs LAST: the app SP exists only after `app`, and every
+# resource it authorizes is created by an earlier step.
+# --------------------------------------------------------------------------- #
+def _authz_plan(ctx: Any, w: Any) -> List[Dict[str, Any]]:
+    """Build the app SP's resource-authorization plan from ids earlier steps stored.
+
+    Only resources that actually resolved are included; anything absent is simply
+    left out (``acls.authorize_app`` skips falsy ids too, as a second guard).
+    """
+    from bootstrap.adapters import SERVING_ENDPOINTS_API
+
+    plan: List[Dict[str, Any]] = []
+    # Agent serving endpoint: stored as a NAME; resolve to its id for the ACL API.
+    ep_name = _get_id(ctx, "fs-agent-endpoint")
+    if ep_name:
+        try:
+            ep = w.api_client.do("GET", f"{SERVING_ENDPOINTS_API}/{ep_name}")
+            if isinstance(ep, dict) and ep.get("id"):
+                plan.append({"kind": "serving-endpoints", "id": ep["id"]})
+        except Exception as exc:  # gated off / not deployed -- skip
+            ctx.logger.info("field_service.authz: endpoint %r lookup: %s", ep_name, str(exc)[:120])
+    # SQL warehouse (the app runs DBSQL as its SP).
+    wh_id = ctx.resolved_names.get("fs_warehouse_id") or _get_id(ctx, "fs-warehouse-id")
+    if wh_id:
+        plan.append({"kind": "warehouses", "id": wh_id})
+    # Genie spaces -- the Genie AI page AND the agent's on-behalf-of-user calls
+    # both run as this app SP, so it needs CAN_RUN on every space.
+    for spec in _GENIE_SPACES:
+        sid = _get_id(ctx, f"genie-space-{spec['key']}")
+        if sid:
+            plan.append({"kind": "genie", "id": sid})
+    # Unity Catalog read access for the app's DBSQL. Names come from the SAME
+    # helpers the create-steps use, so they match exactly (no guessing).
+    for cat in (_catalog_name(ctx), _network_catalog_name(ctx)):
+        if cat:
+            plan.append({"kind": "uc_catalog", "id": cat})
+    net_cat = _network_catalog_name(ctx)
+    for schema in ("network_data", "agents", "governance"):
+        plan.append({"kind": "uc_schema", "id": f"{net_cat}.{schema}"})
+    return plan
+
+
+def _authz_resolve_sp(ctx: Any, w: Any) -> Optional[str]:
+    """Return the field-service app's service-principal client id, or None."""
+    from bootstrap.adapters import APPS_API_BASE
+
+    try:
+        app = w.api_client.do("GET", f"{APPS_API_BASE}/{ctx.name('field-service')}")
+    except Exception as exc:
+        ctx.logger.info("field_service.authz: app lookup failed: %s", str(exc)[:120])
+        return None
+    return app.get("service_principal_client_id")
+
+
+def _authz_deploy(ctx: Any) -> Dict[str, Any]:
+    """Grant the app SP its Databricks-resource ACLs (idempotent + additive)."""
+    from bootstrap import acls
+
+    if not ctx.has_workspace_client():
+        return _stub("authz", "deploy", ctx,
+                     f"authorize {ctx.name('field-service')!r} SP on its Databricks resources")
+    w = ctx.workspace_client()
+    sp = _authz_resolve_sp(ctx, w)
+    if not sp:
+        return {"step": "authz", "status": "deferred",
+                "error": "field-service app / service principal not resolved yet"}
+
+    plan = _authz_plan(ctx, w)
+    audit, failures = acls.authorize_app(w, sp, plan, logger=ctx.logger)
+    verified = sum(1 for a in audit if acls.verify(w, a["kind"], a["id"], sp, a.get("level")))
+    ctx.logger.info("field_service.authz.deploy: sp=%s granted=%d verified=%d failed=%d.",
+                    sp, len(audit), verified, len(failures))
+    status = "deployed" if not failures else "partial"
+    return {"step": "authz", "app_sp": sp, "granted": audit, "failed": failures,
+            "verified_count": verified, "status": status}
+
+
+def _authz_teardown(ctx: Any) -> Dict[str, Any]:
+    """Best-effort revoke of the app SP's resource ACLs (teardown also deletes the
+    resources, so a per-item miss here is expected)."""
+    from bootstrap import acls
+
+    if not ctx.has_workspace_client():
+        return _stub("authz", "teardown", ctx, "revoke the field-service app SP resource ACLs")
+    w = ctx.workspace_client()
+    sp = _authz_resolve_sp(ctx, w)
+    if not sp:
+        return {"step": "authz", "status": "torn_down", "note": "app/SP already gone"}
+    revoked = acls.deauthorize_app(w, sp, _authz_plan(ctx, w), logger=ctx.logger)
+    return {"step": "authz", "revoked": revoked, "status": "torn_down"}
+
+
+def _authz_health(ctx: Any) -> Dict[str, Any]:
+    """Assert the app SP still holds its expected resource ACLs."""
+    from bootstrap import acls
+
+    if not ctx.has_workspace_client():
+        return _stub("authz", "health", ctx, "assert the app SP holds its resource ACLs")
+    w = ctx.workspace_client()
+    sp = _authz_resolve_sp(ctx, w)
+    if not sp:
+        return {"step": "authz", "healthy": None, "status": "deferred"}
+    plan = _authz_plan(ctx, w)
+    checks = [acls.verify(w, i["kind"], i["id"], sp) for i in plan if i.get("id")]
+    ok = sum(1 for c in checks if c)
+    healthy = bool(checks) and ok == len(checks)
+    return {"step": "authz", "app_sp": sp, "ok": ok, "total": len(checks),
+            "healthy": healthy, "status": "ok" if healthy else "unhealthy"}
+
+
+_authz = (_authz_deploy, _authz_teardown, _authz_health)
+
+
 ORDERED_STEPS: List[Step] = [
     Step("data", *_data),
     Step("uc_catalog", *_uc_catalog),
@@ -1771,6 +1887,7 @@ ORDERED_STEPS: List[Step] = [
     Step("agent", *_agent, gate_param="include_agent"),
     Step("ops", *_ops, gate_param="include_ops_jobs"),
     Step("app", *_app),
+    Step("authz", *_authz),
 ]
 
 

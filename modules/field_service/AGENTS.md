@@ -85,4 +85,31 @@ fs_steps.py   ORDERED_STEPS registry + step implementations  (hot path)
 fs_sql.py     SQL splitter / scale / apply helpers (seeding)
 assets/       vendored source: sql/ genie/ dashboards/ pipeline/ notebooks/ app/
 ```
-Offline tests: `tests/test_field_service_module.py` (+ `tests/_fakes.py`).
+Offline tests: `tests/test_field_service_module.py` (+ `tests/_fakes.py`); `tests/test_acls.py` covers the authorization plane.
+
+## App service-principal authorization (two-plane auth)
+
+Each app runs under its OWN service principal (per-app credentials). Its access
+spans two planes — the deploy provisions **both**; never assume one covers the other:
+
+- **Postgres plane** — native LOGIN role + grants + per-app secret keys, provisioned
+  in the `data` step via `bootstrap/roles.py`.
+- **Databricks-resource plane** — least-privilege ACLs on the workspace resources the
+  app calls, provisioned by the `authz` step (last in `ORDERED_STEPS`) via
+  `bootstrap/acls.py`:
+
+  | Resource (from `provides`) | Grant | Why |
+  |---|---|---|
+  | `serving_endpoints` | `CAN_QUERY` | invoke the agent endpoint |
+  | `sql_warehouse` | `CAN_USE` | the app runs DBSQL as its SP |
+  | `genie_spaces` | `CAN_RUN` | the Genie AI page **and** the agent's on-behalf-of-user Genie calls both run as the app SP |
+  | `uc_catalog` / `uc_schemas` | `USE` + `SELECT` | read the catalogs/schemas the app's DBSQL touches |
+
+  Grants are additive + idempotent (PATCH, never PUT), verified after granting, and
+  revoked on teardown (`deauthorize_app`). A declared-but-absent resource is skipped,
+  not fatal. **Never grant `CAN_MANAGE` to an app SP.** Override a default level per
+  module with an `app_grants:` map in `module.yaml`.
+
+Why this plane exists: the Lakebase instance **owner cannot use the Data API**
+(`authenticator` can't assume the owner role → HTTP 403), so each app authenticates
+as a per-app **non-owner** SP — which then needs these resource ACLs explicitly.
