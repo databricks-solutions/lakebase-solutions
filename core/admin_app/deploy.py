@@ -56,6 +56,14 @@ _USER_API_SCOPES: List[str] = ["postgres"]
 _APP_POLL_ATTEMPTS = 60
 _APP_POLL_DELAY_SECONDS = 10.0
 
+# ASH collector job defaults. The always-on collector samples pg_stat_activity into
+# the console's OWN ash_history/ash_query_log tables so the history chart has real,
+# gapless coverage (the inline sampler only runs while a user is on the screen). Each
+# deployment runs its OWN collector against its OWN instance (no central store).
+_ASH_COLLECTOR_SCHEMA = "workshop"       # matches TARGET_SCHEMA in app.yaml
+_ASH_COLLECTOR_INTERVAL_SECONDS = 60
+_ASH_COLLECTOR_RETENTION_DAYS = 7
+
 _ACTIVE_COMPUTE_STATES = {"ACTIVE"}
 _TERMINAL_DEPLOY_STATES = {"SUCCEEDED", "FAILED", "STOPPED", "CANCELLED"}
 
@@ -75,6 +83,70 @@ def _default_source_path(w: Any, ctx: Any) -> str:
     except Exception:  # pragma: no cover - live-only; fall back to a param
         email = ctx.params.get("workspace_user") or "unknown"
     return f"/Workspace/Users/{email}/{repo_folder}/core/admin_app"
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    """Coerce a param that may arrive as a bool or a YAML/string to a bool."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("false", "0", "no", "off", "")
+
+
+def _collector_notebook_path(w: Any, ctx: Any) -> str:
+    """Workspace path of the ASH collector notebook (derived like the app source)."""
+
+    return f"{_default_source_path(w, ctx)}/notebooks/ash_collector"
+
+
+def _create_ash_collector_job(w: Any, ctx: Any, scope: str, logger: Any) -> Dict[str, Any]:
+    """Create the always-on ASH collector job (idempotent, reuse-by-name).
+
+    A continuous Databricks job (``continuous: {pause_status: UNPAUSED}``) running the
+    ``ash_collector`` notebook: it stays always-on and restarts if it stops, giving the
+    ~1-min sample cadence without per-minute cron cold-starts. Mirrors the reuse-by-name
+    idempotency of field_service's ``_ops_deploy``.
+    """
+
+    job_name = f"{ctx.deployment_id}-ash-collector"
+
+    # Idempotent: reuse an existing job with this exact name (no duplicates).
+    try:
+        found = w.api_client.do("GET", "/api/2.1/jobs/list", query={"name": job_name})
+        existing = found.get("jobs", []) if isinstance(found, dict) else []
+    except Exception:  # pragma: no cover - live-only
+        existing = []
+    if existing:
+        jid = existing[0].get("job_id")
+        logger.info("core/admin_app.deploy: ASH collector job %r already exists (job_id=%s).",
+                    job_name, jid)
+        return {"name": job_name, "job_id": jid, "status": "exists"}
+
+    body = {
+        "name": job_name,
+        "tasks": [{
+            "task_key": "collect",
+            "notebook_task": {
+                "notebook_path": _collector_notebook_path(w, ctx),
+                "base_parameters": {
+                    "secret_scope": scope,
+                    "schema": _ASH_COLLECTOR_SCHEMA,
+                    "interval_seconds": str(_ASH_COLLECTOR_INTERVAL_SECONDS),
+                    "retention_days": str(_ASH_COLLECTOR_RETENTION_DAYS),
+                },
+            },
+            "environment_key": "env",
+        }],
+        "environments": [{"environment_key": "env", "spec": {"client": "2"}}],
+        # Continuous trigger: always-on, auto-restarts. No cron -> no per-minute cold starts.
+        "continuous": {"pause_status": "UNPAUSED"},
+    }
+    resp = w.api_client.do("POST", "/api/2.1/jobs/create", body=body)
+    jid = resp.get("job_id") if isinstance(resp, dict) else None
+    logger.info("core/admin_app.deploy: created ASH collector job %r (job_id=%s).", job_name, jid)
+    return {"name": job_name, "job_id": jid, "status": "created"}
 
 
 def _secret_resources(scope: str) -> List[Dict[str, Any]]:
@@ -252,6 +324,21 @@ def deploy(ctx: Any) -> Dict[str, Any]:
         if deployment_id and deploy_state not in _TERMINAL_DEPLOY_STATES:
             deploy_state = _wait_for_deployment(w, app_name, deployment_id, ctx.logger)
 
+        # (2b) Create the always-on ASH collector job (best-effort, gated + idempotent).
+        include_collector = _as_bool(ctx.params.get("include_ash_collector"), default=True)
+        if include_collector:
+            try:
+                collector = _create_ash_collector_job(w, ctx, scope, ctx.logger)
+            except Exception as exc:  # a collector failure must not defer the app deploy
+                ctx.logger.warning(
+                    "core/admin_app.deploy: ASH collector job create failed: %s", exc)
+                collector = {"name": f"{ctx.deployment_id}-ash-collector",
+                             "status": "error", "error": str(exc)}
+        else:
+            ctx.logger.info(
+                "core/admin_app.deploy: include_ash_collector=false; skipping collector job.")
+            collector = {"name": f"{ctx.deployment_id}-ash-collector", "status": "skipped"}
+
         # (3) Read the app back for URL + states.
         app = _get_app(w, app_name)
         states = _app_states(app)
@@ -283,6 +370,7 @@ def deploy(ctx: Any) -> Dict[str, Any]:
             "url": states["url"],
             "compute_status": states["compute_state"],
             "deployment_state": deploy_state or states["deployment_state"],
+            "ash_collector": collector,
             "status": "deployed" if healthy_deploy else "unhealthy",
         }
     except Exception as exc:

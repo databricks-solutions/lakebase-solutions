@@ -57,6 +57,53 @@ def test_deploy_source_path_override_is_honored():
     assert result["source_code_path"] == "/Workspace/custom/app"
 
 
+def test_deploy_creates_ash_collector_job_by_default():
+    ctx, _conn, ws = live_context()
+    result = admin_deploy.deploy(ctx)
+
+    # The collector is created by default and surfaced in the result.
+    assert result["ash_collector"]["status"] == "created"
+    assert result["ash_collector"]["name"] == f"{ctx.deployment_id}-ash-collector"
+    assert result["ash_collector"]["job_id"] is not None
+
+    api = ws.api_client
+    # Reuse-by-name: it lists jobs by that exact name before creating.
+    lists = [c for c in api.calls if c[0] == "GET" and c[1] == "/api/2.1/jobs/list"]
+    assert lists, "expected a GET /api/2.1/jobs/list (reuse-by-name) before create"
+
+    creates = [c for c in api.calls if c[0] == "POST" and c[1] == "/api/2.1/jobs/create"]
+    assert len(creates) == 1
+    body = creates[0][2]
+    assert body["name"] == f"{ctx.deployment_id}-ash-collector"
+
+    # Points at the ash_collector notebook, derived like the app source path.
+    task = body["tasks"][0]
+    assert task["notebook_task"]["notebook_path"] == (
+        "/Workspace/Users/admin@example.com/lakebase-solutions/core/admin_app/notebooks/ash_collector"
+    )
+
+    # Expected base params.
+    base = task["notebook_task"]["base_parameters"]
+    assert base["secret_scope"] == "acme-ws-secrets"
+    assert base["schema"] == "workshop"
+    assert base["interval_seconds"] == "60"
+    assert base["retention_days"] == "7"
+
+    # Always-on continuous trigger (not a cron schedule).
+    assert body["continuous"] == {"pause_status": "UNPAUSED"}
+    assert "schedule" not in body
+
+
+def test_deploy_skips_ash_collector_when_disabled():
+    ctx, _conn, ws = live_context(params={"include_ash_collector": False})
+    result = admin_deploy.deploy(ctx)
+
+    assert result["ash_collector"]["status"] == "skipped"
+    creates = [c for c in ws.api_client.calls
+               if c[0] == "POST" and c[1] == "/api/2.1/jobs/create"]
+    assert creates == []
+
+
 def test_deploy_defers_on_error_instead_of_raising():
     # A workspace client whose api_client raises on every call must NOT abort the run.
     class Boom:

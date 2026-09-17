@@ -32,6 +32,18 @@ parameters:
     help: >-
       Name of the synced Git folder under /Workspace/Users/<email>/ (used only to
       derive the admin app source path when admin_app_source_path is blank).
+  - name: include_ash_collector
+    type: bool
+    default: true
+    required: false
+    advanced: true
+    label: Include ASH collector job
+    help: >-
+      Create an always-on (continuous) Databricks job that samples pg_stat_activity
+      into the console's ash_history/ash_query_log tables every ~60s with 7-day
+      retention, so the live-dashboard history chart has real, gapless coverage.
+      Each deployment runs its own collector against its own instance. Set false to
+      disable.
 provides:
   # The ONLY always-on app; each module ships its own separate Databricks App.
   app: ["${prefix}-admin-app"]

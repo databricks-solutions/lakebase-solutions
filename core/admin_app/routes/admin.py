@@ -759,8 +759,10 @@ def admin_live_dashboard_summary():
     """KPI summary for live query dashboard.
 
     Also samples current session state into ``<schema>.ash_history`` and
-    ``<schema>.ash_query_log`` for historical analysis. Old samples (>24h)
+    ``<schema>.ash_query_log`` for historical analysis. Old samples (>7d)
     are pruned on every call. Sampling is best-effort and never fails the KPI.
+    (This inline path is home-instance-only; the always-on ASH collector job is
+    the primary writer — this just adds a sample between job cycles.)
     """
     try:
         pool = current_pool()
@@ -835,8 +837,9 @@ def admin_live_dashboard_summary():
                         """)
                         conn.commit()
 
-                        cur.execute(f"DELETE FROM {SCHEMA}.ash_history WHERE sample_time < NOW() - INTERVAL '24 hours'")
-                        cur.execute(f"DELETE FROM {SCHEMA}.ash_query_log WHERE sample_time < NOW() - INTERVAL '24 hours'")
+                        # 7-day retention — agrees with the always-on ASH collector job.
+                        cur.execute(f"DELETE FROM {SCHEMA}.ash_history WHERE sample_time < NOW() - INTERVAL '7 days'")
+                        cur.execute(f"DELETE FROM {SCHEMA}.ash_query_log WHERE sample_time < NOW() - INTERVAL '7 days'")
                         conn.commit()
                     except Exception:
                         try:
@@ -859,10 +862,13 @@ def admin_live_dashboard_history():
     """Return ASH history samples for the activity chart.
 
     Accepts optional ``start``/``end`` ISO timestamps for a fixed window, or
-    ``minutes`` (default 60) for a rolling window.
+    ``minutes`` (default 7 days) for a rolling window. The default spans the full
+    retained range (the collector job keeps 7 days) so the chart shows now + up to
+    7 days; explicit ``minutes`` still narrows it.
     """
     try:
-        minutes = request.args.get("minutes", 60, type=int)
+        # 7 days = 10080 minutes — matches the collector/inline-sampler retention.
+        minutes = request.args.get("minutes", 10080, type=int)
         start = request.args.get("start")
         end = request.args.get("end")
         pool = current_pool()
@@ -891,7 +897,7 @@ def admin_live_dashboard_history():
                             FROM {SCHEMA}.ash_history
                             WHERE sample_time > NOW() - INTERVAL '%s minutes'
                             ORDER BY sample_time
-                        """ % min(minutes, 1440))
+                        """ % min(minutes, 10080))
                     samples = [{
                         "time": r[0].isoformat(), "active": r[1],
                         "waiting": r[2], "blocked": r[3], "idle_txn": r[4],
