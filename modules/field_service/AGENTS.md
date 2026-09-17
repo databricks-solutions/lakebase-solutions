@@ -33,9 +33,15 @@ Genie spaces are pointed per-space: `postgres` + `field_ops` → managed catalog
 - **Widget-first** — read `catalog` / `schema` / PG params from **job base params
   (`dbutils.widgets`)**, then fall back. **No `deployment/config.yaml` or
   `config.py`** — that FSM lineage was removed; don't reintroduce it.
-- **PG creds come from the secret scope** — `dbutils.secrets.get(scope, "pguser" |
-  "pgpassword")` (the `ash_sampler` pattern). Never pass creds as plaintext job
-  params. `fs_steps._pg_base_params(ctx)` supplies `secret_scope`/`pg_host`/`pg_database`.
+- **PG creds come from the secret scope, per-app** — this app has its **own**
+  native-password role `<id>_fs_app` and its **own** keys
+  `field_service-pguser`/`field_service-pgpassword` (NOT the shared `pguser`/`pgpassword`);
+  the role + keys are provisioned in the **`data`** step (`_fs_app_role`), first, so
+  every later job/notebook/app has creds. Read them with
+  `dbutils.secrets.get(scope, "field_service-pguser" | "field_service-pgpassword")`
+  (the `ash_sampler` pattern). Never pass creds as plaintext job params.
+  `fs_steps._pg_base_params(ctx)` supplies `secret_scope`/`pg_host`/`pg_database` (the
+  shared **connection-info** keys `pghost`/`pgdatabase`/`pgschema` are not credentials).
 - Steps that submit notebook jobs **poll the run and report the real result**
   (`_wait_for_run` → status `deployed` only on `result_state == SUCCESS`), never
   "deployed" on submit.

@@ -48,8 +48,16 @@ point of this rule.
 - **No local execution against Databricks** — deploy is workspace-run:
   commit → push → `databricks repos update <ID> --branch main` → run `deploy.py`.
   See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
-- **Standalone assets** — each deployment/module gets its own secret scope, PG
-  roles, and credentials; never reuse across apps. **No secrets in git.**
+- **Per-app credentials — no shared `pguser`/`pgpassword`** — each app gets its
+  **own** native-password Postgres role and its **own** secret keys; never a shared
+  role. Admin console → role `<id>_app`, keys `admin_app-pguser`/`admin_app-pgpassword`.
+  Field-service app → role `<id>_fs_app`, keys `field_service-pguser`/`field_service-pgpassword`,
+  provisioned **first** (in the module's DATA step) so its jobs/notebooks have creds.
+  Only the **connection-info** keys `pghost`/`pgdatabase`/`pgschema` are shared
+  (they are not credentials). The shared role helper lives at **`bootstrap/roles.py`**
+  — `core/` is loaded flat by file path (not an importable package), so shared role
+  code goes in `bootstrap/`, not `core/`. Each deployment/module still gets its own
+  secret scope; **no secrets in git.**
 - **Data API is two-phase** — a manual UI enable step, then a re-runnable configure
   step (dedicated service principal + `databricks_auth` role + grants + schema-cache
   refresh). Configure detects whether the API is enabled and stops with loud
@@ -68,6 +76,42 @@ point of this rule.
 - **Identity** = the workspace email (`w.current_user.me().user_name`), not a token
   `sub` claim. `ALTER ROLE ... PASSWORD` is DDL and can't bind params — inline a
   quoted literal (redact in logs).
+
+## Lakebase admin & DBA governance
+The **admin console** (`core/admin_app`) is a **fleet DBA tool**, not a per-deploy UI.
+It connects to **every** Lakebase instance in the workspace **on-behalf-of the
+signed-in admin** (their forwarded token) — introspecting **all** user schemas with a
+database selector; the ASH sampler only writes on its home instance. This requires the
+`postgres` `user_api_scope`, which the app declares. **Adding an OBO scope to an
+existing app does NOT re-prompt consent** — a viewer must force a fresh consent
+(incognito / new browser) to pick up the new `postgres` scope.
+
+**Two permission planes — keep them separate.** Databricks project ACLs
+(`CAN_USE`/`CAN_MANAGE`) are NOT Postgres privileges: a workspace/project admin has
+**no** Postgres grants automatically. Postgres access comes from role membership.
+- The instance **creator/owner** is auto-added to `DATABRICKS_SUPERUSER` for that
+  project, so on instances you created your OBO identity already has read/write/monitor
+  and the console sees everything with no extra grant.
+- Raw SQL `GRANT databricks_superuser` **does not work** (needs in-DB ADMIN OPTION;
+  only the control-plane `cloud_admin` holds it). The **sanctioned** path is the
+  **Lakebase Roles API**, run control-plane-side for a **workspace admin / `CAN_MANAGE`**
+  holder (workspace admins get `CAN_MANAGE` on all workspace projects by default):
+  ```
+  databricks postgres create-role projects/<id>/branches/production \
+    --role-id <slug> --replace-existing \
+    --json '{"spec":{"identity_type":"USER"|"SERVICE_PRINCIPAL","postgres_role":"<email|sp-id>","auth_method":"LAKEBASE_OAUTH_V1","membership_roles":["DATABRICKS_SUPERUSER"]}}'
+  ```
+  `role_id` must match `^[a-z][a-z0-9-]{0,61}[a-z0-9]?$` — a slug, **not** the email.
+- The console's **"Elevate me here"** action (`POST /api/admin/elevate` → Roles API)
+  runs exactly this for the operator on the selected instance, gated by the admin group
+  **and** the Roles API's own `CAN_MANAGE` check.
+
+**Governance framing:** you may not be able to *prevent* instance creation (a separate
+workspace entitlement), but a workspace admin can **supersede** any instance after
+creation via the Roles API — automatable as a fleet sweep, with a central DBA
+**service principal** (itself a workspace admin) as the persistent identity. Caveat:
+`DATABRICKS_SUPERUSER` is broad but **not** a full unmanaged-cluster superuser — a few
+control-plane cleanup ops still require Databricks `cloud_admin`/support.
 
 ## Deploy / teardown workflow
 1. Land your change on the target branch: for `main`, via a **merged PR** (see
