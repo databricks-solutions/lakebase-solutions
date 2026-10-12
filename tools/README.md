@@ -4,6 +4,15 @@ Standalone utilities for Lakebase workshops. These run directly (import into a D
 workspace or run with the CLI) and are **independent of the deploy harness** — they don't
 participate in manifest discovery or `deploy.py`.
 
+## `benchmarking/`
+
+Two probes that measure query latency against **Lakebase** and a legacy/on-prem **Oracle**
+database and decompose each into the **same latency ledger** (connect, network RTT, server
+planning + execution, transfer/residual) — so the two engines compare apples-to-apples instead of
+through two tools that each measure a different span. Includes `lakebase_latency_probe.py` (a
+Databricks notebook) and `oracle_latency_probe.sh` (a portable `sqlplus` script). See
+[`benchmarking/README.md`](benchmarking/README.md) for the method and the fair-comparison checklist.
+
 ## `lakebase_data_api_test.py`
 
 A Databricks notebook that tests connectivity to the Lakebase **Data API** (the managed
