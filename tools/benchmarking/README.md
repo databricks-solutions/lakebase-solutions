@@ -8,6 +8,7 @@ like-for-like spans instead of two tools that each stop their stopwatch at a dif
 |------|---------|----------|
 | `lakebase_latency_probe.py` | Databricks notebook (import as source) | Lakebase / Postgres |
 | `oracle_latency_probe.sh` | any host with `sqlplus` (macOS or Linux) | Oracle |
+| `lakebase_index_benchmark.py` | Databricks notebook (import as source) | Index impact — before/after `EXPLAIN` on Lakebase |
 
 ## Why a single "latency" number misleads
 
@@ -94,6 +95,26 @@ It auto-detects what your Oracle login can do and degrades gracefully:
 
 **Security:** never hardcode a password. `user/pass@tns` is visible in `ps`; prefer an Oracle
 Wallet (`/@alias`). The script reads `ORA_CONN` from your shell only.
+
+## Running the index-remediation notebook
+
+`lakebase_index_benchmark.py` creates (or verifies) an index on a Lakebase table **from inside the
+workspace** and shows its impact with `EXPLAIN (ANALYZE, BUFFERS)` before and after. Running from a
+notebook sidesteps two blockers: no external connectivity (private networking not set up → can't use
+`psql`/DBeaver from a laptop) and the SQL-editor statement timeout that kills a long `CREATE INDEX`
+(the notebook owns the session and sets `statement_timeout = 0`).
+
+1. Import the notebook into a workspace and attach it to compute (serverless is fine).
+2. Set the **Connection** widgets (`project_id` blank = auto-pick; `branch`/`endpoint`/`database`
+   default to `production`/`primary`/`databricks_postgres`) and the **Index** widgets
+   (`target_schema`, `target_table`, `index_name`, `index_columns`, plus a `benchmark_sql` to
+   profile). Host, user, and a short-lived OAuth token are resolved automatically.
+3. Run top-to-bottom: baseline plan → build index + `ANALYZE` → after plan → confirm.
+
+**Leading-column reminder:** a composite B-tree index is only usable when the query filters on its
+leading column; Postgres has no skip-scan, so a filter on a non-leading column alone forces a
+sequential scan. Put the filtered column **first** in `index_columns` (and add join columns after it
+to keep the scan index-only). This closes a tuning gap, not an engine gap.
 
 ## Keep it fair — the apples-to-apples checklist
 

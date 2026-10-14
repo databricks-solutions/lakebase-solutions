@@ -10,8 +10,10 @@ Two probes that measure query latency against **Lakebase** and a legacy/on-prem 
 database and decompose each into the **same latency ledger** (connect, network RTT, server
 planning + execution, transfer/residual) — so the two engines compare apples-to-apples instead of
 through two tools that each measure a different span. Includes `lakebase_latency_probe.py` (a
-Databricks notebook) and `oracle_latency_probe.sh` (a portable `sqlplus` script). See
-[`benchmarking/README.md`](benchmarking/README.md) for the method and the fair-comparison checklist.
+Databricks notebook) and `oracle_latency_probe.sh` (a portable `sqlplus` script). Also includes
+`lakebase_index_benchmark.py`, a notebook that creates an index from inside the workspace (bypassing
+laptop-connectivity and SQL-editor timeout limits) and shows the before/after `EXPLAIN` plan change.
+See [`benchmarking/README.md`](benchmarking/README.md) for the method and the fair-comparison checklist.
 
 ## `lakebase_data_api_test.py`
 
