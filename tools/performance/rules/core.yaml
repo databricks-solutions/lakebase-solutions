@@ -1,0 +1,149 @@
+# Lakebase performance report card — core rule pack
+#
+# Declarative checks mapping collected metric *shapes* to runbook sections.
+# The engine (lakebase_report_card.py) loads every *.yaml here, evaluates each
+# rule's `detect` expression safely over the rows of its `source_table` for the
+# chosen run, and emits a prioritized finding per match. Adding a check means
+# adding a rule here — never editing the engine.
+#
+# Rule schema (see tools/performance/DIAGNOSTIC_SPEC.md "Rule format"):
+#   id              stable unique slug
+#   title           human summary of the check
+#   priority        1=critical .. 5=informational
+#   category        short bucket, sp_Blitz-style
+#   source_table    which collected table to read: one of
+#                     lakebase_perf_metrics | lakebase_perf_tables
+#                     | lakebase_perf_queries | lakebase_perf_samples
+#                   (the short alias metrics|tables|queries|samples also works)
+#   detect          boolean expression over the row's columns + `threshold`.
+#                   Evaluated with NO builtins — side-effect-free, attacker-free.
+#   threshold       the single tunable the detect expression compares against
+#   runbook_section the configuration-runbook anchor this finding links to
+#   finding         str.format template (row fields + {threshold}) — the headline
+#   fix             str.format template — the recommended action
+#   details         (optional) str.format template; defaults to the matched row
+#
+# Rules key off metric SHAPES only (metric_name, size/cache ratios, exec time) —
+# never named schemas, tables, IDs, or customer values.
+
+# --- Memory / working set -------------------------------------------------
+- id: cache_hit_low
+  title: "Buffer cache hit rate below target"
+  priority: 2
+  category: "Memory / working set"
+  source_table: lakebase_perf_metrics
+  detect: "metric_name == 'cache_hit_pct' and metric_value is not None and metric_value < threshold"
+  threshold: 99.0
+  runbook_section: "4. Primary configuration workflow — Step 1 (size compute for the working set)"
+  finding: "Buffer cache hit rate is {metric_value}% (target >= {threshold}%)."
+  fix: "The working set likely exceeds the compute cache. Raise min CU (or reduce the data served) before any lower-level tuning. See runbook Step 1."
+
+- id: table_cold_cache
+  title: "Table reads from disk exceed cache hits"
+  priority: 3
+  category: "Working set"
+  source_table: lakebase_perf_tables
+  detect: "(heap_blks_hit + heap_blks_read) > threshold and heap_blks_read > heap_blks_hit"
+  threshold: 10000
+  runbook_section: "4. Primary configuration workflow — Step 1 (size compute for the working set)"
+  finding: "Table {schema_name}.{table_name} served more heap blocks from disk ({heap_blks_read}) than from cache ({heap_blks_hit})."
+  fix: "This table's hot pages are not resident in the compute cache. Size compute up for the working set (runbook Step 1); if only this table is cold, confirm it is actually hot in the workload before growing compute."
+
+- id: db_size_informational
+  title: "Database size is large (capacity awareness)"
+  priority: 4
+  category: "Capacity"
+  source_table: lakebase_perf_metrics
+  detect: "metric_name == 'db_size_bytes' and metric_value is not None and metric_value > threshold"
+  threshold: 107374182400   # 100 GiB
+  runbook_section: "4. Primary configuration workflow — Step 1 (size compute for the working set)"
+  finding: "Database size is {metric_value} bytes (informational threshold {threshold})."
+  fix: "Large relative to typical cache sizes — confirm the working set (hot pages), not the full database, drives your compute sizing. See runbook Step 1."
+
+# --- Connections ----------------------------------------------------------
+- id: connections_near_max
+  title: "Connections approaching max_connections"
+  priority: 2
+  category: "Connections"
+  source_table: lakebase_perf_metrics
+  # Keys off a pre-computed pct-of-max metric emitted by the collector
+  # (active+total vs the captured max_connections). A ratio cannot be formed
+  # from a single tall row, so if the collector did not emit this metric the
+  # rule simply no-ops rather than guessing across rows.
+  detect: "metric_name == 'connections_pct_of_max' and metric_value is not None and metric_value >= threshold"
+  threshold: 80.0
+  runbook_section: "4. Primary configuration workflow — Step 3 (connection pressure / pooler)"
+  finding: "Connections are at {metric_value}% of max_connections (alert at {threshold}%)."
+  fix: "Connection headroom is low. Add a pooler / reduce per-client connections before scaling compute (runbook Step 3)."
+
+# --- Concurrency / errors -------------------------------------------------
+- id: deadlocks_present
+  title: "Deadlocks observed"
+  priority: 3
+  category: "Concurrency"
+  source_table: lakebase_perf_metrics
+  detect: "metric_name == 'deadlocks' and metric_value is not None and metric_value > threshold"
+  threshold: 0
+  runbook_section: "4. Primary configuration workflow — Step 6 (query & schema — indexes, EXPLAIN)"
+  finding: "{metric_value} deadlock(s) recorded on pg_stat_database (threshold {threshold})."
+  fix: "Deadlocks point at lock-ordering / long transactions. Review access order and indexing on the contended tables (runbook Step 6)."
+
+- id: rollback_rate_high
+  title: "Transaction rollback ratio high"
+  priority: 3
+  category: "Errors"
+  source_table: lakebase_perf_metrics
+  # Keys off a pre-computed rollback-ratio metric (xact_rollback vs xact_commit).
+  # The ratio needs two counters, so the collector emits it as one metric; if
+  # absent, the rule no-ops.
+  detect: "metric_name == 'rollback_ratio_pct' and metric_value is not None and metric_value > threshold"
+  threshold: 5.0
+  runbook_section: "5. Acceptance criteria"
+  finding: "Rollback ratio is {metric_value}% of transactions (threshold {threshold}%)."
+  fix: "A high rollback share usually means application errors or contention, not a tuning gap. Investigate failing statements before accepting the run (runbook Section 5)."
+
+# --- Indexing / query & schema -------------------------------------------
+- id: table_unindexed
+  title: "Large table with no indexes"
+  priority: 3
+  category: "Indexing"
+  source_table: lakebase_perf_tables
+  detect: "total_bytes > threshold and index_bytes == 0"
+  threshold: 104857600   # 100 MiB
+  runbook_section: "4. Primary configuration workflow — Step 6 (query & schema — indexes, EXPLAIN)"
+  finding: "Table {schema_name}.{table_name} is {total_bytes} bytes with 0 index bytes (threshold {threshold})."
+  fix: "A large heap with no indexes forces sequential scans. EXPLAIN the queries that touch it and add selective indexes (runbook Step 6)."
+
+- id: slow_query
+  title: "Statement with high mean execution time"
+  priority: 2
+  category: "Slow query"
+  source_table: lakebase_perf_queries
+  detect: "mean_exec_ms is not None and mean_exec_ms > threshold"
+  threshold: 100.0
+  runbook_section: "4. Primary configuration workflow — Step 6 (query & schema — indexes, EXPLAIN)"
+  finding: "Statement {queryid} averages {mean_exec_ms} ms over {calls} call(s) (threshold {threshold} ms): {query_sample}"
+  fix: "EXPLAIN (ANALYZE, BUFFERS) this statement and address the dominant cost — missing index, bad plan, or over-fetch (runbook Step 6)."
+
+- id: cold_scan_query
+  title: "Statement reading far more blocks than it hits in cache"
+  priority: 3
+  category: "Cold/large scan"
+  source_table: lakebase_perf_queries
+  detect: "shared_blks_read > threshold and shared_blks_read > shared_blks_hit * 10"
+  threshold: 10000
+  runbook_section: "4. Primary configuration workflow — Step 6 (query & schema — indexes, EXPLAIN)"
+  finding: "Statement {queryid} read {shared_blks_read} shared blocks from disk vs {shared_blks_hit} from cache: {query_sample}"
+  fix: "This statement scans cold/large data. Add a covering index or narrow the predicate so it stops reading the heap (runbook Step 6)."
+
+# --- Observability --------------------------------------------------------
+- id: pgss_not_installed
+  title: "pg_stat_statements extension not installed"
+  priority: 4
+  category: "Observability"
+  source_table: lakebase_perf_metrics
+  detect: "metric_text == 'pg_stat_statements not installed'"
+  threshold: 0
+  runbook_section: "3. Baseline capture"
+  finding: "pg_stat_statements is not installed — per-statement metrics were unavailable this run."
+  fix: "CREATE EXTENSION pg_stat_statements; (then re-run the collector so the baseline and slow-query rules have statement data). See runbook Section 3."

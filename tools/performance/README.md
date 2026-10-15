@@ -1,14 +1,36 @@
-# benchmarking/
+# performance/
 
-Two probes that measure query latency against **Lakebase** and against a legacy/on-prem
-**Oracle** database, and break each into the **same set of line items** — so you compare
-like-for-like spans instead of two tools that each stop their stopwatch at a different point.
+Tools for measuring and benchmarking **Lakebase** performance — the hands-on companion to the
+performance configuration runbook. Each runs unchanged against any project (all behavior comes from
+widgets; nothing is hardcoded, OAuth and the endpoint are auto-resolved from the workspace identity).
 
-| File | Runs on | Measures |
-|------|---------|----------|
-| `lakebase_latency_probe.py` | Databricks notebook (import as source) | Lakebase / Postgres |
-| `oracle_latency_probe.sh` | any host with `sqlplus` (macOS or Linux) | Oracle |
-| `lakebase_index_benchmark.py` | Databricks notebook (import as source) | Index impact — before/after `EXPLAIN` on Lakebase |
+### Diagnostic pipeline (First-Responder-style health check)
+
+Run `lakebase_diagnostic.py` for the full flow, or any tool on its own.
+
+| File | Role |
+|------|------|
+| `lakebase_diagnostic.py` | **Orchestrator** — runs the steps below in order and leaves you a report card |
+| `lakebase_collect_state.py` | Point-in-time collector → fills runbook §2 inputs + §3 baseline (`lakebase_perf_metrics`/`_tables`/`_queries`) |
+| `lakebase_collect_samples.py` | Ongoing time-series sampler (one or more ticks) → `lakebase_perf_samples` |
+| `lakebase_schedule_sampler.py` | Creates a Databricks **Job** that runs the sampler on a schedule (dry-run by default) |
+| `lakebase_report_card.py` | **Rules engine** → prioritized findings, each linking a runbook section (`lakebase_perf_findings`) |
+| `rules/*.yaml` | Declarative rule packs — add a check by adding a rule, never by editing engine code |
+
+### Benchmarks
+
+| File | Measures |
+|------|----------|
+| `lakebase_load_harness.py` | Behavior under **concurrent load**: p50/p95/p99, QPS, errors |
+| `lakebase_latency_probe.py` | **Single-query** latency, decomposed into line items |
+| `oracle_latency_probe.sh` | Oracle (same ledger, for engine comparison) |
+| `lakebase_index_benchmark.py` | Index impact — before/after `EXPLAIN` on Lakebase |
+
+> **How it fits together.** The collectors write metrics to UC Delta tables (tall format — new
+> metric = new row); the report card reads those tables, evaluates the declarative rule pack, and
+> emits a **prioritized "what to improve and how"** list whose findings link straight into the
+> performance configuration runbook. The data contract between the pieces is documented in
+> `DIAGNOSTIC_SPEC.md` (dev-facing). Think a First Responder health check for Lakebase.
 
 ## Why a single "latency" number misleads
 
@@ -49,6 +71,29 @@ CLIENT TOTAL (wall)
 
 > Oracle exposes *more* wire detail (exact bytes + round trips) to the client than Postgres does.
 > For Postgres, bytes-on-wire are estimated; everything else is measured directly.
+
+## Running the load harness
+
+`lakebase_load_harness.py` answers "how does this hold up under concurrency?" — the question the
+single-query probe can't.
+
+1. Import it into a workspace (notebook source) and attach to compute (serverless is fine).
+2. Set the **`workload_spec`** widget — a JSON list of weighted statements, e.g.
+   `[{"name":"lookup","weight":9,"kind":"read","sql":"SELECT ..."},{"name":"ins","weight":1,"kind":"write","sql":"INSERT ..."}]`.
+   The default is a single read-only `SELECT 1` so a plain Run All is safe. Define any read/write mix
+   here without editing code.
+3. Set `concurrency_levels` (the sweep, e.g. `1,2,4,8,16`), `duration_seconds`, and optionally a
+   `target_qps` to pace arrivals. Run all; read the **results ledger** — one row per level with
+   p50/p95/p99, achieved QPS, error rate, and server-side TPS/cache-hit/deadlocks.
+
+**Write safety:** the harness refuses `kind: "write"` statements unless `allow_writes = yes`, and the
+right place to run them is a **copy-on-write branch** (`databricks postgres create-branch`) — not
+`production`. Branches are cheap, isolated, and disposable: the safe way to load-test writes.
+
+**Reading it:** walk the sweep for the *knee* — the worker count where QPS stops rising while p95/p99
+climb. That's the practical concurrency ceiling for this compute size. Falling `cache_hit_pct` under
+load means the working set outgrew the compute cache (size compute up); a rising `error_rate` near the
+top usually means connection saturation (check the pooling model).
 
 ## Running the Lakebase probe
 

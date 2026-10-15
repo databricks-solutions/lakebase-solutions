@@ -4,16 +4,26 @@ Standalone utilities for Lakebase workshops. These run directly (import into a D
 workspace or run with the CLI) and are **independent of the deploy harness** — they don't
 participate in manifest discovery or `deploy.py`.
 
-## `benchmarking/`
+## `performance/`
 
-Two probes that measure query latency against **Lakebase** and a legacy/on-prem **Oracle**
-database and decompose each into the **same latency ledger** (connect, network RTT, server
-planning + execution, transfer/residual) — so the two engines compare apples-to-apples instead of
-through two tools that each measure a different span. Includes `lakebase_latency_probe.py` (a
-Databricks notebook) and `oracle_latency_probe.sh` (a portable `sqlplus` script). Also includes
-`lakebase_index_benchmark.py`, a notebook that creates an index from inside the workspace (bypassing
-laptop-connectivity and SQL-editor timeout limits) and shows the before/after `EXPLAIN` plan change.
-See [`benchmarking/README.md`](benchmarking/README.md) for the method and the fair-comparison checklist.
+Tools for measuring and benchmarking Lakebase performance — the companion to the performance
+configuration runbook. Each is a notebook (or portable script) that runs unchanged against any
+project; all behavior comes from widgets, nothing is hardcoded.
+
+- `lakebase_load_harness.py` — drives configurable **concurrent** load against a workload you
+  define (a pluggable JSON spec of weighted read/write statements) and reports **p50/p95/p99**
+  latency, achieved **QPS**, and **error rate** per concurrency level, plus server-side TPS /
+  cache-hit / deadlocks and an optional scale-to-zero wake-up probe.
+- `lakebase_latency_probe.py` — decomposes a **single** query's latency into named line items
+  (connect, network RTT, server planning + execution, transfer/residual), the same ledger as the
+  Oracle probe so engines compare apples-to-apples.
+- `oracle_latency_probe.sh` — the portable `sqlplus` counterpart for a legacy/on-prem Oracle
+  database, emitting the same ledger.
+- `lakebase_index_benchmark.py` — creates an index from inside the workspace (bypassing
+  laptop-connectivity and SQL-editor timeout limits) and shows the before/after `EXPLAIN` plan.
+
+See [`performance/README.md`](performance/README.md) for the method, the load-harness workflow, and
+the fair-comparison checklist.
 
 ## `lakebase_data_api_test.py`
 
