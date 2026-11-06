@@ -22,7 +22,8 @@ Run `lakebase_diagnostic.py` for the full flow, or any tool on its own.
 | File | Measures |
 |------|----------|
 | `lakebase_load_harness.py` | Behavior under **concurrent load**: p50/p95/p99, QPS, errors |
-| `lakebase_latency_probe.py` | **Single-query** latency, decomposed into line items |
+| `lakebase_latency_probe.py` | **Single-query** latency, decomposed into line items (Databricks notebook) |
+| `lakebase_latency_probe.sh` | Same ledger via **`psql` from a laptop** — the shell twin of the Oracle probe |
 | `oracle_latency_probe.sh` | Oracle (same ledger, for engine comparison) |
 | `lakebase_index_benchmark.py` | Index impact — before/after `EXPLAIN` on Lakebase |
 
@@ -140,6 +141,42 @@ It auto-detects what your Oracle login can do and degrades gracefully:
 
 **Security:** never hardcode a password. `user/pass@tns` is visible in `ps`; prefer an Oracle
 Wallet (`/@alias`). The script reads `ORA_CONN` from your shell only.
+
+## Running the psql probe (laptop / off-platform)
+
+`lakebase_latency_probe.sh` is the shell twin of the Oracle probe: it drives `psql` to emit the
+**same ledger**, so you can A/B the two engines from the **same vantage point** (e.g. a laptop on
+the real client's network). Use the notebook (`lakebase_latency_probe.py`) when you want the
+in-cloud, compute-adjacent number; use this when the real client is off-platform.
+
+`psql` does every measurement. The one thing it can't do is mint Lakebase's short-lived OAuth
+token or resolve the endpoint host — so there are two ways to connect:
+
+```bash
+# (A) resolve host + token from a Databricks CLI profile (easiest)
+./lakebase_latency_probe.sh --profile <databricks-cli-profile> --project-id <lakebase-project-id> \
+  --sql-inline "select count(1) from demo.orders o join demo.order_lines l using (order_id)" \
+  --iters 30 --warmup 5 --rtt 1000 --arraysize 15
+
+# (B) pure psql — pre-export standard libpq vars (no Databricks dependency; mirrors ORA_CONN)
+export PGHOST=ep-xxxx.database.cloud.databricks.com PGUSER='you@databricks.com'
+export PGPASSWORD='<oauth-token>' PGDATABASE=databricks_postgres PGSSLMODE=require
+./lakebase_latency_probe.sh --sql file.sql
+```
+
+It degrades gracefully by what the login can see:
+
+| Tier | Needs | Gives |
+|------|-------|-------|
+| A | CONNECT only | connect time, bulk RTT, client total (`\timing`) |
+| B | run the query | `EXPLAIN (ANALYZE, BUFFERS)`: planning/exec + logical (`shared hit`) vs physical (`shared read`) |
+| C | `pg_stat_statements` + SELECT on it | clean mean server exec/call (no instrumentation overhead) |
+| D | — | `--trace`: deep `EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS, WAL)` per-node detail |
+
+**Keep the A/B fair:** match `--arraysize` to Oracle's, use identical SQL/predicate values,
+equivalent indexes, and the same data volume. Postgres has no result cache to bypass — the warm
+vs cold dimension is `shared hit` vs `shared read`. Line up **server planning + execution** first
+(vantage-independent), then use **Network RTT** to explain any client-total gap.
 
 ## Running the index-remediation notebook
 
